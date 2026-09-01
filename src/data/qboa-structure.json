@@ -1,0 +1,80 @@
+{
+  "sections": [
+    {
+      "id": "limpeza",
+      "title": "Limpeza",
+      "icon": "🧹",
+      "items": [
+        {
+          "id": "limpeza_leve",
+          "name": "Limpeza leve",
+          "desc": "Remove temporários da pasta Temp, lixeira e cache do sistema"
+        },
+        {
+          "id": "limpeza_media",
+          "name": "Limpeza média",
+          "desc": "Limpa arquivos de atualização e itens de cache mais pesados"
+        },
+        {
+          "id": "limpeza_pesada",
+          "name": "Limpeza pesada",
+          "desc": "Perfil mais agressivo de descarte de lixo temporário e histórico"
+        },
+        {
+          "id": "limpeza_bleachbit",
+          "name": "BleachBit opcional",
+          "desc": "Fallback do BleachBit apenas se ele estiver disponível no sistema"
+        }
+      ]
+    },
+    {
+      "id": "desengordurar",
+      "title": "Desengordurar",
+      "icon": "⚙️",
+      "items": [
+        {
+          "id": "desengordurar_telemetria",
+          "name": "Desativar telemetria",
+          "desc": "Interrompe diagnósticos e coleta de dados do Windows"
+        },
+        {
+          "id": "desengordurar_tarefas",
+          "name": "Desabilitar tarefas de diagnóstico",
+          "desc": "Desativa jobs agendados de coleta e compatibilidade"
+        },
+        {
+          "id": "desengordurar_winutil",
+          "name": "Perfil conservador",
+          "desc": "Ajustes leves de performance sem depender de ferramentas externas"
+        }
+      ]
+    },
+    {
+      "id": "diagnostico",
+      "title": "Diagnóstico",
+      "icon": "🔍",
+      "items": [
+        {
+          "id": "diagnostico_dism_scan",
+          "name": "DISM Scan",
+          "desc": "Verifica a imagem do sistema sem aplicar correções"
+        },
+        {
+          "id": "diagnostico_dism_restore",
+          "name": "DISM Restore",
+          "desc": "Tenta reparar componentes do Windows"
+        },
+        {
+          "id": "diagnostico_sfc",
+          "name": "SFC /scannow",
+          "desc": "Verifica a integridade dos arquivos do sistema"
+        },
+        {
+          "id": "diagnostico_informacoes",
+          "name": "Informações do sistema",
+          "desc": "Resumo do ambiente, sistema e hardware"
+        }
+      ]
+    }
+  ]
+}
