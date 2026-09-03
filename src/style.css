@@ -154,6 +154,10 @@ button {
   background: var(--qboa-panel-strong);
 }
 
+.dashboard.contribution-view {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .cards-panel {
   min-width: 0;
 }
@@ -273,6 +277,10 @@ button {
   background: var(--qboa-panel);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 10px;
+}
+
+.dashboard.contribution-view .cards-panel {
+  width: 100%;
 }
 
 .eyebrow {

@@ -82,8 +82,12 @@ function renderTabs() {
 
 function renderCards() {
   const cardsEl = document.getElementById("cards");
+  const dashboard = document.querySelector(".dashboard");
+  const recoveryPanel = document.querySelector(".recovery-panel");
   cardsEl.innerHTML = "";
   if (activeSection === "contribuir") {
+    dashboard.classList.add("contribution-view");
+    recoveryPanel.hidden = true;
     cardsEl.innerHTML = `
       <article class="contribution-panel">
         <div class="contribution-copy">
@@ -114,6 +118,8 @@ function renderCards() {
     });
     return;
   }
+  dashboard.classList.remove("contribution-view");
+  recoveryPanel.hidden = false;
   const section = structure.sections.find((item) => item.id === activeSection);
   if (!section) return;
 
