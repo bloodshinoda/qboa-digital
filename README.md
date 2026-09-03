@@ -1,85 +1,85 @@
 # Qboa Digital
 
-## Architecture
+## Arquitetura
 
-Qboa Digital is a Windows maintenance utility built with Tauri, Rust, HTML, CSS and vanilla JavaScript. The app follows a small layered architecture:
+Qboa Digital é um utilitário de manutenção do Windows desenvolvido com Tauri, Rust, HTML, CSS e JavaScript puro. O aplicativo segue uma arquitetura pequena em camadas:
 
-- Frontend UI and task selection
-- Task registry metadata and preset resolution
-- Task engine and command execution
-- Safety manager for backups, restore points and change logging
-- Windows integration through native commands and PowerShell
+- interface frontend e seleção de tarefas
+- metadados do registro de tarefas e resolução de presets
+- mecanismo de tarefas e execução de comandos
+- gerenciador de segurança para backups, pontos de restauração e registro de alterações
+- integração com o Windows por meio de comandos nativos e PowerShell
 
-## Task Engine
+## Mecanismo de tarefas
 
-The backend exposes a central task registry with metadata such as:
+O backend disponibiliza um registro central de tarefas com metadados como:
 
 - task id
 - category
 - risk
-- administrative requirement
-- reversibility
-- restore point requirement
-- rollback strategy
-- preset membership
+- necessidade de privilégios administrativos
+- reversibilidade
+- necessidade de ponto de restauração
+- estratégia de rollback
+- participação em presets
 
-Tasks are resolved by task id instead of allowing arbitrary frontend commands.
+As tarefas são resolvidas pelo ID da tarefa, sem permitir comandos arbitrários vindos do frontend.
 
-## Safety Model
+## Modelo de segurança
 
-The safety layer is designed to record changes and protect destructive operations:
+A camada de segurança foi projetada para registrar alterações e proteger operações destrutivas:
 
-- restore points when required
-- backup metadata for reversible changes
-- change journal for task execution history
-- rollback entries and session-level rollback ordering
+- pontos de restauração quando necessário
+- metadados de backup para alterações reversíveis
+- diário de alterações para o histórico de execução
+- registros de rollback e ordem de reversão por sessão
 
-## Restore Points
+## Pontos de restauração
 
-Windows System Restore is used as a system-level safety net before risky changes. The Qboa app identifies its own restore points using a consistent description convention such as:
+A Restauração do Sistema do Windows é usada como proteção de nível sistêmico antes de alterações arriscadas. O Qboa identifica seus próprios pontos de restauração usando uma convenção consistente de descrição, como:
 
 - Qboa Digital — Antes da tarefa: X
 
-This does not replace user-created restore points and the app does not remove existing Windows restore points automatically.
+Isso não substitui pontos de restauração criados pelo usuário, e o aplicativo não remove automaticamente pontos de restauração existentes.
 
 ## Rollback
 
-Rollback in Qboa has two layers:
+O rollback no Qboa possui duas camadas:
 
-### Windows System Restore
-A protection mechanism provided by Windows itself.
+### Restauração do Sistema do Windows
+Um mecanismo de proteção fornecido pelo próprio Windows.
 
-### Qboa Rollback
-A custom rollback layer for reversible changes such as registry and service adjustments. It is recorded and managed via the change journal and applied in reverse order for a session.
+### Rollback do Qboa
+Uma camada própria de rollback para alterações reversíveis, como ajustes no registro e em serviços. As operações são registradas e gerenciadas pelo diário de alterações, sendo aplicadas em ordem inversa dentro de uma sessão.
 
 ## Presets
 
-The app supports three preset modes:
+O aplicativo oferece três modos de preset:
 
 - Express
 - Normal
 - Turbo
 
-Express is intentionally limited to low-risk operations. Normal adds routine maintenance. Turbo includes more advanced tasks and stronger protection.
+Express é intencionalmente limitado a operações de baixo risco. Normal adiciona manutenção de rotina. Turbo inclui tarefas mais avançadas e proteção reforçada.
 
-## Security Model
+## Segurança
 
-Security principles:
+Princípios de segurança:
 
-- frontend sends task ids only
-- Rust resolves and validates task execution
-- no arbitrary shell command construction from the UI
-- CSP enabled in Tauri config
-- admin elevation is maintained via the Windows manifest when needed
+- o frontend envia apenas IDs de tarefas
+- o Rust resolve e valida a execução
+- a interface não monta comandos arbitrários de shell
+- CSP habilitada na configuração do Tauri
+- a elevação administrativa é mantida pelo manifest do Windows quando necessária
 
-## Development
+## Desenvolvimento
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Testing
+## Testes
 
 ```bash
 cd src-tauri
@@ -87,27 +87,27 @@ cargo test
 cargo check
 ```
 
-## Windows Requirements
+## Requisitos do Windows
 
-- Windows 10 or 11
-- WebView2 runtime
-- Rust toolchain
-- MSVC build tools for Windows compilation
-- Administrator rights for some tasks such as DISM, SFC and registry modifications
+- Windows 10 ou 11
+- runtime do WebView2
+- toolchain do Rust
+- Build Tools do MSVC para compilação no Windows
+- privilégios de administrador para tarefas como DISM, SFC e alterações no registro
 
-## Build
+## Compilação
 
 ```bash
 npm run build
 ```
 
-This is valid for a local Tauri build on a compatible machine. Windows-specific packaging and live Windows operations are only valid on Windows.
+Esse comando gera um build local do Tauri em uma máquina compatível. O empacotamento específico para Windows e a execução real das operações do Windows só são válidos no Windows.
 
 ## GitHub Actions
 
-The workflow `.github/workflows/windows-build.yml` builds the Windows application on `windows-latest` and publishes two artifacts:
+O workflow `.github/workflows/windows-build.yml` compila o aplicativo Windows em `windows-latest` e publica dois artefatos:
 
-- `qboa-digital-windows-installer`: NSIS installer `.exe`
-- `qboa-digital-windows-portable`: ZIP with the portable `.exe` and runtime DLLs
+- `qboa-digital-windows-installer`: instalador NSIS `.exe`
+- `qboa-digital-windows-portable`: ZIP com o `.exe` portátil e DLLs de runtime
 
-It runs automatically on pushes to `main` and version tags such as `v0.2.0`. It can also be started manually from the **Actions** tab using **Run workflow**. After the job finishes, download the artifact from the workflow run. Extract the entire portable ZIP and keep the `.exe` beside the included DLLs. The portable build still requires the Microsoft Edge WebView2 Runtime installed on Windows.
+Ele é executado automaticamente em pushes para `main` e tags de versão como `v0.2.0`. Também pode ser iniciado manualmente na aba **Actions**, usando **Run workflow**. Depois que o job terminar, baixe o artefato na execução do workflow. Extraia o ZIP portátil inteiro e mantenha o `.exe` junto das DLLs incluídas. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
