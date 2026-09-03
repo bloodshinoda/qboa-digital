@@ -126,6 +126,7 @@ button {
   display: flex;
   gap: 4px;
   padding: 12px 24px 0;
+  flex-wrap: wrap;
 }
 
 .tab {
@@ -255,6 +256,97 @@ button {
   gap: 6px;
 }
 
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 24px;
+  background: var(--qboa-green-dark);
+}
+
+.contribution-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 28px;
+  align-items: center;
+  width: 100%;
+  padding: 28px;
+  background: var(--qboa-panel);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+}
+
+.eyebrow {
+  color: #ffd166;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.contribution-copy h2 {
+  margin: 8px 0;
+  font-size: clamp(1.3rem, 3vw, 2rem);
+}
+
+.contribution-copy p {
+  max-width: 560px;
+  line-height: 1.55;
+}
+
+.contribution-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.contribution-link,
+.copy-pix-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: var(--qboa-red);
+  color: var(--qboa-white);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.copy-pix-button {
+  background: transparent;
+}
+
+.pix-copy-status {
+  min-height: 1.2em;
+  color: #ffd166;
+  font-size: 0.8rem;
+}
+
+.pix-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  flex-direction: column;
+}
+
+.pix-block span {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.pix-qrcode {
+  width: 180px;
+  height: 180px;
+  padding: 8px;
+  background: #fff;
+  border-radius: 6px;
+}
+
 .risk-modal {
   position: fixed;
   inset: 0;
@@ -309,8 +401,8 @@ button {
   border-top: 3px solid transparent;
   border-image: var(--rainbow) 1;
   padding: 12px 24px 18px;
-  max-height: 220px;
-  overflow: auto;
+  height: 220px;
+  overflow: hidden;
 }
 
 .console-title {
@@ -322,9 +414,30 @@ button {
 }
 
 #console-output {
+  height: 170px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
   margin: 0;
   font-family: var(--font-console);
   font-size: 0.85rem;
   white-space: pre-wrap;
   color: #e6e6e6;
+}
+
+@media (max-width: 720px) {
+  .app-header,
+  .levels {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .contribution-panel {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
 }

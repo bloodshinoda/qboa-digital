@@ -66,11 +66,54 @@ function renderTabs() {
     });
     tabsEl.appendChild(btn);
   });
+
+  const contributionTab = document.createElement("button");
+  contributionTab.className = "tab" + (activeSection === "contribuir" ? " active" : "");
+  contributionTab.textContent = "♡ Contribuir";
+  contributionTab.addEventListener("click", () => {
+    activeSection = "contribuir";
+    renderTabs();
+    document.getElementById("section-summary").textContent = "Contribua com código, testes, ideias ou Pix.";
+    renderCards();
+    appendConsole("Área de contribuição do Qboa Digital.");
+  });
+  tabsEl.appendChild(contributionTab);
 }
 
 function renderCards() {
   const cardsEl = document.getElementById("cards");
   cardsEl.innerHTML = "";
+  if (activeSection === "contribuir") {
+    cardsEl.innerHTML = `
+      <article class="contribution-panel">
+        <div class="contribution-copy">
+          <span class="eyebrow">Apoie o projeto</span>
+          <h2>Ajude o Qboa Digital a continuar evoluindo</h2>
+          <p>Você pode contribuir com código, ideias, testes ou uma contribuição via Pix.</p>
+          <div class="contribution-actions">
+            <a class="contribution-link" href="https://github.com/bloodshinoda/qboa-digital" target="_blank" rel="noreferrer">Participar no GitHub</a>
+            <button class="copy-pix-button" type="button" data-pix="00020126330014BR.GOV.BCB.PIX0111072603319765204000053039865802BR62070503***63041548">Copiar código Pix</button>
+          </div>
+          <p id="pix-copy-status" class="pix-copy-status" aria-live="polite"></p>
+        </div>
+        <div class="pix-block">
+          <img src="./data/pix-qrcode.png" alt="QR Code para contribuição via Pix" class="pix-qrcode" />
+          <strong>Contribua via Pix</strong>
+          <span>Abra o aplicativo do seu banco e escaneie o código.</span>
+        </div>
+      </article>
+    `;
+    cardsEl.querySelector(".copy-pix-button").addEventListener("click", async (event) => {
+      const status = document.getElementById("pix-copy-status");
+      try {
+        await navigator.clipboard.writeText(event.currentTarget.dataset.pix);
+        status.textContent = "Código Pix copiado.";
+      } catch (error) {
+        status.textContent = "Não foi possível copiar automaticamente o código Pix.";
+      }
+    });
+    return;
+  }
   const section = structure.sections.find((item) => item.id === activeSection);
   if (!section) return;
 
