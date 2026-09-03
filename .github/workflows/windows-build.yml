@@ -44,10 +44,19 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload portable executable
+      - name: Package portable application
+        shell: pwsh
+        run: |
+          $portable = "portable-qboa-digital"
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          Copy-Item "src-tauri/target/release/qboa-digital.exe" $portable
+          Get-ChildItem "src-tauri/target/release" -Filter "*.dll" -File | Copy-Item -Destination $portable
+          Compress-Archive -Path "$portable/*" -DestinationPath "qboa-digital-portable.zip" -Force
+
+      - name: Upload portable package
         uses: actions/upload-artifact@v4
         with:
-          name: qboa-digital-windows-executable
-          path: src-tauri/target/release/qboa-digital.exe
+          name: qboa-digital-windows-portable
+          path: qboa-digital-portable.zip
           if-no-files-found: error
           retention-days: 14

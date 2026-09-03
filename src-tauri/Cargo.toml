@@ -2,7 +2,7 @@
 name = "qboa-digital"
 version = "0.1.0"
 description = "Qboa Digital — utilitário de limpeza e manutenção do Windows"
-authors = ["Cristiano"]
+authors = ["Vilson de Oliveira Junior"]
 edition = "2021"
 
 [build-dependencies]

@@ -108,6 +108,6 @@ This is valid for a local Tauri build on a compatible machine. Windows-specific 
 The workflow `.github/workflows/windows-build.yml` builds the Windows application on `windows-latest` and publishes two artifacts:
 
 - `qboa-digital-windows-installer`: NSIS installer `.exe`
-- `qboa-digital-windows-executable`: executable portable `.exe`
+- `qboa-digital-windows-portable`: ZIP with the portable `.exe` and runtime DLLs
 
-It runs automatically on pushes to `main` and version tags such as `v0.2.0`. It can also be started manually from the **Actions** tab using **Run workflow**. After the job finishes, download the artifact from the workflow run.
+It runs automatically on pushes to `main` and version tags such as `v0.2.0`. It can also be started manually from the **Actions** tab using **Run workflow**. After the job finishes, download the artifact from the workflow run. Extract the entire portable ZIP and keep the `.exe` beside the included DLLs. The portable build still requires the Microsoft Edge WebView2 Runtime installed on Windows.
