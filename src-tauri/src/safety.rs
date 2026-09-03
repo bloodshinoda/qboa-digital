@@ -237,6 +237,12 @@ impl SafetyManager {
         )
     }
 
+    pub fn is_task_running(&self) -> bool {
+        self.execution_state
+            .values()
+            .any(|entry| entry.status == "running" && !entry.cancelled)
+    }
+
     pub fn finish_execution(&mut self, task_id: &str, status: &str) -> Option<ExecutionState> {
         let state = self.execution_state.get_mut(task_id)?;
         state.status = status.to_string();

@@ -157,7 +157,17 @@ foreach ($root in $browserRoots) {
     }
 }
 Clear-RecycleBin -Force -ErrorAction SilentlyContinue;
-Write-Output 'Limpeza padrão concluída: temporários, caches e lixeira.';
+foreach ($key in @(
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs',
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU',
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths',
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSavePidlMRU',
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU',
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Map Network Drive MRU',
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery'
+) { Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue }
+Remove-Item -Path "$env:APPDATA\Microsoft\Windows\Recent\*" -Force -ErrorAction SilentlyContinue;
+Write-Output 'Limpeza padrão concluída: temporários, caches, MRUs e lixeira.';
 "#,
         on_output,
         is_cancelled,
@@ -177,6 +187,19 @@ Write-Output 'Limpeza pesada concluída.';
     )
 }
 
+fn cleanup_windows_update(on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
+    run_powershell(
+        r#"
+$ErrorActionPreference = 'SilentlyContinue';
+$path = "$env:WINDIR\SoftwareDistribution\Download";
+if (Test-Path $path) { Remove-Item -Path "$path\*.tmp" -Force -ErrorAction SilentlyContinue }
+Write-Output 'Cache temporário do Windows Update processado.';
+"#,
+        on_output,
+        is_cancelled,
+    )
+}
+
 fn disable_telemetry(on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
     run_powershell(
         r#"
@@ -189,6 +212,12 @@ $telemetryKeys = @(
   @('HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Policies\DataCollection', 'AllowTelemetry', 0),
   @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DoNotShowFeedbackNotifications', 1),
   @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DisableTelemetryOptInChangeNotification', 1)
+    @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DisableEnterpriseAuthProxy', 1),
+    @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI', 'DisableAIDataAnalysis', 1),
+    @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI', 'TurnOffWindowsCopilot', 1),
+    @('HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI', 'DisableAIDataAnalysis', 1),
+    @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'EnableRecallOnDevice', 0),
+    @('HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'EnableRecallOnDevice', 0)
 )
 foreach ($key in $telemetryKeys) { Set-Dword -Path $key[0] -Name $key[1] -Value $key[2] }
 foreach ($serviceName in @('DiagTrack', 'dmwappushservice')) {
@@ -201,11 +230,14 @@ $tasks = @(
   '\Microsoft\Windows\Autochk\Proxy',
   '\Microsoft\Windows\Customer Experience Improvement Program\Consolidator',
   '\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip',
+    '\Microsoft\Windows\Customer Experience Improvement Program\KernelCeipTask',
   '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector',
   '\Microsoft\Windows\Feedback\Siuf\DmClient',
   '\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload'
 )
 foreach ($task in $tasks) { Disable-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue | Out-Null }
+ $feature = Get-WindowsOptionalFeature -Online -FeatureName 'Recall' -ErrorAction SilentlyContinue;
+if ($feature -and $feature.State -eq 'Enabled') { Disable-WindowsOptionalFeature -Online -FeatureName 'Recall' -NoRestart -ErrorAction SilentlyContinue | Out-Null }
 Write-Output 'Telemetria e diagnósticos ajustados.';
 "#,
         on_output,
@@ -250,15 +282,23 @@ fn execute_task(task: &Task, on_output: &mut dyn FnMut(&str), is_cancelled: &dyn
         "limpeza_media" => {
             let part_1 = cleanup_standard(on_output, is_cancelled)?;
             let part_2 = run_system_command("cleanmgr", &["/sagerun:1"], on_output, is_cancelled)?;
-            Ok(format!("{part_1}\n{part_2}"))
+            let part_3 = cleanup_windows_update(on_output, is_cancelled)?;
+            let part_4 = run_system_command("dism", &["/Online", "/Cleanup-Image", "/ScanHealth"], on_output, is_cancelled)?;
+            Ok(format!("{part_1}\n{part_2}\n{part_3}\n{part_4}"))
         }
         "limpeza_pesada" => {
             let part_1 = cleanup_standard(on_output, is_cancelled)?;
             let part_2 = cleanup_heavy_temp(on_output, is_cancelled)?;
-            Ok(format!("{part_1}\n{part_2}"))
+            let part_3 = cleanup_windows_update(on_output, is_cancelled)?;
+            let part_4 = run_system_command("dism", &["/Online", "/Cleanup-Image", "/ScanHealth"], on_output, is_cancelled)?;
+            let part_5 = run_system_command("dism", &["/Online", "/Cleanup-Image", "/StartComponentCleanup"], on_output, is_cancelled)?;
+            let part_6 = run_system_command("dism", &["/Online", "/Cleanup-Image", "/RestoreHealth"], on_output, is_cancelled)?;
+            let part_7 = run_system_command("sfc", &["/scannow"], on_output, is_cancelled)?;
+            Ok(format!("{part_1}\n{part_2}\n{part_3}\n{part_4}\n{part_5}\n{part_6}\n{part_7}"))
         }
         "desengordurar_telemetria" => disable_telemetry(on_output, is_cancelled),
         "desengordurar_tarefas" => disable_diagnostic_tasks(on_output, is_cancelled),
+        "limpeza_windows_update" => cleanup_windows_update(on_output, is_cancelled),
         "diagnostico_dism_scan" => run_system_command("dism", &["/Online", "/Cleanup-Image", "/ScanHealth"], on_output, is_cancelled),
         "diagnostico_dism_restore" => run_system_command("dism", &["/Online", "/Cleanup-Image", "/RestoreHealth"], on_output, is_cancelled),
         "diagnostico_sfc" => run_system_command("sfc", &["/scannow"], on_output, is_cancelled),
@@ -280,6 +320,24 @@ async fn get_tasks() -> Result<Vec<Task>, String> {
 async fn run_task(app: AppHandle, task_id: String, shutdown_on_complete: bool) -> Result<TaskResult, String> {
     let registry = TaskRegistry::new();
     let task = registry.resolve(&task_id).cloned().ok_or_else(|| format!("Task desconhecida: {task_id}"))?;
+    let result = task_result(&task);
+    start_task(app, task, shutdown_on_complete);
+    Ok(result)
+}
+
+fn task_result(task: &Task) -> TaskResult {
+    let task_risk = task_risk_label(task).to_string();
+    TaskResult {
+        ok: true,
+        output: format!("Task iniciada: {}", task.name),
+        task_id: task.id.clone(),
+        risk: task_risk,
+        restore_point_created: task.creates_restore_point || task.risk.requires_restore_point(),
+        change_id: None,
+    }
+}
+
+fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) {
     let task_id_for_spawn = task.id.clone();
     let app_for_spawn = app.clone();
     let task_name = task.name.clone();
@@ -359,14 +417,6 @@ async fn run_task(app: AppHandle, task_id: String, shutdown_on_complete: bool) -
         }
     });
 
-    Ok(TaskResult {
-        ok: true,
-        output: format!("Task iniciada: {}", task.name),
-        task_id: task.id,
-        risk: task_risk,
-        restore_point_created: task.creates_restore_point || task.risk.requires_restore_point(),
-        change_id: None,
-    })
 }
 
 #[tauri::command]
@@ -382,11 +432,20 @@ async fn cancel_task(task_id: String) -> Result<String, String> {
 #[tauri::command]
 async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, String> {
     let registry = TaskRegistry::new();
-    let tasks = registry.preset_tasks(&preset_id);
+    let tasks: Vec<Task> = registry.preset_tasks(&preset_id).into_iter().cloned().collect();
     let ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
-    for task in tasks {
-        let _ = run_task(app.clone(), task.id.clone(), false).await;
+    if tasks.is_empty() {
+        return Err(format!("Preset desconhecido ou vazio: {preset_id}"));
     }
+
+    tauri::async_runtime::spawn(async move {
+        for task in tasks {
+            start_task(app.clone(), task, false);
+            while safety_state().lock().unwrap().is_task_running() {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    });
     Ok(ids)
 }
 

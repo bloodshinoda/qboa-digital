@@ -212,20 +212,28 @@ function bindLevels() {
   });
 
   document.getElementById("preset-run-btn").addEventListener("click", async () => {
+    if (activeTaskId) {
+      appendConsole("Já existe uma tarefa em execução.");
+      return;
+    }
+
     const presetTasks = structure.sections.flatMap((section) =>
       section.items.filter((item) => item.preset && item.preset.includes(activeLevel))
     );
-
     if (!presetTasks.length) {
       appendConsole(`Nenhuma tarefa disponível para o preset ${activeLevel}.`);
       return;
     }
 
-    appendConsole(`Executando preset ${activeLevel}: ${presetTasks.length} tarefas.`);
-    for (const item of presetTasks) {
-      const card = document.querySelector(`[data-task-id="${item.id}"]`);
-      if (!card) continue;
-      await runTask(item, card);
+    if (activeLevel === "turbo" && !window.confirm("O preset Turbo executará alterações avançadas no Windows. Deseja continuar?")) {
+      return;
+    }
+
+    try {
+      const ids = await Qboa.runPreset(activeLevel);
+      appendConsole(`Preset ${activeLevel} iniciado: ${ids.length} tarefas em sequência.`);
+    } catch (error) {
+      appendConsole(String(error));
     }
   });
 }
@@ -255,6 +263,10 @@ async function registerEvents() {
   const unlisten = await listen("qboa-event", (event) => {
     const payload = event.payload;
     const output = document.getElementById("console-output");
+    if (payload.event === "task-started") {
+      activeTaskId = payload.task_id;
+      document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
+    }
     if (payload.message) {
       output.textContent = `${output.textContent}\n[${payload.event}] ${payload.message}`.trim();
     }

@@ -250,6 +250,19 @@ impl TaskRegistry {
             }
         }
 
+        registry.presets.insert(
+            "express".to_string(),
+            vec!["limpeza_leve".to_string(), "diagnostico_informacoes".to_string()],
+        );
+        registry.presets.insert(
+            "normal".to_string(),
+            vec!["desengordurar_telemetria".to_string(), "limpeza_media".to_string(), "diagnostico_informacoes".to_string()],
+        );
+        registry.presets.insert(
+            "turbo".to_string(),
+            vec!["desengordurar_telemetria".to_string(), "limpeza_pesada".to_string()],
+        );
+
         registry
     }
 
@@ -265,9 +278,7 @@ impl TaskRegistry {
 
     pub fn preset_tasks(&self, preset: &str) -> Vec<&Task> {
         let ids = self.presets.get(preset).cloned().unwrap_or_default();
-        let mut tasks: Vec<_> = ids.iter().filter_map(|id| self.tasks.get(id)).collect();
-        tasks.sort_by(|a, b| a.name.cmp(&b.name));
-        tasks
+        ids.iter().filter_map(|id| self.tasks.get(id)).collect()
     }
 }
 
@@ -295,5 +306,15 @@ mod tests {
         assert!(!registry.preset_tasks("express").is_empty());
         assert!(!registry.preset_tasks("normal").is_empty());
         assert!(!registry.preset_tasks("turbo").is_empty());
+    }
+
+    #[test]
+    fn presets_keep_operational_order() {
+        let registry = TaskRegistry::new();
+        let normal: Vec<_> = registry.preset_tasks("normal").iter().map(|task| task.id.as_str()).collect();
+        let turbo: Vec<_> = registry.preset_tasks("turbo").iter().map(|task| task.id.as_str()).collect();
+
+        assert_eq!(normal, ["desengordurar_telemetria", "limpeza_media", "diagnostico_informacoes"]);
+        assert_eq!(turbo, ["desengordurar_telemetria", "limpeza_pesada"]);
     }
 }
