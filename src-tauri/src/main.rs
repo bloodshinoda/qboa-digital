@@ -225,6 +225,20 @@ fn run_system_command(command_name: &str, args: &[&str], on_output: &mut dyn FnM
     run_command(command_name, args, on_output, is_cancelled)
 }
 
+#[cfg(target_os = "windows")]
+fn schedule_shutdown() -> Result<(), String> {
+    Command::new("shutdown")
+        .args(["/s", "/t", "30", "/c", "Qboa Digital concluiu a tarefa."])
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Não foi possível agendar o desligamento: {error}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn schedule_shutdown() -> Result<(), String> {
+    Err("Desligamento automático só está disponível no Windows.".to_string())
+}
+
 fn resolve_task(task_id: &str) -> Option<Task> {
     let registry = TaskRegistry::new();
     registry.resolve(task_id).cloned()
@@ -263,7 +277,7 @@ async fn get_tasks() -> Result<Vec<Task>, String> {
 }
 
 #[tauri::command]
-async fn run_task(app: AppHandle, task_id: String) -> Result<TaskResult, String> {
+async fn run_task(app: AppHandle, task_id: String, shutdown_on_complete: bool) -> Result<TaskResult, String> {
     let registry = TaskRegistry::new();
     let task = registry.resolve(&task_id).cloned().ok_or_else(|| format!("Task desconhecida: {task_id}"))?;
     let task_id_for_spawn = task.id.clone();
@@ -326,6 +340,13 @@ async fn run_task(app: AppHandle, task_id: String) -> Result<TaskResult, String>
                 emit_event(&app_for_spawn, "task-output", &task_id_for_spawn, &output, true, Some("100%"), &task_risk_for_spawn);
                 emit_event(&app_for_spawn, "task-completed", &task_id_for_spawn, &format!("Tarefa concluída: {}", task_name), true, Some("100%"), &task_risk_for_spawn);
 
+                if shutdown_on_complete {
+                    match schedule_shutdown() {
+                        Ok(()) => emit_event(&app_for_spawn, "shutdown-scheduled", &task_id_for_spawn, "Desligamento agendado para daqui a 30 segundos.", true, Some("100%"), &task_risk_for_spawn),
+                        Err(error) => emit_event(&app_for_spawn, "shutdown-error", &task_id_for_spawn, &error, false, None, &task_risk_for_spawn),
+                    }
+                }
+
                 if task.reversible {
                     let _ = app_for_spawn.emit("qboa-backup-created", serde_json::json!({"task_id": task_id_for_spawn, "backup": serialized, "change_id": change.id }));
                 }
@@ -364,7 +385,7 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
     let tasks = registry.preset_tasks(&preset_id);
     let ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
     for task in tasks {
-        let _ = run_task(app.clone(), task.id.clone()).await;
+        let _ = run_task(app.clone(), task.id.clone(), false).await;
     }
     Ok(ids)
 }

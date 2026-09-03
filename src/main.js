@@ -12,8 +12,8 @@ const Qboa = {
     return invoke("get_tasks");
   },
 
-  async runTask(taskId) {
-    return invoke("run_task", { taskId });
+  async runTask(taskId, shutdownOnComplete) {
+    return invoke("run_task", { taskId, shutdownOnComplete });
   },
 
   async runPreset(presetId) {
@@ -176,9 +176,10 @@ async function executeTask(item, cardEl) {
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
   pendingTask = null;
+  const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
 
   try {
-    const result = await Qboa.runTask(item.id);
+    const result = await Qboa.runTask(item.id, shutdownOnComplete);
     const output = result.output || "(sem saída)";
     out.textContent += `\n${output}`;
   } catch (err) {

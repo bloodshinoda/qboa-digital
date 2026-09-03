@@ -168,6 +168,10 @@ button {
   gap: 14px;
 }
 
+.cards:has(.contribution-panel) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .card {
   background: var(--qboa-panel);
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -269,7 +273,7 @@ button {
 
 .contribution-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
   gap: 28px;
   align-items: center;
   width: 100%;
