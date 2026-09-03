@@ -3,23 +3,33 @@
   --qboa-green-dark: #003d20;
   --qboa-red: #eb070b;
   --qboa-white: #ffffff;
+  --qboa-panel: rgba(0, 0, 0, 0.18);
+  --qboa-panel-strong: rgba(0, 0, 0, 0.3);
   --rainbow: linear-gradient(90deg, #f75629, #ffce11, #9ada04, #05c4db, #0270fe, #db7ffa, #fa2195);
-  --card-bg: rgba(0, 0, 0, 0.18);
-  --card-bg-hover: rgba(0, 0, 0, 0.3);
+  --font-ui: "Segoe UI", system-ui, sans-serif;
+  --font-console: "Cascadia Mono", "Consolas", monospace;
 }
 
 * {
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
   background: var(--qboa-green);
   color: var(--qboa-white);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+button {
+  font-family: var(--font-ui);
 }
 
 .app-header {
@@ -91,6 +101,27 @@ body {
   color: var(--qboa-white);
 }
 
+.preset-button,
+.primary-button,
+.secondary-button {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.2);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.preset-button,
+.primary-button {
+  background: var(--qboa-red);
+  color: var(--qboa-white);
+}
+
+.secondary-button {
+  background: transparent;
+  color: var(--qboa-white);
+}
+
 .tabs {
   display: flex;
   gap: 4px;
@@ -101,7 +132,7 @@ body {
   padding: 10px 20px;
   border: none;
   border-radius: 8px 8px 0 0;
-  background: var(--card-bg);
+  background: var(--qboa-panel);
   color: var(--qboa-white);
   font-weight: 700;
   cursor: pointer;
@@ -110,21 +141,30 @@ body {
 
 .tab.active {
   opacity: 1;
-  background: var(--card-bg-hover);
+  background: var(--qboa-panel-strong);
   box-shadow: inset 0 -3px 0 var(--qboa-red);
 }
 
+.dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.8fr);
+  gap: 18px;
+  padding: 20px 24px;
+  background: var(--qboa-panel-strong);
+}
+
+.cards-panel {
+  min-width: 0;
+}
+
 .cards {
-  flex: 1;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 14px;
-  padding: 20px 24px;
-  background: var(--card-bg-hover);
 }
 
 .card {
-  background: var(--card-bg);
+  background: var(--qboa-panel);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 10px;
   padding: 16px;
@@ -149,9 +189,119 @@ body {
   opacity: 0.85;
 }
 
+.risk-pill {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.1);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
 .card.running {
   opacity: 0.6;
   pointer-events: none;
+}
+
+.recovery-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recovery-panel h2 {
+  margin: 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.recovery-box {
+  background: var(--qboa-panel);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.recovery-box h3 {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+}
+
+.recovery-box p,
+.recovery-box li {
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+#restore-point-btn {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: var(--qboa-red);
+  color: var(--qboa-white);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.session-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.risk-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.6);
+  z-index: 999;
+}
+
+.risk-modal.hidden {
+  display: none;
+}
+
+.risk-dialog {
+  width: min(420px, calc(100vw - 24px));
+  background: #112018;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 24px 50px rgba(0,0,0,0.4);
+}
+
+.risk-head h3 {
+  margin: 0 0 12px;
+  color: #ffd166;
+  font-size: 1.2rem;
+}
+
+.risk-dialog p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.risk-protection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  color: #dcefe1;
+  font-size: 0.8rem;
+}
+
+.risk-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .console {
@@ -173,7 +323,7 @@ body {
 
 #console-output {
   margin: 0;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-console);
   font-size: 0.85rem;
   white-space: pre-wrap;
   color: #e6e6e6;

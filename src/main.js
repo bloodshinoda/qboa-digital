@@ -1,32 +1,58 @@
-// Qboa Digital — frontend
-//
-// Carrega src/data/qboa-structure.json, monta as abas (Limpeza / Desengordurar / Diagnóstico)
-// e os cards de cada uma. Ao clicar num card, chama o comando Rust
-// `run_task(task_id)` via invoke() e mostra o resultado no console.
-
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
 let structure = null;
 let activeSection = "limpeza";
 let activeLevel = "normal";
+let pendingTask = null;
+let activeTaskId = null;
+
+const Qboa = {
+  async analyze() {
+    return invoke("get_tasks");
+  },
+
+  async runTask(taskId) {
+    return invoke("run_task", { taskId });
+  },
+
+  async runPreset(presetId) {
+    return invoke("run_preset", { presetId });
+  },
+
+  async getSessionHistory() {
+    return invoke("get_session_history");
+  },
+
+  async createRestorePoint() {
+    return invoke("create_restore_point");
+  },
+
+  async rollbackSession() {
+    return invoke("rollback_session");
+  },
+
+  async cancelTask(taskId) {
+    return invoke("cancel_task", { taskId });
+  }
+};
 
 async function loadStructure() {
-  const res = await fetch("./data/qboa-structure.json");
-  structure = await res.json();
+  structure = await fetch("./data/qboa-structure.json").then((res) => res.json());
 }
 
 function renderSectionSummary() {
   const summaryEl = document.getElementById("section-summary");
-  const section = structure.sections.find((s) => s.id === activeSection);
+  const section = structure.sections.find((item) => item.id === activeSection);
   if (!section) return;
 
-  const taskCount = section.items.length;
-  summaryEl.textContent = `${section.title}: ${taskCount} tarefa${taskCount === 1 ? "" : "s"} disponíveis`;
+  summaryEl.textContent = `${section.title}: ${section.items.length} tarefa${section.items.length === 1 ? "" : "s"} disponíveis`;
 }
 
 function renderTabs() {
   const tabsEl = document.getElementById("tabs");
   tabsEl.innerHTML = "";
+
   structure.sections.forEach((section) => {
     const btn = document.createElement("button");
     btn.className = "tab" + (section.id === activeSection ? " active" : "");
@@ -36,8 +62,7 @@ function renderTabs() {
       renderTabs();
       renderSectionSummary();
       renderCards();
-      const out = document.getElementById("console-output");
-      out.textContent = `Selecione uma tarefa de ${section.title.toLowerCase()} para executar.`;
+      appendConsole(`Selecione uma tarefa de ${section.title.toLowerCase()} para executar.`);
     });
     tabsEl.appendChild(btn);
   });
@@ -46,32 +71,81 @@ function renderTabs() {
 function renderCards() {
   const cardsEl = document.getElementById("cards");
   cardsEl.innerHTML = "";
-  const section = structure.sections.find((s) => s.id === activeSection);
+  const section = structure.sections.find((item) => item.id === activeSection);
   if (!section) return;
 
   section.items.forEach((item) => {
     const card = document.createElement("div");
     card.className = "card";
+    card.dataset.taskId = item.id;
     card.innerHTML = `<h3>${item.name}</h3><p>${item.desc}</p>`;
+    if (item.risk) {
+      const risk = document.createElement("small");
+      risk.className = "risk-pill";
+      const riskLabel = item.risk === "safe" ? "🟢 Seguro" : item.risk === "moderate" ? "🟡 Moderado" : "🟠 Avançado";
+      risk.textContent = riskLabel;
+      card.appendChild(risk);
+    }
     card.addEventListener("click", () => runTask(item, card));
     cardsEl.appendChild(card);
   });
 }
 
-async function runTask(item, cardEl) {
+function appendConsole(message) {
   const out = document.getElementById("console-output");
-  cardEl.classList.add("running");
-  out.textContent = `> Rodando "${item.name}" (nível: ${activeLevel})...\n`;
+  out.textContent = `${out.textContent}\n${message}`.trim();
+}
+
+function writeStatus(text) {
+  const out = document.getElementById("console-output");
+  out.textContent = text;
+}
+
+function requiresConfirmation(item) {
+  if (!item || !item.risk) return false;
+  return item.risk === "moderate" || item.risk === "advanced";
+}
+
+function showRiskModal(item, cardEl) {
+  pendingTask = { item, cardEl };
+  const modal = document.getElementById("risk-modal");
+  const message = document.getElementById("risk-message");
+
+  const riskText = item.risk === "advanced" ? "avançada" : "moderada";
+  message.textContent = `Esta operação é ${riskText} e altera configurações do Windows. Um ponto de restauração será criado quando possível. Alterações reversíveis serão registradas pelo Qboa.`;
+
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+async function executeTask(item, cardEl) {
+  const out = document.getElementById("console-output");
+  if (cardEl) cardEl.classList.add("running");
+  activeTaskId = item.id;
+  writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
+  const modal = document.getElementById("risk-modal");
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  pendingTask = null;
 
   try {
-    const result = await invoke("run_task", { taskId: item.id });
-    out.textContent += result.output || "(sem saída)";
-    out.textContent += result.ok ? "\n\n[OK]" : "\n\n[FALHOU]";
+    const result = await Qboa.runTask(item.id);
+    const output = result.output || "(sem saída)";
+    out.textContent += `\n${output}`;
   } catch (err) {
     out.textContent += `\nErro ao chamar o backend: ${err}`;
-  } finally {
-    cardEl.classList.remove("running");
+    if (cardEl) cardEl.classList.remove("running");
+    activeTaskId = null;
   }
+}
+
+async function runTask(item, cardEl) {
+  if (requiresConfirmation(item)) {
+    showRiskModal(item, cardEl);
+    return;
+  }
+
+  await executeTask(item, cardEl);
 }
 
 function bindLevels() {
@@ -81,20 +155,114 @@ function bindLevels() {
       activeLevel = btn.dataset.level;
       document.querySelectorAll(".level").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      // TODO: níveis (express/normal/turbo) ainda não filtram/ordenam os
-      // itens — decidir se cada nível dispara um preset de tasks em lote.
+      if (activeLevel === "express" || activeLevel === "normal" || activeLevel === "turbo") {
+        renderCards();
+      }
     });
+  });
+
+  document.getElementById("preset-run-btn").addEventListener("click", async () => {
+    const presetTasks = structure.sections.flatMap((section) =>
+      section.items.filter((item) => item.preset && item.preset.includes(activeLevel))
+    );
+
+    if (!presetTasks.length) {
+      appendConsole(`Nenhuma tarefa disponível para o preset ${activeLevel}.`);
+      return;
+    }
+
+    appendConsole(`Executando preset ${activeLevel}: ${presetTasks.length} tarefas.`);
+    for (const item of presetTasks) {
+      const card = document.querySelector(`[data-task-id="${item.id}"]`);
+      if (!card) continue;
+      await runTask(item, card);
+    }
   });
 }
 
-async function init() {
+async function refreshHistory() {
+  try {
+    const history = await Qboa.getSessionHistory();
+    const list = document.getElementById("session-history");
+    list.innerHTML = "";
+
+    if (!history || history.length === 0) {
+      list.innerHTML = "<li>Nenhuma alteração registrada.</li>";
+      return;
+    }
+
+    history.slice(-6).forEach((entry) => {
+      const item = document.createElement("li");
+      item.textContent = `${entry.description} (${entry.rollback_status})`;
+      list.appendChild(item);
+    });
+  } catch (error) {
+    console.error("Unable to read session history", error);
+  }
+}
+
+async function registerEvents() {
+  const unlisten = await listen("qboa-event", (event) => {
+    const payload = event.payload;
+    const output = document.getElementById("console-output");
+    if (payload.message) {
+      output.textContent = `${output.textContent}\n[${payload.event}] ${payload.message}`.trim();
+    }
+
+    if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
+      document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
+      if (activeTaskId === payload.task_id) activeTaskId = null;
+      refreshHistory();
+    }
+  });
+
+  return unlisten;
+}
+
+(async function init() {
   await loadStructure();
   renderTabs();
   renderSectionSummary();
   renderCards();
   bindLevels();
-  const out = document.getElementById("console-output");
-  out.textContent = "Selecione uma tarefa para executar.";
-}
+  registerEvents();
+  await refreshHistory();
+  writeStatus("Selecione uma tarefa para executar.");
 
-init();
+  document.getElementById("restore-point-btn").addEventListener("click", async () => {
+    try {
+      const result = await Qboa.createRestorePoint();
+      document.getElementById("restore-point-status").textContent = result;
+      appendConsole(`Ponto de restauração criado: ${result}`);
+    } catch (error) {
+      document.getElementById("restore-point-status").textContent = `Proteção do Sistema não está disponível neste computador.`;
+      appendConsole(String(error));
+    }
+  });
+
+  document.getElementById("risk-cancel").addEventListener("click", () => {
+    const modal = document.getElementById("risk-modal");
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+    pendingTask = null;
+  });
+
+  document.getElementById("risk-confirm").addEventListener("click", async () => {
+    if (!pendingTask) return;
+    await executeTask(pendingTask.item, pendingTask.cardEl);
+  });
+
+  document.getElementById("cancel-task-btn").addEventListener("click", async () => {
+    if (!activeTaskId) {
+      appendConsole("Nenhuma tarefa em execução para cancelar.");
+      return;
+    }
+
+    try {
+      const result = await Qboa.cancelTask(activeTaskId);
+      appendConsole(result);
+    } catch (error) {
+      appendConsole(String(error));
+    }
+  });
+})();

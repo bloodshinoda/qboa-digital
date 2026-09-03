@@ -1,8 +1,10 @@
 {
   "name": "qboa-digital",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
     "tauri": "tauri"
   },
   "devDependencies": {

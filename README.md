@@ -1,83 +1,113 @@
-# Qboa Digital — esqueleto Tauri
+# Qboa Digital
 
-Ponto de partida pra migrar o Qboa do `.bat` pra um app portable de verdade
-(sem CMD visível, sem depender de Chromium embutido — usa o WebView2 nativo
-do Windows).
+## Architecture
 
-## Estrutura
+Qboa Digital is a Windows maintenance utility built with Tauri, Rust, HTML, CSS and vanilla JavaScript. The app follows a small layered architecture:
 
-```
-qboa-tauri/
-├── package.json
-├── src/                        ← frontend (HTML/CSS/JS puro)
-│   ├── index.html
-│   ├── style.css
-│   ├── main.js
-│   └── data/qboa-structure.json  ← as 3 seções (Limpar/Tunar/Auditoria) e seus itens
-└── src-tauri/                  ← backend Rust
-    ├── Cargo.toml
-    ├── build.rs                ← embute o manifest de admin no .exe
-    ├── qboa.manifest           ← requireAdministrator (UAC)
-    ├── tauri.conf.json
-    └── src/main.rs             ← mapeia cada task_id para comandos nativos do Windows
-```
+- Frontend UI and task selection
+- Task registry metadata and preset resolution
+- Task engine and command execution
+- Safety manager for backups, restore points and change logging
+- Windows integration through native commands and PowerShell
 
-## Setup (rodar no Windows, com Rust + Node instalados)
+## Task Engine
 
-```powershell
-# 1. Instalar dependências do Rust/Tauri
-rustup update
-cargo install tauri-cli --version "^2"
+The backend exposes a central task registry with metadata such as:
 
-# 2. Instalar a CLI do Tauri via npm (usa o package.json)
+- task id
+- category
+- risk
+- administrative requirement
+- reversibility
+- restore point requirement
+- rollback strategy
+- preset membership
+
+Tasks are resolved by task id instead of allowing arbitrary frontend commands.
+
+## Safety Model
+
+The safety layer is designed to record changes and protect destructive operations:
+
+- restore points when required
+- backup metadata for reversible changes
+- change journal for task execution history
+- rollback entries and session-level rollback ordering
+
+## Restore Points
+
+Windows System Restore is used as a system-level safety net before risky changes. The Qboa app identifies its own restore points using a consistent description convention such as:
+
+- Qboa Digital — Antes da tarefa: X
+
+This does not replace user-created restore points and the app does not remove existing Windows restore points automatically.
+
+## Rollback
+
+Rollback in Qboa has two layers:
+
+### Windows System Restore
+A protection mechanism provided by Windows itself.
+
+### Qboa Rollback
+A custom rollback layer for reversible changes such as registry and service adjustments. It is recorded and managed via the change journal and applied in reverse order for a session.
+
+## Presets
+
+The app supports three preset modes:
+
+- Express
+- Normal
+- Turbo
+
+Express is intentionally limited to low-risk operations. Normal adds routine maintenance. Turbo includes more advanced tasks and stronger protection.
+
+## Security Model
+
+Security principles:
+
+- frontend sends task ids only
+- Rust resolves and validates task execution
+- no arbitrary shell command construction from the UI
+- CSP enabled in Tauri config
+- admin elevation is maintained via the Windows manifest when needed
+
+## Development
+
+```bash
 npm install
-
-# 3. Rodar em modo dev
-npm run tauri dev
-
-# 4. Gerar o .exe final (fica em src-tauri/target/release/)
-npm run tauri build
+npm run dev
 ```
 
-Pré-requisitos do lado Windows: **WebView2 Runtime** (já vem instalado de
-fábrica no W10/11 atualizado — se não tiver, o instalador do Tauri baixa
-automaticamente via `webviewInstallMode` já configurado no
-`tauri.conf.json`) e o **MSVC Build Tools** (necessário pra compilar Rust no
-Windows).
+## Testing
 
-## O que já está pronto
+```bash
+cd src-tauri
+cargo test
+cargo check
+```
 
-- As 3 abas (Limpeza / Desengordurar / Diagnóstico) com os itens vindos do
-  `qboa-structure.json`.
-- Paleta de cores aplicada via CSS (`--qboa-green`, `--qboa-red`,
-  `--rainbow`) — todos os hex agora são reais: `--qboa-green: #005930`
-  (verde da garrafa), `--qboa-red: #eb070b` e o `--rainbow` extraído
-  diretamente do ícone (`#f75629 → #fa2195`).
-- Os ícones exigidos pelo `tauri.conf.json` já estão em `src-tauri/icons`.
-- Painel de console na parte de baixo da janela, pra mostrar a saída dos
-  comandos (mantém a pegada "terminal" mesmo numa UI gráfica).
-- `main.rs` já mapeia os `task_id` atuais para comandos nativos do Windows
-  (`dism`, `sfc`, `cleanmgr`, `systeminfo` e PowerShell).
-- Os três modos de limpeza compartilham uma limpeza padrão própria: temporários
-  do Windows, caches descartáveis de Chrome, Edge, Brave, Vivaldi, Opera e
-  Firefox, MRUs do Windows e lixeira.
-- A limpeza de navegador preserva histórico, histórico de formulários,
-  preenchimento automático, cookies, armazenamento persistente e sessão.
-- Todos os modos de limpeza também desativam a telemetria do Windows: políticas
-  de coleta, serviços DiagTrack/dmwappushservice, tarefas de diagnóstico e o
-  Recall quando disponível. O processo não reinicia o computador sozinho.
-- Manifest de UAC (`qboa.manifest`) configurado pra pedir elevação de admin
-  automaticamente ao abrir o `.exe` — sem isso `dism`/`sfc`/`chkdsk` falham
-  silenciosamente.
+## Windows Requirements
 
-## O que falta
+- Windows 10 or 11
+- WebView2 runtime
+- Rust toolchain
+- MSVC build tools for Windows compilation
+- Administrator rights for some tasks such as DISM, SFC and registry modifications
 
-- Criar e revisar os próximos ajustes próprios de Desengordurar, sempre com
-  classificação de risco e confirmação antes de alterar configurações.
-- **Streaming de progresso**: hoje `run_task` só devolve o resultado no
-  final (comandos como `dism`/`chkdsk` demoram e não mostram progresso em
-  tempo real). Pra isso, trocar pra `Command::spawn()` + eventos Tauri
-  (`app.emit()`) lendo stdout linha a linha.
-- **Níveis (Express/Normal/Turbo)**: os botões já existem na UI, mas ainda
-  não disparam nada — falta decidir se cada nível roda um preset de tasks em
-  lote (e nessa ordem) ou só muda algum comportamento visual.
+## Build
+
+```bash
+npm run build
+```
+
+This is valid for a local Tauri build on a compatible machine. Windows-specific packaging and live Windows operations are only valid on Windows.
+
+## GitHub Actions
+
+The workflow `.github/workflows/windows-build.yml` builds the Windows application on `windows-latest` and publishes two artifacts:
+
+- `qboa-digital-windows-installer`: NSIS installer `.exe`
+- `qboa-digital-windows-executable`: executable portable `.exe`
+
+It runs automatically on pushes to `main` and version tags such as `v0.2.0`. It can also be started manually from the **Actions** tab using **Run workflow**. After the job finishes, download the artifact from the workflow run.

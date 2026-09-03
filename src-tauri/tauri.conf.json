@@ -11,15 +11,15 @@
     "windows": [
       {
         "title": "Qboa Digital",
-        "width": 900,
-        "height": 640,
+        "width": 980,
+        "height": 720,
         "resizable": true,
         "center": true,
         "decorations": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://localhost; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
     }
   },
   "bundle": {

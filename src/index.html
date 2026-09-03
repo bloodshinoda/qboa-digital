@@ -2,6 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Qboa Digital</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -13,8 +14,9 @@
     </div>
     <div class="levels">
       <button class="level" data-level="express">Express</button>
-      <button class="level" data-level="normal">Normal</button>
+      <button class="level" data-level="normal" aria-pressed="true">Normal</button>
       <button class="level" data-level="turbo">Turbo</button>
+      <button id="preset-run-btn" class="preset-button">Executar preset</button>
     </div>
   </header>
 
@@ -22,12 +24,55 @@
 
   <nav class="tabs" id="tabs"></nav>
 
-  <main class="cards" id="cards"></main>
+  <main class="dashboard">
+    <section class="cards-panel">
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <aside class="recovery-panel">
+      <h2>Recuperação</h2>
+      <div class="recovery-box">
+        <h3>Proteção do sistema</h3>
+        <p id="restore-point-status">Nenhum ponto de restauração criado pelo Qboa nesta sessão.</p>
+        <button id="restore-point-btn">Criar ponto de restauração</button>
+      </div>
+      <div class="recovery-box">
+        <h3>Alterações desta sessão</h3>
+        <ul id="session-history" class="session-history">
+          <li>Nenhuma alteração registrada.</li>
+        </ul>
+      </div>
+    </aside>
+  </main>
 
   <section class="console" id="console">
     <div class="console-title">saída</div>
-    <pre id="console-output">Selecione um item pra rodar.</pre>
+    <pre id="console-output">Selecione um item para executar.</pre>
   </section>
+
+  <div class="toolbar">
+    <button id="cancel-task-btn" class="secondary-button">Cancelar tarefa</button>
+  </div>
+
+  <div id="risk-modal" class="risk-modal hidden" aria-hidden="true">
+    <div class="risk-dialog" role="dialog" aria-modal="true">
+      <div class="risk-head">
+        <h3>⚠ Alteração avançada</h3>
+      </div>
+      <p id="risk-message">
+        Esta operação fará alterações no Windows. Um ponto de restauração será criado quando possível.
+      </p>
+      <div class="risk-protection">
+        <span>✓ Proteção do sistema</span>
+        <span>✓ Backup das alterações reversíveis</span>
+        <span>✓ Histórico da sessão</span>
+      </div>
+      <div class="risk-actions">
+        <button id="risk-cancel" class="secondary-button">Cancelar</button>
+        <button id="risk-confirm" class="primary-button">Continuar</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="main.js"></script>
 </body>
