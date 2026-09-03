@@ -12,9 +12,7 @@ rem Execute como Administrador
 rem ============================================================
 
 set "ROOT=%~dp0"
-set "BIN=%ROOT%bin"
 set "LOGDIR=%ROOT%logs"
-set "BLEACH=%BIN%\bleachbit_console.exe"
 set "VERSION=2.0"
 
 if not exist "%LOGDIR%" md "%LOGDIR%" >nul 2>&1
@@ -89,16 +87,12 @@ call :DisableTelemetry
 if /i "%MODE%"=="LEVE" (
     call :Step 2 "Varrendo só onde o papa passa"
     call :LightCleanup
-    call :Step 3 "QBoazinha de leve"
-    call :BleachLight
 )
 
 if /i "%MODE%"=="MEDIA" (
     call :Step 2 "Limpando com um pouco de atenção"
     call :MediumCleanup
-    call :Step 3 "Passando uma QBoa com vontade"
-    call :BleachMedium
-    call :Step 4 "Verificando se tu pagou o dízimo"
+    call :Step 3 "Verificando se tu pagou o dízimo"
     call :RunDISMScan
 )
 
@@ -107,16 +101,12 @@ if /i "%MODE%"=="PESADA" (
     call :RestorePoint
     call :Step 3 "Recolhendo a lixarada com vontade"
     call :HeavyCleanup
-    call :Step 4 "Enxarcando tudo de QBoa com muita vontade"
-    call :BleachFull
-    call :Step 5 "Mandando o Bill Gates se foder"
+    call :Step 4 "Mandando o Bill Gates se foder"
     call :RunDISMCleanup
-    call :Step 6 "Pagando o dízimo"
+    call :Step 5 "Pagando o dízimo"
     call :RunDISMRestore
-    call :Step 7 "Olhando se tu tá no SPC"
+    call :Step 6 "Olhando se tu tá no SPC"
     call :RunSFC
-    call :Step 8 "Botando kit padaria no teu fusca"
-    call :RunWinUtilConservative
 )
 
 call :Finish "%MODE%" "%SHUT%"
@@ -158,10 +148,32 @@ for %%T in (
 
 rem Politicas de coleta de diagnostico.
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowDeviceNameInTelemetry /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Policies\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v DoNotShowFeedbackNotifications /t REG_DWORD /d 1 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v DisableTelemetryOptInChangeNotification /t REG_DWORD /d 1 /f >nul 2>&1
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v DisableEnterpriseAuthProxy /t REG_DWORD /d 1 /f >nul 2>&1
 
-echo  [OK] Telemetria e tarefas selecionadas foram verificadas.
-call :Log "Telemetria processada."
+rem Politicas e configuracoes do Windows Recall/Copilot.
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableAIDataAnalysis /t REG_DWORD /d 1 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v TurnOffWindowsCopilot /t REG_DWORD /d 1 /f >nul 2>&1
+reg add "HKCU\SOFTWARE\Policies\Microsoft\Windows\WindowsAI" /v DisableAIDataAnalysis /t REG_DWORD /d 1 /f >nul 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v EnableRecallOnDevice /t REG_DWORD /d 0 /f >nul 2>&1
+reg add "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v EnableRecallOnDevice /t REG_DWORD /d 0 /f >nul 2>&1
+
+rem Tarefas adicionais de telemetria/feedback.
+for %%T in (
+"\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector"
+"\Microsoft\Windows\Feedback\Siuf\DmClient"
+"\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload"
+) do schtasks /Change /TN %%T /Disable >nul 2>&1
+
+rem Desativa o recurso Recall quando ele existir, sem reiniciar automaticamente.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$feature = Get-WindowsOptionalFeature -Online -FeatureName 'Recall' -ErrorAction SilentlyContinue; if ($feature -and $feature.State -eq 'Enabled') { Disable-WindowsOptionalFeature -Online -FeatureName 'Recall' -NoRestart -ErrorAction SilentlyContinue | Out-Null }" >nul 2>&1
+
+echo  [OK] Telemetria, Recall e tarefas selecionadas foram processados.
+call :Log "Telemetria e Recall processados."
 exit /b
 
 
@@ -172,29 +184,57 @@ for /d %%D in ("%TEMP%\*") do rd /s /q "%%D" >nul 2>&1
 del /f /s /q "%WINDIR%\Temp\*" >nul 2>&1
 for /d %%D in ("%WINDIR%\Temp\*") do rd /s /q "%%D" >nul 2>&1
 
+call :BrowserCacheCleanup
+call :ClearWindowsMRU
 powershell -NoProfile -Command "Clear-RecycleBin -Force -ErrorAction SilentlyContinue" >nul 2>&1
-call :Log "Limpeza leve concluída."
-echo  [OK] Temporários e Lixeira processados.
+call :Log "Limpeza padrão concluída."
+echo  [OK] Temporários, caches, MRUs e Lixeira processados.
 exit /b
 
 
 :MediumCleanup
 call :LightCleanup
 
-rem Caches de navegador comuns - somente arquivos temporarios/cache.
-for %%P in (
-"%LOCALAPPDATA%\Google\Chrome\User Data\Default\Cache"
-"%LOCALAPPDATA%\Microsoft\Edge\User Data\Default\Cache"
-"%LOCALAPPDATA%\Mozilla\Firefox\Profiles"
-) do (
-    if exist %%P (
-        rem Firefox e tratado preferencialmente pelo BleachBit.
-    )
-)
-
 rem Limpeza de arquivos de entrega, sem apagar dados do usuario.
 del /f /s /q "%WINDIR%\SoftwareDistribution\Download\*.tmp" >nul 2>&1
 call :Log "Limpeza intermediária concluída."
+exit /b
+
+
+:BrowserCacheCleanup
+rem Remove apenas caches descartaveis. Historico, formularios, autofill,
+rem cookies, Local Storage, IndexedDB e sessao nao sao tocados.
+for %%P in (
+"%LOCALAPPDATA%\Google\Chrome\User Data"
+"%LOCALAPPDATA%\Microsoft\Edge\User Data"
+"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data"
+"%LOCALAPPDATA%\Vivaldi\User Data"
+"%APPDATA%\Opera Software\Opera Stable"
+"%APPDATA%\Mozilla\Firefox\Profiles"
+) do (
+    if exist %%P (
+        for /d /r %%C in ("%%~P\Cache" "%%~P\Cache2" "%%~P\Code Cache" "%%~P\GPUCache" "%%~P\StartupCache" "%%~P\shader-cache" "%%~P\Service Worker\CacheStorage") do (
+            if exist "%%C" rd /s /q "%%C" >nul 2>&1
+        )
+    )
+)
+call :Log "Caches temporarios dos navegadores processados."
+exit /b
+
+
+:ClearWindowsMRU
+rem Limpa listas de uso recente, sem remover arquivos pessoais.
+for %%K in (
+"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs"
+"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"
+"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths"
+"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSavePidlMRU"
+"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU"
+"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Map Network Drive MRU"
+"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery"
+) do reg delete "%%~K" /f >nul 2>&1
+del /f /q "%APPDATA%\Microsoft\Windows\Recent\*" >nul 2>&1
+call :Log "MRUs do Windows processadas."
 exit /b
 
 
@@ -212,68 +252,6 @@ if exist "%SystemRoot%\System32\cleanmgr.exe" (
 )
 
 call :Log "Limpeza pesada local concluída."
-exit /b
-
-
-:BleachLight
-if not exist "%BLEACH%" (
-    echo  [AVISO] Binário da QBoa não encontrado em "%BIN%".
-    call :Log "QBoa bin não encontrado."
-    exit /b
-)
-
-"%BLEACH%" --clean system.recycle_bin system.tmp windows_defender.temp
-call :Log "Qboa leve executada. Código: %errorlevel%"
-exit /b
-
-
-:BleachMedium
-if not exist "%BLEACH%" (
-    echo  [AVISO] Binário da Qboa nao encontrado em "%BIN%".
-    call :Log "QBoa bin não encontrado."
-    exit /b
-)
-
-"%BLEACH%" --clean ^
-deepscan.ds_store deepscan.tmp ^
-firefox.cache firefox.crash_reports firefox.session firefox.vacuum ^
-google_chrome.cache google_chrome.session google_chrome.crash_reports google_chrome.vacuum ^
-internet_explorer.cache internet_explorer.logs ^
-microsoft_edge.cache microsoft_edge.crash_reports microsoft_edge.session microsoft_edge.vacuum ^
-microsoft_office.debug_logs microsoft_office.mru ^
-system.clipboard system.recycle_bin system.tmp ^
-thunderbird.cache thunderbird.sessionjson thunderbird.vacuum ^
-vlc.memory_dump vlc.mru ^
-windows_defender.temp winrar.history winrar.temp
-
-call :Log "QBoa intermediária executada. Codigo: %errorlevel%"
-exit /b
-
-
-:BleachFull
-if not exist "%BLEACH%" (
-    echo  [AVISO] Binário da QBoa não encontrado em "%BIN%".
-    call :Log "Qboa bin não encontrado."
-    exit /b
-)
-
-rem MANTIDO: perfil completo baseado na sua lista original.
-"%BLEACH%" --clean ^
-deepscan.ds_store deepscan.tmp ^
-firefox.cache firefox.crash_reports firefox.session firefox.site_data firefox.vacuum ^
-flash.cache flash.cookies ^
-google_chrome.cache google_chrome.session google_chrome.crash_reports google_chrome.vacuum google_chrome.site_data ^
-internet_explorer.cache internet_explorer.logs ^
-libreoffice.history ^
-microsoft_edge.cache microsoft_edge.crash_reports microsoft_edge.session microsoft_edge.site_data microsoft_edge.vacuum ^
-microsoft_office.debug_logs microsoft_office.mru ^
-system.clipboard system.recycle_bin system.tmp ^
-thunderbird.cache thunderbird.sessionjson thunderbird.vacuum ^
-vlc.memory_dump vlc.mru ^
-windows_defender.temp ^
-winrar.history winrar.temp
-
-call :Log "QBoa completa executada. Codigo: %errorlevel%"
 exit /b
 
 
@@ -310,23 +288,6 @@ if errorlevel 1 (
     echo  [OK] Ponto de restauração criado.
     call :Log "Ponto de restauração criado."
 )
-exit /b
-
-
-:RunWinUtilConservative
-rem Perfil conservador: WinUtil Minimal.
-rem A chamada abaixo baixa a versao estavel atual e executa somente o preset.
-rem O WinUtil e voltado atualmente ao Windows 11; em Windows 10 esta etapa e ignorada.
-for /f "tokens=4-5 delims=. " %%a in ('ver') do set "WINVER=%%a.%%b"
-echo %WINVER% | find "10." >nul
-if not errorlevel 1 (
-    echo  [INFO] WinUtil atual nao oferece suporte oficial ao Windows 10. Etapa ignorada.
-    call :Log "WinUtil ignorado: Windows 10."
-    exit /b
-)
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((irm https://christitus.com/win))) -Preset Minimal"
-call :Log "WinUtil Minimal executado. Codigo: %errorlevel%"
 exit /b
 
 

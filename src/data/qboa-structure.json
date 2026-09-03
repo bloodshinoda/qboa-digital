@@ -8,22 +8,17 @@
         {
           "id": "limpeza_leve",
           "name": "Limpeza leve",
-          "desc": "Remove temporários da pasta Temp, lixeira e cache do sistema"
+          "desc": "Remove temporários, caches descartáveis, MRUs e esvazia a lixeira"
         },
         {
           "id": "limpeza_media",
           "name": "Limpeza média",
-          "desc": "Limpa arquivos de atualização e itens de cache mais pesados"
+          "desc": "Executa a limpeza padrão e também o Disk Cleanup do Windows"
         },
         {
           "id": "limpeza_pesada",
           "name": "Limpeza pesada",
-          "desc": "Perfil mais agressivo de descarte de lixo temporário e histórico"
-        },
-        {
-          "id": "limpeza_bleachbit",
-          "name": "BleachBit opcional",
-          "desc": "Fallback do BleachBit apenas se ele estiver disponível no sistema"
+          "desc": "Executa a limpeza padrão e remove temporários adicionais do sistema"
         }
       ]
     },
@@ -41,11 +36,6 @@
           "id": "desengordurar_tarefas",
           "name": "Desabilitar tarefas de diagnóstico",
           "desc": "Desativa jobs agendados de coleta e compatibilidade"
-        },
-        {
-          "id": "desengordurar_winutil",
-          "name": "Perfil conservador",
-          "desc": "Ajustes leves de performance sem depender de ferramentas externas"
         }
       ]
     },

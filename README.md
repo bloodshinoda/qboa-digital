@@ -19,7 +19,7 @@ qboa-tauri/
     ├── build.rs                ← embute o manifest de admin no .exe
     ├── qboa.manifest           ← requireAdministrator (UAC)
     ├── tauri.conf.json
-    └── src/main.rs             ← mapeia cada task_id pro comando real do Windows
+    └── src/main.rs             ← mapeia cada task_id para comandos nativos do Windows
 ```
 
 ## Setup (rodar no Windows, com Rust + Node instalados)
@@ -47,42 +47,37 @@ Windows).
 
 ## O que já está pronto
 
-- As 3 abas (Limpeza / Desengordurar / Diagnóstico) com todos os itens já
-  batizados e vindos do `qboa-structure.json`.
+- As 3 abas (Limpeza / Desengordurar / Diagnóstico) com os itens vindos do
+  `qboa-structure.json`.
 - Paleta de cores aplicada via CSS (`--qboa-green`, `--qboa-red`,
   `--rainbow`) — todos os hex agora são reais: `--qboa-green: #005930`
   (verde da garrafa), `--qboa-red: #eb070b` e o `--rainbow` extraído
   diretamente do ícone (`#f75629 → #fa2195`).
-- `src-tauri/icons/icon-source.png` já está no repo (o PNG que você mandou).
-  Falta só rodar `npm run tauri icon src-tauri/icons/icon-source.png` no
-  Windows pra gerar os tamanhos que o `tauri.conf.json` espera.
+- Os ícones exigidos pelo `tauri.conf.json` já estão em `src-tauri/icons`.
 - Painel de console na parte de baixo da janela, pra mostrar a saída dos
   comandos (mantém a pegada "terminal" mesmo numa UI gráfica).
-- `main.rs` já mapeia todo `task_id` pro comando Windows correspondente
-  (`dism`, `sfc`, `cleanmgr`, `chkdsk`, `dxdiag`, `msinfo32`, PowerShell pros
-  itens sem CLI direta).
+- `main.rs` já mapeia os `task_id` atuais para comandos nativos do Windows
+  (`dism`, `sfc`, `cleanmgr`, `systeminfo` e PowerShell).
+- Os três modos de limpeza compartilham uma limpeza padrão própria: temporários
+  do Windows, caches descartáveis de Chrome, Edge, Brave, Vivaldi, Opera e
+  Firefox, MRUs do Windows e lixeira.
+- A limpeza de navegador preserva histórico, histórico de formulários,
+  preenchimento automático, cookies, armazenamento persistente e sessão.
+- Todos os modos de limpeza também desativam a telemetria do Windows: políticas
+  de coleta, serviços DiagTrack/dmwappushservice, tarefas de diagnóstico e o
+  Recall quando disponível. O processo não reinicia o computador sozinho.
 - Manifest de UAC (`qboa.manifest`) configurado pra pedir elevação de admin
   automaticamente ao abrir o `.exe` — sem isso `dism`/`sfc`/`chkdsk` falham
   silenciosamente.
 
-## O que falta (marcado como `TODO` no `main.rs`)
+## O que falta
 
-- **Storage Sense** (`debito_automatico`), **efeitos visuais**
-  (`corte_de_gastos`), **Game Mode/Fast Startup** (`regime_especial`),
-  **telemetria** (`discricao_fiscal`) e **debloat** (`sonegacao`) não têm
-  CLI nativa simples — precisam de chamadas específicas de registro/API que
-  são as mesmas que você já usa no `.bat`/winutils atual. Copiar a lógica de
-  lá pra cá é o próximo passo natural.
-- **Windows Memory Diagnostic** (`exame_de_sanidade`) exige reboot — vale
-  tratar como um fluxo separado (avisar o usuário antes) em vez de rodar
-  direto como os outros.
+- Criar e revisar os próximos ajustes próprios de Desengordurar, sempre com
+  classificação de risco e confirmação antes de alterar configurações.
 - **Streaming de progresso**: hoje `run_task` só devolve o resultado no
   final (comandos como `dism`/`chkdsk` demoram e não mostram progresso em
   tempo real). Pra isso, trocar pra `Command::spawn()` + eventos Tauri
   (`app.emit()`) lendo stdout linha a linha.
-- **Ícones**: rode `npm run tauri icon <caminho-do-logo.png>` pra gerar os
-  ícones referenciados no `tauri.conf.json` (`icons/32x32.png`, etc.) — não
-  incluí nenhum aqui.
 - **Níveis (Express/Normal/Turbo)**: os botões já existem na UI, mas ainda
   não disparam nada — falta decidir se cada nível roda um preset de tasks em
   lote (e nessa ordem) ou só muda algum comportamento visual.
