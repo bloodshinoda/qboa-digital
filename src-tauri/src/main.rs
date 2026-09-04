@@ -252,7 +252,7 @@ foreach ($key in @(
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU',
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Map Network Drive MRU',
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery'
-) { Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue }
+)) { Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue }
 Remove-Item -Path "$env:APPDATA\Microsoft\Windows\Recent\*" -Force -ErrorAction SilentlyContinue;
 Write-Output 'Limpeza padrão concluída: temporários, caches, MRUs e lixeira.';
 "#,
@@ -313,7 +313,7 @@ $telemetryKeys = @(
   @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection', 'AllowTelemetry', 0),
   @('HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Policies\DataCollection', 'AllowTelemetry', 0),
   @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DoNotShowFeedbackNotifications', 1),
-  @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DisableTelemetryOptInChangeNotification', 1)
+    @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DisableTelemetryOptInChangeNotification', 1),
     @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DisableEnterpriseAuthProxy', 1),
     @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI', 'DisableAIDataAnalysis', 1),
     @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI', 'TurnOffWindowsCopilot', 1),
