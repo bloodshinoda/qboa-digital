@@ -119,10 +119,12 @@ impl SafetyManager {
     pub fn create_restore_point(&mut self, reason: &str) -> Result<String, String> {
         #[cfg(target_os = "windows")]
         {
-            let script=format!("Checkpoint-Computer -Description '{}' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop",reason.replace("'","''"));
+            let script = format!("Checkpoint-Computer -Description '{}' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop", reason.replace("'", "''"));
+            write_safety_log(&format!("restore-point started reason={reason}"));
             let output = Command::new("powershell")
                 .args([
                     "-NoProfile",
+                    "-NonInteractive",
                     "-ExecutionPolicy",
                     "Bypass",
                     "-Command",
@@ -131,12 +133,15 @@ impl SafetyManager {
                 .output()
                 .map_err(|e| format!("Falha ao criar ponto de restauração: {e}"))?;
             if output.status.success() {
+                write_safety_log("restore-point completed");
                 return Ok(format!("Windows Restore Point: {reason}"));
             }
-            return Err(format!(
+            let error = format!(
                 "Falha ao criar ponto de restauração: {}",
                 output_text(&output.stdout, &output.stderr)
-            ));
+            );
+            write_safety_log(&format!("restore-point failed error={error}"));
+            return Err(error);
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -329,6 +334,24 @@ impl SafetyManager {
         let state = self.execution_state.get_mut(execution_id)?;
         state.status = status.to_string();
         Some(state.clone())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn write_safety_log(message: &str) {
+    let root = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Qboa Digital")
+        .join("logs");
+    let _ = fs::create_dir_all(&root);
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(root.join("execution.log"))
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "[safety] {message}");
     }
 }
 

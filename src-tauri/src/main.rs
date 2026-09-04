@@ -5,6 +5,8 @@ mod task_registry;
 
 use serde::Serialize;
 use std::io::{BufRead, BufReader, Read};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -75,6 +77,23 @@ fn forward_output<R: Read + Send + 'static>(stream: R, sender: mpsc::Sender<Stri
     });
 }
 
+fn execution_log_path() -> std::path::PathBuf {
+    let root = std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Qboa Digital")
+        .join("logs");
+    let _ = std::fs::create_dir_all(&root);
+    root.join("execution.log")
+}
+
+fn write_execution_log(execution_id: &str, message: &str) {
+    let path = execution_log_path();
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "[{execution_id}] {message}");
+    }
+}
+
 fn run_command(
     cmd: &str,
     args: &[&str],
@@ -88,6 +107,10 @@ fn run_command(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Falha ao executar '{cmd}': {e}"))?;
+    write_execution_log(
+        execution_id,
+        &format!("started pid={} command={} args={args:?}", child.id(), cmd),
+    );
     safety_state()
         .lock()
         .unwrap()
@@ -127,14 +150,19 @@ fn run_command(
             .try_wait()
             .map_err(|e| format!("Falha ao aguardar '{cmd}': {e}"))?
         {
-            while let Ok(line) = receiver.try_recv() {
+            while let Ok(line) = receiver.recv_timeout(Duration::from_millis(100)) {
                 on_output(&line);
                 output.push_str(&line);
                 output.push('\n');
             }
+            write_execution_log(
+                execution_id,
+                &format!("finished pid={} status={status} output_bytes={}", child.id(), output.len()),
+            );
             if status.success() {
                 return Ok(output);
             }
+            write_execution_log(execution_id, &format!("failed command={cmd} output={output}"));
             return Err(format!("Comando falhou ({cmd}):\n{output}"));
         }
 
@@ -501,6 +529,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
     let execution_id_for_spawn = execution_id.clone();
 
     tauri::async_runtime::spawn(async move {
+        write_execution_log(&execution_id_for_spawn, &format!("task-started task_id={task_id_for_spawn}"));
         emit_event(
             &app_for_spawn,
             "task-started",
@@ -513,6 +542,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         );
 
         let snapshot_location = if task_for_spawn.reversible {
+            write_execution_log(&execution_id_for_spawn, "snapshot-started");
             match safety_state()
                 .lock()
                 .unwrap()
@@ -520,6 +550,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             {
                 Ok(location) => Some(location),
                 Err(error) => {
+                    write_execution_log(&execution_id_for_spawn, &format!("snapshot-failed error={error}"));
                     safety_state()
                         .lock()
                         .unwrap()
@@ -542,6 +573,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         };
 
         if task_for_spawn.creates_restore_point || task_for_spawn.risk.requires_restore_point() {
+            write_execution_log(&execution_id_for_spawn, "restore-point-phase-started");
             match safety_state()
                 .lock()
                 .unwrap()
@@ -550,6 +582,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                     task_for_spawn.name
                 )) {
                 Ok(point) => {
+                    write_execution_log(&execution_id_for_spawn, "restore-point-phase-completed");
                     emit_event(
                         &app_for_spawn,
                         "restore-point-created",
@@ -563,6 +596,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                     Some(point)
                 }
                 Err(err) => {
+                    write_execution_log(&execution_id_for_spawn, &format!("restore-point-phase-failed error={err}"));
                     emit_event(
                         &app_for_spawn,
                         "restore-point-error",
@@ -622,6 +656,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         );
         match execution {
             Ok(output) => {
+                write_execution_log(&execution_id_for_spawn, "task-executor-completed");
                 let change = safety_state().lock().unwrap().record_change(
                     &execution_id_for_spawn,
                     &task_id_for_spawn,
@@ -684,6 +719,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 let _ = change;
             }
             Err(err) => {
+                write_execution_log(&execution_id_for_spawn, &format!("task-executor-failed error={err}"));
                 let cancelled = safety_state()
                     .lock()
                     .unwrap()
