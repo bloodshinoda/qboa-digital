@@ -38,7 +38,7 @@ const Qboa = {
   },
 
   async cancelTask(taskId) {
-    return invoke("cancel_task", { taskId });
+    return invoke("cancel_task", { taskId, executionId: activeExecutionId });
   }
 };
 
@@ -211,15 +211,19 @@ function showRiskModal(item, cardEl) {
   modal.setAttribute("aria-hidden", "false");
 }
 
+function closeRiskModal() {
+  const modal = document.getElementById("risk-modal");
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  pendingTask = null;
+}
+
 async function executeTask(item, cardEl) {
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
   writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
   startActivity(item.name);
-  const modal = document.getElementById("risk-modal");
-  modal.classList.add("hidden");
-  modal.setAttribute("aria-hidden", "true");
-  pendingTask = null;
+  closeRiskModal();
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
 
   try {
@@ -363,15 +367,21 @@ async function registerEvents() {
   });
 
   document.getElementById("risk-cancel").addEventListener("click", () => {
-    const modal = document.getElementById("risk-modal");
-    modal.classList.add("hidden");
-    modal.setAttribute("aria-hidden", "true");
-    pendingTask = null;
+    closeRiskModal();
   });
 
-  document.getElementById("risk-confirm").addEventListener("click", async () => {
+  document.getElementById("risk-confirm").addEventListener("click", async (event) => {
     if (!pendingTask) return;
-    await executeTask(pendingTask.item, pendingTask.cardEl);
+    const confirmButton = event.currentTarget;
+    const task = pendingTask;
+    confirmButton.disabled = true;
+    closeRiskModal();
+    try {
+      await executeTask(task.item, task.cardEl);
+    } finally {
+      confirmButton.disabled = false;
+      closeRiskModal();
+    }
   });
 
   document.getElementById("cancel-task-btn").addEventListener("click", async () => {

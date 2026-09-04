@@ -49,6 +49,15 @@ button {
   gap: 4px;
 }
 
+.brand-logo {
+  display: block;
+  width: min(260px, 34vw);
+  height: auto;
+  max-height: 58px;
+  object-fit: contain;
+  object-position: left center;
+}
+
 .app-header h1 {
   margin: 0;
   font-size: 1.6rem;

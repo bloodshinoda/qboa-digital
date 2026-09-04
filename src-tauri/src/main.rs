@@ -67,14 +67,14 @@ fn emit_event<R: Runtime>(
     let _ = app.emit("qboa-event", payload);
 }
 
-fn forward_output<R: Read + Send + 'static>(stream: R, sender: mpsc::Sender<String>) {
+fn forward_output<R: Read + Send + 'static>(stream: R, sender: mpsc::Sender<String>) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         for line in BufReader::new(stream).lines() {
             if let Ok(line) = line {
                 let _ = sender.send(line);
             }
         }
-    });
+    })
 }
 
 fn execution_log_path() -> std::path::PathBuf {
@@ -125,8 +125,8 @@ fn run_command(
         .ok_or_else(|| format!("'{cmd}' não forneceu stderr"))?;
     let (sender, receiver) = mpsc::channel();
 
-    forward_output(stdout, sender.clone());
-    forward_output(stderr, sender.clone());
+    let stdout_thread = forward_output(stdout, sender.clone());
+    let stderr_thread = forward_output(stderr, sender.clone());
     drop(sender);
 
     let mut output = String::new();
@@ -150,7 +150,9 @@ fn run_command(
             .try_wait()
             .map_err(|e| format!("Falha ao aguardar '{cmd}': {e}"))?
         {
-            while let Ok(line) = receiver.recv_timeout(Duration::from_millis(100)) {
+            let _ = stdout_thread.join();
+            let _ = stderr_thread.join();
+            while let Ok(line) = receiver.try_recv() {
                 on_output(&line);
                 output.push_str(&line);
                 output.push('\n');
@@ -247,13 +249,8 @@ Clear-RecycleBin -Force -ErrorAction SilentlyContinue;
 foreach ($key in @(
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs',
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU',
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths',
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSavePidlMRU',
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU',
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Map Network Drive MRU',
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery'
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths'
 )) { Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue }
-Remove-Item -Path "$env:APPDATA\Microsoft\Windows\Recent\*" -Recurse -Force -Confirm:$false -ErrorAction SilentlyContinue;
 Write-Output 'Limpeza padrão concluída: temporários, caches, MRUs e lixeira.';
 "#,
         execution_id,
