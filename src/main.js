@@ -6,6 +6,11 @@ let activeSection = "limpeza";
 let activeLevel = "normal";
 let pendingTask = null;
 let activeTaskId = null;
+let activeExecutionId = null;
+let consoleBuffer = "";
+let activityLabel = "";
+let activityDots = "";
+let activityTimer = null;
 
 const Qboa = {
   async analyze() {
@@ -141,13 +146,52 @@ function renderCards() {
 }
 
 function appendConsole(message) {
-  const out = document.getElementById("console-output");
-  out.textContent = `${out.textContent}\n${message}`.trim();
+  consoleBuffer = `${consoleBuffer}\n${message}`.trim();
+  renderConsole();
 }
 
 function writeStatus(text) {
+  consoleBuffer = text;
+  renderConsole();
+}
+
+function renderConsole() {
   const out = document.getElementById("console-output");
-  out.textContent = text;
+  out.textContent = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function stopActivity() {
+  if (activityTimer) window.clearInterval(activityTimer);
+  activityTimer = null;
+  activityLabel = "";
+  activityDots = "";
+  renderConsole();
+}
+
+function startActivity(taskName) {
+  stopActivity();
+  activityLabel = `Executando ${taskName}`;
+  let dotCount = 0;
+  const update = () => {
+    activityDots = ".".repeat(dotCount % 4);
+    dotCount += 1;
+    renderConsole();
+  };
+  update();
+  activityTimer = window.setInterval(update, 500);
+}
+
+function taskSuccessMessage(taskName) {
+  return `${taskName} concluída com sucesso.`;
+}
+
+function taskDisplayName(taskId) {
+  const task = structure?.sections
+    ?.flatMap((section) => section.items)
+    .find((item) => item.id === taskId);
+  return task?.name || taskId;
 }
 
 function requiresConfirmation(item) {
@@ -168,10 +212,10 @@ function showRiskModal(item, cardEl) {
 }
 
 async function executeTask(item, cardEl) {
-  const out = document.getElementById("console-output");
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
   writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
+  startActivity(item.name);
   const modal = document.getElementById("risk-modal");
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
@@ -181,9 +225,11 @@ async function executeTask(item, cardEl) {
   try {
     const result = await Qboa.runTask(item.id, shutdownOnComplete);
     const output = result.output || "(sem saída)";
-    out.textContent += `\n${output}`;
+    activeExecutionId = result.execution_id || activeExecutionId;
+    appendConsole(output);
   } catch (err) {
-    out.textContent += `\nErro ao chamar o backend: ${err}`;
+    stopActivity();
+    appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
     activeTaskId = null;
   }
@@ -262,18 +308,32 @@ async function refreshHistory() {
 async function registerEvents() {
   const unlisten = await listen("qboa-event", (event) => {
     const payload = event.payload;
-    const output = document.getElementById("console-output");
     if (payload.event === "task-started") {
       activeTaskId = payload.task_id;
+      activeExecutionId = payload.execution_id;
+      startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
-    if (payload.message) {
-      output.textContent = `${output.textContent}\n[${payload.event}] ${payload.message}`.trim();
+
+    if (payload.event === "task-output" && payload.message) {
+      appendConsole(payload.message);
+    } else if (payload.event === "task-completed") {
+      stopActivity();
+      appendConsole(taskSuccessMessage(taskDisplayName(payload.task_id)));
+    } else if (payload.event === "task-cancelled") {
+      stopActivity();
+      appendConsole(`Tarefa ${taskDisplayName(payload.task_id)} cancelada.`);
+    } else if (payload.event === "task-error") {
+      stopActivity();
+      appendConsole(`Erro em ${taskDisplayName(payload.task_id)}: ${payload.message || "falha não especificada."}`);
+    } else if (payload.message) {
+      appendConsole(`[${payload.event}] ${payload.message}`);
     }
 
     if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
+      if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
       refreshHistory();
     }
   });
@@ -287,7 +347,7 @@ async function registerEvents() {
   renderSectionSummary();
   renderCards();
   bindLevels();
-  registerEvents();
+  await registerEvents();
   await refreshHistory();
   writeStatus("Selecione uma tarefa para executar.");
 
