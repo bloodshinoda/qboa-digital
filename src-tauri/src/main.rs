@@ -253,7 +253,7 @@ foreach ($key in @(
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Map Network Drive MRU',
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery'
 )) { Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue }
-Remove-Item -Path "$env:APPDATA\Microsoft\Windows\Recent\*" -Force -ErrorAction SilentlyContinue;
+Remove-Item -Path "$env:APPDATA\Microsoft\Windows\Recent\*" -Recurse -Force -Confirm:$false -ErrorAction SilentlyContinue;
 Write-Output 'Limpeza padrão concluída: temporários, caches, MRUs e lixeira.';
 "#,
         execution_id,
