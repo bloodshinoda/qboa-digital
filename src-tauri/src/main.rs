@@ -6,8 +6,8 @@ mod task_registry;
 use serde::Serialize;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
 
@@ -19,6 +19,7 @@ struct TaskResult {
     ok: bool,
     output: String,
     task_id: String,
+    execution_id: String,
     risk: String,
     restore_point_created: bool,
     change_id: Option<String>,
@@ -28,27 +29,33 @@ struct TaskResult {
 struct EventPayload {
     event: String,
     task_id: String,
+    execution_id: String,
     message: String,
     ok: bool,
     progress: Option<String>,
     risk: String,
 }
 
-static SESSION_STATE: std::sync::OnceLock<Mutex<Vec<String>>> = std::sync::OnceLock::new();
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
-
-fn session_state() -> &'static Mutex<Vec<String>> {
-    SESSION_STATE.get_or_init(|| Mutex::new(Vec::new()))
-}
 
 fn safety_state() -> &'static Arc<Mutex<SafetyManager>> {
     SAFETY_STATE.get_or_init(|| Arc::new(Mutex::new(SafetyManager::new())))
 }
 
-fn emit_event<R: Runtime>(app: &AppHandle<R>, event: &str, task_id: &str, message: &str, ok: bool, progress: Option<&str>, risk: &str) {
+fn emit_event<R: Runtime>(
+    app: &AppHandle<R>,
+    event: &str,
+    task_id: &str,
+    execution_id: &str,
+    message: &str,
+    ok: bool,
+    progress: Option<&str>,
+    risk: &str,
+) {
     let payload = EventPayload {
         event: event.to_string(),
         task_id: task_id.to_string(),
+        execution_id: execution_id.to_string(),
         message: message.to_string(),
         ok,
         progress: progress.map(str::to_string),
@@ -71,6 +78,7 @@ fn forward_output<R: Read + Send + 'static>(stream: R, sender: mpsc::Sender<Stri
 fn run_command(
     cmd: &str,
     args: &[&str],
+    execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
@@ -80,8 +88,18 @@ fn run_command(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Falha ao executar '{cmd}': {e}"))?;
-    let stdout = child.stdout.take().ok_or_else(|| format!("'{cmd}' não forneceu stdout"))?;
-    let stderr = child.stderr.take().ok_or_else(|| format!("'{cmd}' não forneceu stderr"))?;
+    safety_state()
+        .lock()
+        .unwrap()
+        .set_process_id(execution_id, child.id());
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("'{cmd}' não forneceu stdout"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("'{cmd}' não forneceu stderr"))?;
     let (sender, receiver) = mpsc::channel();
 
     forward_output(stdout, sender.clone());
@@ -97,12 +115,18 @@ fn run_command(
         }
 
         if is_cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("Comando cancelado: {cmd}"));
+            match terminate_process_tree(&mut child) {
+                Ok(()) => return Err(format!("Comando cancelado: {cmd}")),
+                Err(error) => {
+                    return Err(format!("Cancelamento não confirmado para {cmd}: {error}"))
+                }
+            }
         }
 
-        if let Some(status) = child.try_wait().map_err(|e| format!("Falha ao aguardar '{cmd}': {e}"))? {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|e| format!("Falha ao aguardar '{cmd}': {e}"))?
+        {
             while let Ok(line) = receiver.try_recv() {
                 on_output(&line);
                 output.push_str(&line);
@@ -118,7 +142,37 @@ fn run_command(
     }
 }
 
-fn run_powershell(script: &str, on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
+fn terminate_process_tree(child: &mut std::process::Child) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let status = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .status()
+            .map_err(|error| format!("Falha ao encerrar a árvore de processos: {error}"))?;
+        if !status.success() {
+            return Err(
+                "Não foi possível confirmar o encerramento da árvore de processos.".to_string(),
+            );
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        child
+            .kill()
+            .map_err(|error| format!("Falha ao cancelar processo: {error}"))?;
+    }
+    child
+        .wait()
+        .map_err(|error| format!("Falha ao aguardar processo cancelado: {error}"))?;
+    Ok(())
+}
+
+fn run_powershell(
+    script: &str,
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
     run_command(
         "powershell",
         &[
@@ -128,12 +182,17 @@ fn run_powershell(script: &str, on_output: &mut dyn FnMut(&str), is_cancelled: &
             "-Command",
             script,
         ],
+        execution_id,
         on_output,
         is_cancelled,
     )
 }
 
-fn cleanup_standard(on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
+fn cleanup_standard(
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
     run_powershell(
         r#"
 $ErrorActionPreference = 'SilentlyContinue';
@@ -169,12 +228,17 @@ foreach ($key in @(
 Remove-Item -Path "$env:APPDATA\Microsoft\Windows\Recent\*" -Force -ErrorAction SilentlyContinue;
 Write-Output 'Limpeza padrão concluída: temporários, caches, MRUs e lixeira.';
 "#,
+        execution_id,
         on_output,
         is_cancelled,
     )
 }
 
-fn cleanup_heavy_temp(on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
+fn cleanup_heavy_temp(
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
     run_powershell(
         r#"
 $paths = @("$env:TEMP", "$env:WINDIR\Temp", "$env:WINDIR\Minidump", "$env:WINDIR\LiveKernelReports");
@@ -182,12 +246,17 @@ foreach ($p in $paths) { if (Test-Path $p) { Get-ChildItem $p -Recurse -Force -E
 Clear-RecycleBin -Force -ErrorAction SilentlyContinue;
 Write-Output 'Limpeza pesada concluída.';
 "#,
+        execution_id,
         on_output,
         is_cancelled,
     )
 }
 
-fn cleanup_windows_update(on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
+fn cleanup_windows_update(
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
     run_powershell(
         r#"
 $ErrorActionPreference = 'SilentlyContinue';
@@ -195,12 +264,17 @@ $path = "$env:WINDIR\SoftwareDistribution\Download";
 if (Test-Path $path) { Remove-Item -Path "$path\*.tmp" -Force -ErrorAction SilentlyContinue }
 Write-Output 'Cache temporário do Windows Update processado.';
 "#,
+        execution_id,
         on_output,
         is_cancelled,
     )
 }
 
-fn disable_telemetry(on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
+fn disable_telemetry(
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
     run_powershell(
         r#"
 $ErrorActionPreference = 'SilentlyContinue';
@@ -240,21 +314,33 @@ foreach ($task in $tasks) { Disable-ScheduledTask -TaskName $task -ErrorAction S
 if ($feature -and $feature.State -eq 'Enabled') { Disable-WindowsOptionalFeature -Online -FeatureName 'Recall' -NoRestart -ErrorAction SilentlyContinue | Out-Null }
 Write-Output 'Telemetria e diagnósticos ajustados.';
 "#,
+        execution_id,
         on_output,
         is_cancelled,
     )
 }
 
-fn disable_diagnostic_tasks(on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
+fn disable_diagnostic_tasks(
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
     run_powershell(
-        r#"Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskPath -match 'Application Experience|Customer Experience Improvement Program|Autochk\\Proxy' } | Disable-ScheduledTask -ErrorAction SilentlyContinue; Write-Output 'Tarefas de diagnóstico desativadas.';"#,
+        r#"foreach ($task in @('\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser','\Microsoft\Windows\Application Experience\ProgramDataUpdater','\Microsoft\Windows\Autochk\Proxy')) { $path = [System.IO.Path]::GetDirectoryName($task) + '\'; $name = [System.IO.Path]::GetFileName($task); Disable-ScheduledTask -TaskPath $path -TaskName $name -ErrorAction Stop | Out-Null }; Write-Output 'Tarefas de diagnóstico desativadas.';"#,
+        execution_id,
         on_output,
         is_cancelled,
     )
 }
 
-fn run_system_command(command_name: &str, args: &[&str], on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
-    run_command(command_name, args, on_output, is_cancelled)
+fn run_system_command(
+    command_name: &str,
+    args: &[&str],
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    run_command(command_name, args, execution_id, on_output, is_cancelled)
 }
 
 #[cfg(target_os = "windows")]
@@ -276,33 +362,87 @@ fn resolve_task(task_id: &str) -> Option<Task> {
     registry.resolve(task_id).cloned()
 }
 
-fn execute_task(task: &Task, on_output: &mut dyn FnMut(&str), is_cancelled: &dyn Fn() -> bool) -> Result<String, String> {
+fn execute_task(
+    task: &Task,
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
     match task.id.as_str() {
-        "limpeza_leve" => cleanup_standard(on_output, is_cancelled),
+        "limpeza_leve" => cleanup_standard(execution_id, on_output, is_cancelled),
         "limpeza_media" => {
-            let part_1 = cleanup_standard(on_output, is_cancelled)?;
-            let part_2 = run_system_command("cleanmgr", &["/sagerun:1"], on_output, is_cancelled)?;
-            let part_3 = cleanup_windows_update(on_output, is_cancelled)?;
-            let part_4 = run_system_command("dism", &["/Online", "/Cleanup-Image", "/ScanHealth"], on_output, is_cancelled)?;
+            let part_1 = cleanup_standard(execution_id, on_output, is_cancelled)?;
+            let part_2 = run_system_command(
+                "cleanmgr",
+                &["/sagerun:1"],
+                execution_id,
+                on_output,
+                is_cancelled,
+            )?;
+            let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            let part_4 = run_system_command(
+                "dism",
+                &["/Online", "/Cleanup-Image", "/ScanHealth"],
+                execution_id,
+                on_output,
+                is_cancelled,
+            )?;
             Ok(format!("{part_1}\n{part_2}\n{part_3}\n{part_4}"))
         }
         "limpeza_pesada" => {
-            let part_1 = cleanup_standard(on_output, is_cancelled)?;
-            let part_2 = cleanup_heavy_temp(on_output, is_cancelled)?;
-            let part_3 = cleanup_windows_update(on_output, is_cancelled)?;
-            let part_4 = run_system_command("dism", &["/Online", "/Cleanup-Image", "/ScanHealth"], on_output, is_cancelled)?;
-            let part_5 = run_system_command("dism", &["/Online", "/Cleanup-Image", "/StartComponentCleanup"], on_output, is_cancelled)?;
-            let part_6 = run_system_command("dism", &["/Online", "/Cleanup-Image", "/RestoreHealth"], on_output, is_cancelled)?;
-            let part_7 = run_system_command("sfc", &["/scannow"], on_output, is_cancelled)?;
-            Ok(format!("{part_1}\n{part_2}\n{part_3}\n{part_4}\n{part_5}\n{part_6}\n{part_7}"))
+            let part_1 = cleanup_standard(execution_id, on_output, is_cancelled)?;
+            let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
+            let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            let part_4 = run_system_command(
+                "dism",
+                &["/Online", "/Cleanup-Image", "/ScanHealth"],
+                execution_id,
+                on_output,
+                is_cancelled,
+            )?;
+            let part_5 = run_system_command(
+                "dism",
+                &["/Online", "/Cleanup-Image", "/StartComponentCleanup"],
+                execution_id,
+                on_output,
+                is_cancelled,
+            )?;
+            let part_6 = run_system_command(
+                "dism",
+                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
+                execution_id,
+                on_output,
+                is_cancelled,
+            )?;
+            let part_7 =
+                run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
+            Ok(format!(
+                "{part_1}\n{part_2}\n{part_3}\n{part_4}\n{part_5}\n{part_6}\n{part_7}"
+            ))
         }
-        "desengordurar_telemetria" => disable_telemetry(on_output, is_cancelled),
-        "desengordurar_tarefas" => disable_diagnostic_tasks(on_output, is_cancelled),
-        "limpeza_windows_update" => cleanup_windows_update(on_output, is_cancelled),
-        "diagnostico_dism_scan" => run_system_command("dism", &["/Online", "/Cleanup-Image", "/ScanHealth"], on_output, is_cancelled),
-        "diagnostico_dism_restore" => run_system_command("dism", &["/Online", "/Cleanup-Image", "/RestoreHealth"], on_output, is_cancelled),
-        "diagnostico_sfc" => run_system_command("sfc", &["/scannow"], on_output, is_cancelled),
-        "diagnostico_informacoes" => run_system_command("systeminfo", &[], on_output, is_cancelled),
+        "desengordurar_telemetria" => disable_telemetry(execution_id, on_output, is_cancelled),
+        "desengordurar_tarefas" => disable_diagnostic_tasks(execution_id, on_output, is_cancelled),
+        "limpeza_windows_update" => cleanup_windows_update(execution_id, on_output, is_cancelled),
+        "diagnostico_dism_scan" => run_system_command(
+            "dism",
+            &["/Online", "/Cleanup-Image", "/ScanHealth"],
+            execution_id,
+            on_output,
+            is_cancelled,
+        ),
+        "diagnostico_dism_restore" => run_system_command(
+            "dism",
+            &["/Online", "/Cleanup-Image", "/RestoreHealth"],
+            execution_id,
+            on_output,
+            is_cancelled,
+        ),
+        "diagnostico_sfc" => {
+            run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)
+        }
+        "diagnostico_informacoes" => {
+            run_system_command("systeminfo", &[], execution_id, on_output, is_cancelled)
+        }
         _ => Err(format!("Task não implementada: {}", task.id)),
     }
 }
@@ -317,27 +457,35 @@ async fn get_tasks() -> Result<Vec<Task>, String> {
 }
 
 #[tauri::command]
-async fn run_task(app: AppHandle, task_id: String, shutdown_on_complete: bool) -> Result<TaskResult, String> {
+async fn run_task(
+    app: AppHandle,
+    task_id: String,
+    shutdown_on_complete: bool,
+) -> Result<TaskResult, String> {
     let registry = TaskRegistry::new();
-    let task = registry.resolve(&task_id).cloned().ok_or_else(|| format!("Task desconhecida: {task_id}"))?;
-    let result = task_result(&task);
-    start_task(app, task, shutdown_on_complete);
+    let task = registry
+        .resolve(&task_id)
+        .cloned()
+        .ok_or_else(|| format!("Task desconhecida: {task_id}"))?;
+    let execution = start_task(app, task.clone(), shutdown_on_complete);
+    let result = task_result(&task, &execution.execution_id);
     Ok(result)
 }
 
-fn task_result(task: &Task) -> TaskResult {
+fn task_result(task: &Task, execution_id: &str) -> TaskResult {
     let task_risk = task_risk_label(task).to_string();
     TaskResult {
         ok: true,
         output: format!("Task iniciada: {}", task.name),
         task_id: task.id.clone(),
+        execution_id: execution_id.to_string(),
         risk: task_risk,
         restore_point_created: task.creates_restore_point || task.risk.requires_restore_point(),
         change_id: None,
     }
 }
 
-fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) {
+fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety::ExecutionHandle {
     let task_id_for_spawn = task.id.clone();
     let app_for_spawn = app.clone();
     let task_name = task.name.clone();
@@ -345,25 +493,86 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) {
     let task_for_spawn = task.clone();
     let task_risk_for_spawn = task_risk.clone();
 
-    let execution = safety_state().lock().unwrap().register_execution(&task_id_for_spawn);
-    let execution_cancelled = execution.cancelled;
+    let execution = safety_state()
+        .lock()
+        .unwrap()
+        .register_execution(&task_id_for_spawn);
+    let execution_id = execution.execution_id.clone();
+    let execution_id_for_spawn = execution_id.clone();
 
     tauri::async_runtime::spawn(async move {
-        emit_event(&app_for_spawn, "task-started", &task_id_for_spawn, &task_name, true, None, &task_risk_for_spawn);
+        emit_event(
+            &app_for_spawn,
+            "task-started",
+            &task_id_for_spawn,
+            &execution_id_for_spawn,
+            &task_name,
+            true,
+            None,
+            &task_risk_for_spawn,
+        );
 
-        if execution_cancelled {
-            emit_event(&app_for_spawn, "task-cancelled", &task_id_for_spawn, "Tarefa cancelada antes da execução.", false, Some("cancelled"), &task_risk_for_spawn);
-            return;
-        }
+        let snapshot_location = if task_for_spawn.reversible {
+            match safety_state()
+                .lock()
+                .unwrap()
+                .capture_snapshot(&task_for_spawn.id)
+            {
+                Ok(location) => Some(location),
+                Err(error) => {
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .finish_execution(&execution_id_for_spawn, "failed");
+                    emit_event(
+                        &app_for_spawn,
+                        "task-error",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        &error,
+                        false,
+                        None,
+                        &task_risk_for_spawn,
+                    );
+                    return;
+                }
+            }
+        } else {
+            None
+        };
 
-        let restore_point = if task_for_spawn.creates_restore_point || task_for_spawn.risk.requires_restore_point() {
-            match safety_state().lock().unwrap().create_restore_point(&format!("Qboa Digital — Antes da tarefa: {}", task_for_spawn.name)) {
+        if task_for_spawn.creates_restore_point || task_for_spawn.risk.requires_restore_point() {
+            match safety_state()
+                .lock()
+                .unwrap()
+                .create_restore_point(&format!(
+                    "Qboa Digital — Antes da tarefa: {}",
+                    task_for_spawn.name
+                )) {
                 Ok(point) => {
-                    emit_event(&app_for_spawn, "restore-point-created", &task_id_for_spawn, &point, true, Some("100%"), &task_risk_for_spawn);
+                    emit_event(
+                        &app_for_spawn,
+                        "restore-point-created",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        &point,
+                        true,
+                        Some("100%"),
+                        &task_risk_for_spawn,
+                    );
                     Some(point)
                 }
                 Err(err) => {
-                    emit_event(&app_for_spawn, "restore-point-error", &task_id_for_spawn, &err, false, None, &task_risk_for_spawn);
+                    emit_event(
+                        &app_for_spawn,
+                        "restore-point-error",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        &err,
+                        false,
+                        None,
+                        &task_risk_for_spawn,
+                    );
                     None
                 }
             }
@@ -371,68 +580,211 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) {
             None
         };
 
-        emit_event(&app_for_spawn, "task-progress", &task_id_for_spawn, "Preparando execução e monitorando riscos.", true, Some("30%"), &task_risk_for_spawn);
+        emit_event(
+            &app_for_spawn,
+            "task-progress",
+            &task_id_for_spawn,
+            &execution_id_for_spawn,
+            "Preparando execução e monitorando riscos.",
+            true,
+            Some("30%"),
+            &task_risk_for_spawn,
+        );
 
         let app_for_output = app_for_spawn.clone();
         let task_id_for_output = task_id_for_spawn.clone();
+        let execution_id_for_output = execution_id_for_spawn.clone();
         let task_risk_for_output = task_risk_for_spawn.clone();
         let mut on_output = move |line: &str| {
-            emit_event(&app_for_output, "task-output", &task_id_for_output, line, true, Some("running"), &task_risk_for_output);
+            emit_event(
+                &app_for_output,
+                "task-output",
+                &task_id_for_output,
+                &execution_id_for_output,
+                line,
+                true,
+                Some("running"),
+                &task_risk_for_output,
+            );
         };
-        let task_id_for_cancel = task_id_for_spawn.clone();
-        let is_cancelled = move || safety_state().lock().unwrap().is_cancelled(&task_id_for_cancel);
-        let execution = execute_task(&task_for_spawn, &mut on_output, &is_cancelled);
+        let execution_id_for_cancel = execution_id_for_spawn.clone();
+        let is_cancelled = move || {
+            safety_state()
+                .lock()
+                .unwrap()
+                .is_cancelled(&execution_id_for_cancel)
+        };
+        let execution = execute_task(
+            &task_for_spawn,
+            &execution_id_for_spawn,
+            &mut on_output,
+            &is_cancelled,
+        );
         match execution {
             Ok(output) => {
-                let serialized = serde_json::to_string(&output).unwrap_or_else(|_| output.clone());
                 let change = safety_state().lock().unwrap().record_change(
+                    &execution_id_for_spawn,
                     &task_id_for_spawn,
                     &task_name,
                     task.reversible,
-                    restore_point.as_deref(),
-                    "aplicada",
+                    snapshot_location.as_deref(),
+                    "completed",
                 );
 
-                session_state().lock().unwrap().push(change.id.clone());
-                safety_state().lock().unwrap().finish_execution(&task_id_for_spawn, "completed");
-                emit_event(&app_for_spawn, "task-output", &task_id_for_spawn, &output, true, Some("100%"), &task_risk_for_spawn);
-                emit_event(&app_for_spawn, "task-completed", &task_id_for_spawn, &format!("Tarefa concluída: {}", task_name), true, Some("100%"), &task_risk_for_spawn);
+                safety_state()
+                    .lock()
+                    .unwrap()
+                    .finish_execution(&execution_id_for_spawn, "completed");
+                emit_event(
+                    &app_for_spawn,
+                    "task-output",
+                    &task_id_for_spawn,
+                    &execution_id_for_spawn,
+                    &output,
+                    true,
+                    Some("100%"),
+                    &task_risk_for_spawn,
+                );
+                emit_event(
+                    &app_for_spawn,
+                    "task-completed",
+                    &task_id_for_spawn,
+                    &execution_id_for_spawn,
+                    &format!("Tarefa concluída: {}", task_name),
+                    true,
+                    Some("100%"),
+                    &task_risk_for_spawn,
+                );
 
                 if shutdown_on_complete {
                     match schedule_shutdown() {
-                        Ok(()) => emit_event(&app_for_spawn, "shutdown-scheduled", &task_id_for_spawn, "Desligamento agendado para daqui a 30 segundos.", true, Some("100%"), &task_risk_for_spawn),
-                        Err(error) => emit_event(&app_for_spawn, "shutdown-error", &task_id_for_spawn, &error, false, None, &task_risk_for_spawn),
+                        Ok(()) => emit_event(
+                            &app_for_spawn,
+                            "shutdown-scheduled",
+                            &task_id_for_spawn,
+                            &execution_id_for_spawn,
+                            "Desligamento agendado para daqui a 30 segundos.",
+                            true,
+                            Some("100%"),
+                            &task_risk_for_spawn,
+                        ),
+                        Err(error) => emit_event(
+                            &app_for_spawn,
+                            "shutdown-error",
+                            &task_id_for_spawn,
+                            &execution_id_for_spawn,
+                            &error,
+                            false,
+                            None,
+                            &task_risk_for_spawn,
+                        ),
                     }
                 }
 
-                if task.reversible {
-                    let _ = app_for_spawn.emit("qboa-backup-created", serde_json::json!({"task_id": task_id_for_spawn, "backup": serialized, "change_id": change.id }));
-                }
+                let _ = change;
             }
             Err(err) => {
-                let cancelled = safety_state().lock().unwrap().is_cancelled(&task_id_for_spawn);
-                safety_state().lock().unwrap().finish_execution(&task_id_for_spawn, if cancelled { "cancelled" } else { "failed" });
-                emit_event(&app_for_spawn, if cancelled { "task-cancelled" } else { "task-error" }, &task_id_for_spawn, &err, false, None, &task_risk_for_spawn);
+                let cancelled = safety_state()
+                    .lock()
+                    .unwrap()
+                    .is_cancelled(&execution_id_for_spawn);
+                if cancelled && !err.starts_with("Cancelamento não confirmado") {
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .finish_execution(&execution_id_for_spawn, "cancelled");
+                    emit_event(
+                        &app_for_spawn,
+                        "task-cancelled",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        &err,
+                        false,
+                        None,
+                        &task_risk_for_spawn,
+                    );
+                } else {
+                    let failed_change = safety_state().lock().unwrap().record_change(
+                        &execution_id_for_spawn,
+                        &task_id_for_spawn,
+                        &task_name,
+                        task.reversible,
+                        snapshot_location.as_deref(),
+                        "failed",
+                    );
+                    let final_status = if task.rollback_on_failure && task.reversible {
+                        let rollback_result = safety_state()
+                            .lock()
+                            .unwrap()
+                            .rollback_task(&failed_change.id);
+                        match rollback_result {
+                            Ok(_) => "failed_and_rolled_back",
+                            Err(_) => match safety_state()
+                                .lock()
+                                .unwrap()
+                                .rollback_status(&failed_change.id)
+                            {
+                                Some(safety::RollbackStatus::RollbackPartial) => {
+                                    "failed_rollback_partial"
+                                }
+                                _ => "failed_rollback_error",
+                            },
+                        }
+                    } else {
+                        "failed"
+                    };
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .update_change_result(&failed_change.id, final_status);
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .finish_execution(&execution_id_for_spawn, final_status);
+                    emit_event(
+                        &app_for_spawn,
+                        "task-error",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        &format!("{err} ({final_status})"),
+                        false,
+                        None,
+                        &task_risk_for_spawn,
+                    );
+                }
             }
         }
     });
-
+    execution
 }
 
 #[tauri::command]
-async fn cancel_task(task_id: String) -> Result<String, String> {
+async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<String, String> {
     let mut safety = safety_state().lock().unwrap();
-    if safety.cancel_execution(&task_id) {
-        Ok(format!("Tarefa marcada como cancelada: {task_id}"))
+    let execution_id = execution_id
+        .or_else(|| safety.execution_for_task(&task_id))
+        .ok_or_else(|| {
+            format!("Execution ID obrigatório quando há mais de uma execução: {task_id}")
+        })?;
+    if safety.cancel_execution(&execution_id) {
+        Ok(format!(
+            "Tarefa marcada como cancelando: {task_id} ({execution_id})"
+        ))
     } else {
-        Err(format!("Tarefa não encontrada para cancelamento: {task_id}"))
+        Err(format!(
+            "Tarefa não encontrada para cancelamento: {task_id}"
+        ))
     }
 }
 
 #[tauri::command]
 async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, String> {
     let registry = TaskRegistry::new();
-    let tasks: Vec<Task> = registry.preset_tasks(&preset_id).into_iter().cloned().collect();
+    let tasks: Vec<Task> = registry
+        .preset_tasks(&preset_id)
+        .into_iter()
+        .cloned()
+        .collect();
     let ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
     if tasks.is_empty() {
         return Err(format!("Preset desconhecido ou vazio: {preset_id}"));
@@ -458,7 +810,7 @@ async fn create_restore_point() -> Result<String, String> {
 #[tauri::command]
 async fn rollback_session() -> Result<Vec<String>, String> {
     let mut safety = safety_state().lock().unwrap();
-    safety.rollback_session()
+    safety.rollback_session(None)
 }
 
 #[tauri::command]
