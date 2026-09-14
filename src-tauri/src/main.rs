@@ -594,6 +594,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 }
                 Err(err) => {
                     write_execution_log(&execution_id_for_spawn, &format!("restore-point-phase-failed error={err}"));
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .finish_execution(&execution_id_for_spawn, "failed");
                     emit_event(
                         &app_for_spawn,
                         "restore-point-error",
@@ -604,7 +608,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                         None,
                         &task_risk_for_spawn,
                     );
-                    None
+                    return;
                 }
             }
         } else {
