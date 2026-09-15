@@ -4,6 +4,8 @@
 
 Versão atual: `0.9.0`
 
+[![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
+
 ## Arquitetura
 
 Qboa Digital é um utilitário de manutenção do Windows desenvolvido com Tauri, Rust, HTML, CSS e JavaScript puro. O aplicativo segue uma arquitetura pequena em camadas:
