@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -77,6 +78,7 @@ pub struct SafetyManager {
     pub backup_root: PathBuf,
     pub changes: Vec<ChangeRecord>,
     pub execution_state: HashMap<String, ExecutionState>,
+    journal_path: PathBuf,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExecutionState {
@@ -103,18 +105,114 @@ impl ExecutionHandle {
 impl Default for SafetyManager {
     fn default() -> Self {
         let root = std::env::temp_dir().join("qboa-digital").join("snapshots");
+        let journal_path = default_journal_path();
         let _ = fs::create_dir_all(&root);
-        Self {
+
+        let mut manager = Self {
             backup_root: root,
             changes: Vec::new(),
             execution_state: HashMap::new(),
-        }
+            journal_path,
+        };
+        manager.load_journal();
+        manager
     }
 }
 
 impl SafetyManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[cfg(test)]
+    fn with_journal_path(path: PathBuf) -> Self {
+        let root = std::env::temp_dir().join("qboa-digital").join("snapshots");
+        let mut manager = Self {
+            backup_root: root,
+            changes: Vec::new(),
+            execution_state: HashMap::new(),
+            journal_path: path,
+        };
+        manager.load_journal();
+        manager
+    }
+
+    fn load_journal(&mut self) {
+        if !self.journal_path.exists() {
+            return;
+        }
+
+        let data = match fs::read_to_string(&self.journal_path) {
+            Ok(data) => data,
+            Err(error) => {
+                write_safety_log(&format!(
+                    "journal load failed path={} error={error}",
+                    self.journal_path.display()
+                ));
+                return;
+            }
+        };
+
+        match serde_json::from_str::<Vec<ChangeRecord>>(&data) {
+            Ok(changes) => {
+                let mut unique = HashMap::new();
+                for change in changes {
+                    unique.insert(change.id.clone(), change);
+                }
+                self.changes = unique.into_values().collect();
+                self.changes
+                    .sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
+            }
+            Err(error) => {
+                let corrupt_path = self
+                    .journal_path
+                    .with_extension(format!("corrupt-{}", unique_id()));
+                let renamed = fs::rename(&self.journal_path, &corrupt_path).is_ok();
+                write_safety_log(&format!(
+                    "journal invalid path={} error={error} recovery_file={} renamed={renamed}",
+                    self.journal_path.display(),
+                    corrupt_path.display()
+                ));
+                self.changes.clear();
+            }
+        }
+    }
+
+    fn persist_journal(&self) -> Result<(), String> {
+        let parent = self
+            .journal_path
+            .parent()
+            .ok_or_else(|| "Caminho do journal sem diretório pai.".to_string())?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Falha ao criar diretório do journal: {e}"))?;
+
+        let data = serde_json::to_vec_pretty(&self.changes)
+            .map_err(|e| format!("Falha ao serializar journal: {e}"))?;
+
+        let temp_path = self.journal_path.with_extension(format!("tmp-{}", unique_id()));
+        {
+            let mut file = fs::File::create(&temp_path)
+                .map_err(|e| format!("Falha ao criar journal temporário: {e}"))?;
+            file.write_all(&data)
+                .map_err(|e| format!("Falha ao gravar journal temporário: {e}"))?;
+            file.sync_all()
+                .map_err(|e| format!("Falha ao sincronizar journal temporário: {e}"))?;
+        }
+
+        if let Err(error) = replace_file_atomically(&temp_path, &self.journal_path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
+    fn persist_after_change(&self, operation: &str) {
+        if let Err(error) = self.persist_journal() {
+            write_safety_log(&format!(
+                "journal persist failed operation={operation} error={error}"
+            ));
+        }
     }
     pub fn create_restore_point(&mut self, reason: &str) -> Result<String, String> {
         #[cfg(target_os = "windows")]
@@ -201,6 +299,7 @@ impl SafetyManager {
             result: result.to_string(),
         };
         self.changes.push(change.clone());
+        self.persist_after_change("record_change");
         change
     }
     pub fn rollback_task(&mut self, change_id: &str) -> Result<String, String> {
@@ -217,16 +316,20 @@ impl SafetyManager {
             return Err("Rollback já concluído.".to_string());
         }
         self.changes[index].rollback_status = RollbackStatus::RollingBack;
+        self.persist_after_change("rollback_started");
+
         let location = match change.backup_location.clone() {
             Some(location) => location,
             None => {
                 self.changes[index].rollback_status = RollbackStatus::RollbackFailed;
+                self.persist_after_change("rollback_failed_without_snapshot");
                 return Err("Rollback sem snapshot.".to_string());
             }
         };
         match restore_snapshot(&location, &change.task_id) {
             Ok(message) => {
                 self.changes[index].rollback_status = RollbackStatus::RolledBack;
+                self.persist_after_change("rollback_completed");
                 Ok(message)
             }
             Err(error) => {
@@ -235,6 +338,7 @@ impl SafetyManager {
                 } else {
                     RollbackStatus::RollbackFailed
                 };
+                self.persist_after_change("rollback_failed");
                 Err(error)
             }
         }
@@ -247,11 +351,39 @@ impl SafetyManager {
             .filter(|c| execution_id.map(|id| id == c.execution_id).unwrap_or(true))
             .map(|c| c.id.clone())
             .collect();
+
         let mut result = Vec::new();
+        let mut failures = Vec::new();
+
         for id in ids {
-            result.push(self.rollback_task(&id)?)
+            let Some(change) = self.changes.iter().find(|change| change.id == id).cloned() else {
+                failures.push(format!("{id}: alteração não encontrada"));
+                continue;
+            };
+
+            if !change.reversible {
+                result.push(format!(
+                    "Ignorada alteração irreversível: {}",
+                    change.description
+                ));
+                continue;
+            }
+
+            match self.rollback_task(&id) {
+                Ok(message) => result.push(message),
+                Err(error) => failures.push(format!("{}: {error}", change.description)),
+            }
         }
-        Ok(result)
+
+        if failures.is_empty() {
+            Ok(result)
+        } else {
+            Err(format!(
+                "Rollback da sessão concluído com falhas ({}): {}",
+                failures.len(),
+                failures.join(" | ")
+            ))
+        }
     }
     pub fn journal(&self) -> Vec<ChangeRecord> {
         self.changes.clone()
@@ -269,6 +401,7 @@ impl SafetyManager {
             .find(|change| change.id == change_id)
         {
             change.result = result.to_string();
+            self.persist_after_change("update_change_result");
         }
     }
     pub fn register_execution(&mut self, task_id: &str) -> ExecutionHandle {
@@ -337,7 +470,6 @@ impl SafetyManager {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn write_safety_log(message: &str) {
     let root = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -457,6 +589,39 @@ fn output_text(stdout: &[u8], stderr: &[u8]) -> String {
     .trim()
     .to_string()
 }
+fn default_journal_path() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("Qboa Digital")
+            .join("journal")
+            .join("changes.json")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::temp_dir()
+            .join("qboa-digital")
+            .join("journal")
+            .join("changes.json")
+    }
+}
+
+fn replace_file_atomically(temp_path: &Path, destination: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        if destination.exists() {
+            fs::remove_file(destination)
+                .map_err(|e| format!("Falha ao substituir journal existente: {e}"))?;
+        }
+    }
+
+    fs::rename(temp_path, destination)
+        .map_err(|e| format!("Falha ao finalizar journal atômico: {e}"))
+}
+
 fn unique_id() -> String {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -469,7 +634,33 @@ fn unique_id() -> String {
     )
 }
 fn iso_timestamp() -> String {
-    unique_id()
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let days = seconds.div_euclid(86_400);
+    let day_seconds = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let hour = day_seconds / 3_600;
+    let minute = (day_seconds % 3_600) / 60;
+    let second = day_seconds % 60;
+
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096).div_euclid(365);
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2).div_euclid(153);
+    let d = doy - (153 * mp + 2).div_euclid(5) + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let y = y + if m <= 2 { 1 } else { 0 };
+    (y, m, d)
 }
 
 #[cfg(test)]
@@ -600,6 +791,109 @@ mod tests {
         assert!(manager.is_cancelled(&first.execution_id));
         assert!(!manager.is_cancelled(&second.execution_id))
     }
+    #[test]
+    fn timestamp_is_rfc3339_utc() {
+        let timestamp = iso_timestamp();
+        assert!(timestamp.ends_with('Z'));
+        assert_eq!(timestamp.len(), 20);
+        assert_eq!(&timestamp[4..5], "-");
+        assert_eq!(&timestamp[7..8], "-");
+        assert_eq!(&timestamp[10..11], "T");
+        assert_eq!(&timestamp[13..14], ":");
+        assert_eq!(&timestamp[16..17], ":");
+    }
+
+    #[test]
+    fn journal_round_trip_uses_persistent_file() {
+        let path = std::env::temp_dir().join(format!("qboa-journal-test-{}.json", unique_id()));
+        let mut manager = SafetyManager::with_journal_path(path.clone());
+        let change = manager.record_change(
+            "exec-roundtrip",
+            "desengordurar_telemetria",
+            "roundtrip",
+            true,
+            None,
+            "applied",
+        );
+
+        let restored = SafetyManager::with_journal_path(path.clone());
+        assert_eq!(restored.changes, vec![change]);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn journal_persists_result_and_rollback_status() {
+        let path = std::env::temp_dir().join(format!("qboa-journal-status-{}.json", unique_id()));
+        let mut manager = SafetyManager::with_journal_path(path.clone());
+        let change = manager.record_change(
+            "exec-status",
+            "desengordurar_telemetria",
+            "status",
+            true,
+            None,
+            "applied",
+        );
+
+        manager.update_change_result(&change.id, "updated");
+        manager.changes[0].rollback_status = RollbackStatus::RollbackPartial;
+        manager.persist_after_change("test_status");
+
+        let restored = SafetyManager::with_journal_path(path.clone());
+        assert_eq!(restored.changes[0].result, "updated");
+        assert_eq!(
+            restored.changes[0].rollback_status,
+            RollbackStatus::RollbackPartial
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rollback_session_attempts_all_changes_in_reverse_order() {
+        let path = std::env::temp_dir().join(format!("qboa-journal-session-{}.json", unique_id()));
+        let mut manager = SafetyManager::with_journal_path(path.clone());
+
+        let first = manager.record_change(
+            "exec-session",
+            "desengordurar_telemetria",
+            "first",
+            true,
+            None,
+            "applied",
+        );
+        let second = manager.record_change(
+            "exec-session",
+            "desengordurar_telemetria",
+            "second",
+            true,
+            None,
+            "applied",
+        );
+        let third = manager.record_change(
+            "exec-session",
+            "desengordurar_telemetria",
+            "third",
+            true,
+            None,
+            "applied",
+        );
+
+        let error = manager.rollback_session(Some("exec-session")).unwrap_err();
+        assert!(error.contains("third"));
+        assert!(error.contains("second"));
+        assert!(error.contains("first"));
+
+        for change in [&first, &second, &third] {
+            assert_eq!(
+                manager.rollback_status(&change.id),
+                Some(RollbackStatus::RollbackFailed)
+            );
+        }
+
+        let _ = fs::remove_file(path);
+    }
+
     #[test]
     fn rollback_strategy_is_allowlisted() {
         assert!(known_strategy("desengordurar_telemetria").is_some());
