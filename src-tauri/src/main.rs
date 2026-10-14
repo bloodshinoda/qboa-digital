@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod cleanup_findings;
 mod registry_executor;
 mod safety;
 mod task_registry;
@@ -1029,6 +1030,18 @@ async fn get_session_history() -> Result<Vec<safety::ChangeRecord>, String> {
     Ok(safety_state().lock().unwrap().journal())
 }
 
+#[tauri::command]
+async fn get_cleanup_findings() -> Result<Vec<cleanup_findings::CleanupFinding>, String> {
+    let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
+    cleanup_findings::detect(&mut backend)
+}
+
+#[tauri::command]
+async fn delete_cleanup_finding(finding_id: String, confirmed: bool) -> Result<(), String> {
+    let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
+    cleanup_findings::delete_by_id(&mut backend, &finding_id, confirmed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1056,7 +1069,9 @@ fn main() {
             run_preset,
             create_restore_point,
             rollback_session,
-            get_session_history
+            get_session_history,
+            get_cleanup_findings,
+            delete_cleanup_finding
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o Qboa Digital");

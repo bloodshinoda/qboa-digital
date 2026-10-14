@@ -29,6 +29,14 @@ const Qboa = {
     return invoke("get_session_history");
   },
 
+  async getCleanupFindings() {
+    return invoke("get_cleanup_findings");
+  },
+
+  async deleteCleanupFinding(findingId) {
+    return invoke("delete_cleanup_finding", { findingId, confirmed: true });
+  },
+
   async createRestorePoint() {
     return invoke("create_restore_point");
   },
@@ -309,6 +317,76 @@ async function refreshHistory() {
   }
 }
 
+function findingCategoryLabel(category) {
+  return {
+    broken_shortcut: "Atalho quebrado",
+    invalid_association: "Associação inválida",
+    orphan_uninstall: "Desinstalação órfã"
+  }[category] || "Achado";
+}
+
+function findingRiskLabel(risk) {
+  return {
+    low: "Baixo",
+    moderate: "Moderado",
+    high: "Alto"
+  }[risk] || risk;
+}
+
+function findingProfileLabels(profiles) {
+  return profiles.map((profile) => ({
+    basic: "Básico",
+    complete: "Completo",
+    deep: "Profundo"
+  }[profile] || profile)).join(", ");
+}
+
+async function refreshCleanupFindings() {
+  const list = document.getElementById("cleanup-findings");
+  list.replaceChildren();
+  const findings = await Qboa.getCleanupFindings();
+  if (!findings.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "Nenhum problema encontrado.";
+    list.appendChild(empty);
+    return;
+  }
+
+  findings.forEach((finding) => {
+    const item = document.createElement("li");
+    item.className = "cleanup-finding";
+    const details = document.createElement("div");
+    const heading = document.createElement("strong");
+    heading.textContent = `${findingCategoryLabel(finding.category)} · ${findingRiskLabel(finding.risk)}`;
+    const path = document.createElement("p");
+    path.textContent = finding.path;
+    const reason = document.createElement("p");
+    reason.textContent = finding.reason;
+    const profiles = document.createElement("small");
+    profiles.textContent = `Perfis: ${findingProfileLabels(finding.profiles)}`;
+    details.append(heading, path, reason, profiles);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Excluir";
+    remove.addEventListener("click", async () => {
+      if (!finding.id || !window.confirm(`Excluir este achado?\n${finding.path}`)) return;
+      remove.disabled = true;
+      try {
+        await Qboa.deleteCleanupFinding(finding.id);
+        await refreshCleanupFindings();
+        appendConsole("Achado excluído.");
+      } catch (error) {
+        remove.disabled = false;
+        appendConsole(String(error));
+      }
+    });
+
+    item.append(details, remove);
+    list.appendChild(item);
+  });
+}
+
 async function registerEvents() {
   const unlisten = await listen("qboa-event", (event) => {
     const payload = event.payload;
@@ -395,6 +473,19 @@ async function registerEvents() {
       appendConsole(result);
     } catch (error) {
       appendConsole(String(error));
+    }
+  });
+
+  document.getElementById("detect-cleanup-btn").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await refreshCleanupFindings();
+      appendConsole("Verificação concluída.");
+    } catch (error) {
+      appendConsole(String(error));
+    } finally {
+      button.disabled = false;
     }
   });
 })();

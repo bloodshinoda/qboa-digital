@@ -277,6 +277,31 @@ button {
   gap: 6px;
 }
 
+.cleanup-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cleanup-finding {
+  align-items: flex-start;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding-top: 10px;
+}
+
+.cleanup-finding p,
+.cleanup-finding small {
+  display: block;
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
