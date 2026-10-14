@@ -9,6 +9,49 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegistryExistence {
+    Absent,
+    Present,
+}
+
+impl Serialize for RegistryExistence {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bool(matches!(self, Self::Present))
+    }
+}
+
+impl<'de> Deserialize<'de> for RegistryExistence {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum LegacyExistence {
+            Bool(bool),
+            Name(String),
+        }
+
+        match LegacyExistence::deserialize(deserializer)? {
+            LegacyExistence::Bool(true) => Ok(Self::Present),
+            LegacyExistence::Bool(false) => Ok(Self::Absent),
+            LegacyExistence::Name(value) if value.eq_ignore_ascii_case("present") => {
+                Ok(Self::Present)
+            }
+            LegacyExistence::Name(value) if value.eq_ignore_ascii_case("absent") => {
+                Ok(Self::Absent)
+            }
+            LegacyExistence::Name(value) => Err(serde::de::Error::custom(format!(
+                "Estado de existência do Registro inválido: {value}"
+            ))),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RollbackStatus {
     Pending,
@@ -27,7 +70,8 @@ pub struct RegistrySnapshot {
     pub hive: String,
     pub path: String,
     pub value_name: String,
-    pub exists: bool,
+    #[serde(rename = "exists", alias = "existence")]
+    pub existence: RegistryExistence,
     pub value_type: Option<String>,
     pub value: Option<serde_json::Value>,
 }
@@ -71,6 +115,12 @@ pub struct ChangeRecord {
     pub reversible: bool,
     pub rollback_status: RollbackStatus,
     pub result: String,
+}
+
+#[derive(Debug)]
+pub struct RecordChangeError {
+    pub change: ChangeRecord,
+    pub error: String,
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +175,7 @@ impl SafetyManager {
     }
 
     #[cfg(test)]
-    fn with_journal_path(path: PathBuf) -> Self {
+    pub(crate) fn with_journal_path(path: PathBuf) -> Self {
         let root = std::env::temp_dir().join("qboa-digital").join("snapshots");
         let mut manager = Self {
             backup_root: root,
@@ -189,7 +239,9 @@ impl SafetyManager {
         let data = serde_json::to_vec_pretty(&self.changes)
             .map_err(|e| format!("Falha ao serializar journal: {e}"))?;
 
-        let temp_path = self.journal_path.with_extension(format!("tmp-{}", unique_id()));
+        let temp_path = self
+            .journal_path
+            .with_extension(format!("tmp-{}", unique_id()));
         {
             let mut file = fs::File::create(&temp_path)
                 .map_err(|e| format!("Falha ao criar journal temporário: {e}"))?;
@@ -207,12 +259,13 @@ impl SafetyManager {
         Ok(())
     }
 
-    fn persist_after_change(&self, operation: &str) {
-        if let Err(error) = self.persist_journal() {
+    fn persist_after_change(&self, operation: &str) -> Result<(), String> {
+        self.persist_journal().map_err(|error| {
             write_safety_log(&format!(
                 "journal persist failed operation={operation} error={error}"
             ));
-        }
+            error
+        })
     }
     pub fn create_restore_point(&mut self, reason: &str) -> Result<String, String> {
         #[cfg(target_os = "windows")]
@@ -274,6 +327,7 @@ impl SafetyManager {
             Err("Snapshots do Windows só estão disponíveis no Windows.".to_string())
         }
     }
+
     pub fn record_change(
         &mut self,
         execution_id: &str,
@@ -282,7 +336,7 @@ impl SafetyManager {
         reversible: bool,
         snapshot: Option<&str>,
         result: &str,
-    ) -> ChangeRecord {
+    ) -> Result<ChangeRecord, RecordChangeError> {
         let change = ChangeRecord {
             id: format!("change-{}", unique_id()),
             execution_id: execution_id.to_string(),
@@ -299,10 +353,24 @@ impl SafetyManager {
             result: result.to_string(),
         };
         self.changes.push(change.clone());
-        self.persist_after_change("record_change");
-        change
+        if let Err(error) = self.persist_after_change("record_change") {
+            self.changes.retain(|record| record.id != change.id);
+            return Err(RecordChangeError { change, error });
+        }
+        Ok(change)
     }
     pub fn rollback_task(&mut self, change_id: &str) -> Result<String, String> {
+        self.rollback_task_with(change_id, &restore_snapshot)
+    }
+
+    pub(crate) fn rollback_task_with<F>(
+        &mut self,
+        change_id: &str,
+        restore: &F,
+    ) -> Result<String, String>
+    where
+        F: Fn(&str, &str) -> Result<String, String>,
+    {
         let index = self
             .changes
             .iter()
@@ -315,21 +383,37 @@ impl SafetyManager {
         if change.rollback_status == RollbackStatus::RolledBack {
             return Err("Rollback já concluído.".to_string());
         }
+        let previous_status = self.changes[index].rollback_status.clone();
         self.changes[index].rollback_status = RollbackStatus::RollingBack;
-        self.persist_after_change("rollback_started");
+        if let Err(error) = self.persist_after_change("rollback_started") {
+            self.changes[index].rollback_status = previous_status;
+            return Err(format!(
+                "Não foi possível registrar o início do rollback: {error}"
+            ));
+        }
 
         let location = match change.backup_location.clone() {
             Some(location) => location,
             None => {
                 self.changes[index].rollback_status = RollbackStatus::RollbackFailed;
-                self.persist_after_change("rollback_failed_without_snapshot");
+                if let Err(error) = self.persist_after_change("rollback_failed_without_snapshot") {
+                    self.changes[index].rollback_status = RollbackStatus::Unknown;
+                    return Err(format!(
+                        "Rollback sem snapshot; não foi possível registrar a falha: {error}"
+                    ));
+                }
                 return Err("Rollback sem snapshot.".to_string());
             }
         };
-        match restore_snapshot(&location, &change.task_id) {
+        match restore(&location, &change.task_id) {
             Ok(message) => {
                 self.changes[index].rollback_status = RollbackStatus::RolledBack;
-                self.persist_after_change("rollback_completed");
+                if let Err(error) = self.persist_after_change("rollback_completed") {
+                    self.changes[index].rollback_status = RollbackStatus::Unknown;
+                    return Err(format!(
+                        "Rollback aplicado, mas o journal não confirmou o resultado: {error}"
+                    ));
+                }
                 Ok(message)
             }
             Err(error) => {
@@ -338,12 +422,28 @@ impl SafetyManager {
                 } else {
                     RollbackStatus::RollbackFailed
                 };
-                self.persist_after_change("rollback_failed");
+                if let Err(persist_error) = self.persist_after_change("rollback_failed") {
+                    self.changes[index].rollback_status = RollbackStatus::Unknown;
+                    return Err(format!(
+                        "{error}; falha ao atualizar o journal: {persist_error}"
+                    ));
+                }
                 Err(error)
             }
         }
     }
     pub fn rollback_session(&mut self, execution_id: Option<&str>) -> Result<Vec<String>, String> {
+        self.rollback_session_with(execution_id, &restore_snapshot)
+    }
+
+    fn rollback_session_with<F>(
+        &mut self,
+        execution_id: Option<&str>,
+        restore: &F,
+    ) -> Result<Vec<String>, String>
+    where
+        F: Fn(&str, &str) -> Result<String, String>,
+    {
         let ids: Vec<String> = self
             .changes
             .iter()
@@ -369,7 +469,7 @@ impl SafetyManager {
                 continue;
             }
 
-            match self.rollback_task(&id) {
+            match self.rollback_task_with(&id, restore) {
                 Ok(message) => result.push(message),
                 Err(error) => failures.push(format!("{}: {error}", change.description)),
             }
@@ -394,15 +494,27 @@ impl SafetyManager {
             .find(|change| change.id == change_id)
             .map(|change| change.rollback_status.clone())
     }
-    pub fn update_change_result(&mut self, change_id: &str, result: &str) {
+    pub fn update_change_result(&mut self, change_id: &str, result: &str) -> Result<(), String> {
         if let Some(change) = self
             .changes
             .iter_mut()
             .find(|change| change.id == change_id)
         {
             change.result = result.to_string();
-            self.persist_after_change("update_change_result");
+            self.persist_after_change("update_change_result")?;
         }
+        Ok(())
+    }
+
+    pub fn rollback_unrecorded_change(&self, change: &ChangeRecord) -> Result<String, String> {
+        if !change.reversible {
+            return Err(format!("Alteração irreversível: {}", change.description));
+        }
+        let location = change
+            .backup_location
+            .as_deref()
+            .ok_or_else(|| "Rollback sem snapshot.".to_string())?;
+        restore_snapshot(location, &change.task_id)
     }
     pub fn register_execution(&mut self, task_id: &str) -> ExecutionHandle {
         let execution_id = format!("execution-{}", unique_id());
@@ -491,19 +603,31 @@ fn known_strategy(task_id: &str) -> Option<&'static str> {
     match task_id {
         "desengordurar_telemetria" => Some("telemetry"),
         "desengordurar_tarefas" => Some("diagnostic_tasks"),
+        "limpeza_leve" | "limpeza_media" | "limpeza_pesada" => Some("mru_cleanup"),
         _ => None,
     }
 }
 
 #[cfg(target_os = "windows")]
 fn run_snapshot_script(strategy: &str) -> Result<String, String> {
+    let script = if strategy == "telemetry" {
+        snapshot_script(strategy).replace(
+            "$sv=@();",
+            "$specs+=@(@('LocalMachine','SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection','AllowTelemetry'),@('LocalMachine','SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection','AllowTelemetry'),@('LocalMachine','SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection','DisableEnterpriseAuthProxy'),@('LocalMachine','SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI','DisableAIDataAnalysis'));$sv=@();",
+        ).replace("$t-eq'Binary'", "($t-eq'Binary' -or $t-eq'None')")
+    } else {
+        snapshot_script(strategy).to_string()
+    };
+    let utf8_script = format!(
+        "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
+    );
     let output = Command::new("powershell")
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            snapshot_script(strategy),
+            &utf8_script,
         ])
         .output()
         .map_err(|e| format!("Falha ao capturar snapshot: {e}"))?;
@@ -526,6 +650,9 @@ fn snapshot_script(strategy: &str) -> &'static str {
         "diagnostic_tasks" => {
             r#"$ErrorActionPreference='Stop';$tasks=@();foreach($n in @('\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser','\Microsoft\Windows\Application Experience\ProgramDataUpdater','\Microsoft\Windows\Autochk\Proxy')){$p=[System.IO.Path]::GetDirectoryName($n)+'\';$q=[System.IO.Path]::GetFileName($n);$x=Get-ScheduledTask -TaskPath $p -TaskName $q -ErrorAction SilentlyContinue;$tasks+=[pscustomobject]@{task_path=$p;task_name=$q;exists=[bool]$x;enabled=if($x){$x.State-ne'Disabled'}else{$null}}};[pscustomobject]@{strategy='diagnostic_tasks';registry=@();services=@();scheduled_tasks=$tasks;features=@()}|ConvertTo-Json -Depth 8 -Compress"#
         }
+        "mru_cleanup" => {
+            r#"$ErrorActionPreference='Stop';$roots=@(@('CurrentUser','Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs'),@('CurrentUser','Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU'),@('CurrentUser','Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths'));$r=@();foreach($root in $roots){$b=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root[0]),[Microsoft.Win32.RegistryView]::Default);$queue=New-Object System.Collections.Queue;$queue.Enqueue($root[1]);while($queue.Count -gt 0){$p=[string]$queue.Dequeue();$k=$b.OpenSubKey($p);if($k){foreach($n in $k.GetValueNames()){$t=$k.GetValueKind($n).ToString();$v=$k.GetValue($n,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames);if($t-eq'Binary' -or $t-eq'None'){$v=[Convert]::ToBase64String($v)};$r+=[pscustomobject]@{hive=$root[0];path=$p;value_name=$n;exists=$true;value_type=$t;value=$v}};foreach($n in $k.GetSubKeyNames()){$queue.Enqueue("$p\$n")};$k.Dispose()}}};[pscustomobject]@{strategy='mru_cleanup';registry=@($r);services=@();scheduled_tasks=@();features=@()}|ConvertTo-Json -Depth 8 -Compress"#
+        }
         _ => "",
     }
 }
@@ -542,10 +669,14 @@ fn restore_snapshot(location: &str, task_id: &str) -> Result<String, String> {
         return Err("Snapshot e estratégia não correspondem.".to_string());
     }
     let encoded = serde_json::to_string(&snapshot).map_err(|e| e.to_string())?;
+    let restore = restore_script().replace(
+        "$v=$x.value;if($x.value_type-eq'Binary'){$v=[Convert]::FromBase64String($v)};",
+        "$v=$x.value;switch($x.value_type){'Binary'{$v=[Convert]::FromBase64String([string]$v)}'None'{$v=[Convert]::FromBase64String([string]$v)}'DWord'{$v=[int]$v}'QWord'{$v=[long]$v}'MultiString'{$v=[string[]]$v}};",
+    );
     let script = format!(
         "$s=ConvertFrom-Json -InputObject '{}';{}",
         encoded.replace('\'', "''"),
-        restore_script()
+        restore
     );
     let output = Command::new("powershell")
         .args([
@@ -565,11 +696,33 @@ fn restore_snapshot(location: &str, task_id: &str) -> Result<String, String> {
     }
     let after: SystemSnapshot = serde_json::from_str(&run_snapshot_script(strategy)?)
         .map_err(|e| format!("Validação inválida: {e}"))?;
-    if after != snapshot {
+    if !snapshot_matches_captured_state(&after, &snapshot) {
         return Err("Rollback parcial: validação não corresponde ao snapshot.".to_string());
     }
     Ok("Rollback aplicado e validado.".to_string())
 }
+
+#[cfg(target_os = "windows")]
+fn snapshot_matches_captured_state(actual: &SystemSnapshot, expected: &SystemSnapshot) -> bool {
+    actual.strategy == expected.strategy
+        && expected
+            .registry
+            .iter()
+            .all(|entry| actual.registry.contains(entry))
+        && expected
+            .services
+            .iter()
+            .all(|entry| actual.services.contains(entry))
+        && expected
+            .scheduled_tasks
+            .iter()
+            .all(|entry| actual.scheduled_tasks.contains(entry))
+        && expected
+            .features
+            .iter()
+            .all(|entry| actual.features.contains(entry))
+}
+
 #[cfg(not(target_os = "windows"))]
 fn restore_snapshot(_location: &str, _task_id: &str) -> Result<String, String> {
     Err("Rollback granular só pode ser validado no Windows.".to_string())
@@ -717,6 +870,83 @@ mod tests {
         now.restore(&before);
         assert!(!now.exists)
     }
+
+    #[test]
+    fn registry_existence_is_independent_from_value_and_type() {
+        let snapshots = vec![
+            RegistrySnapshot {
+                hive: "LocalMachine".into(),
+                path: "Software\\Qboa".into(),
+                value_name: "Absent".into(),
+                existence: RegistryExistence::Absent,
+                value_type: None,
+                value: None,
+            },
+            RegistrySnapshot {
+                hive: "LocalMachine".into(),
+                path: "Software\\Qboa".into(),
+                value_name: "Zero".into(),
+                existence: RegistryExistence::Present,
+                value_type: Some("DWord".into()),
+                value: Some(serde_json::json!(0)),
+            },
+            RegistrySnapshot {
+                hive: "LocalMachine".into(),
+                path: "Software\\Qboa".into(),
+                value_name: "Empty".into(),
+                existence: RegistryExistence::Present,
+                value_type: Some("String".into()),
+                value: Some(serde_json::json!("")),
+            },
+            RegistrySnapshot {
+                hive: "LocalMachine".into(),
+                path: "Software\\Qboa".into(),
+                value_name: "None".into(),
+                existence: RegistryExistence::Present,
+                value_type: Some("None".into()),
+                value: None,
+            },
+        ];
+
+        let encoded = serde_json::to_value(&snapshots).unwrap();
+        assert_eq!(encoded[0]["exists"], false);
+        assert_eq!(encoded[1]["exists"], true);
+        assert_eq!(encoded[2]["exists"], true);
+        assert_eq!(encoded[3]["exists"], true);
+        assert_eq!(encoded[1]["value"], 0);
+        assert_eq!(encoded[2]["value"], "");
+        assert_eq!(encoded[3]["value_type"], "None");
+
+        let decoded: Vec<RegistrySnapshot> = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, snapshots);
+    }
+
+    #[test]
+    fn legacy_registry_snapshot_journal_shape_remains_readable() {
+        let legacy = serde_json::json!({
+            "strategy": "telemetry",
+            "registry": [{
+                "hive": "LocalMachine",
+                "path": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+                "value_name": "AllowTelemetry",
+                "exists": true,
+                "value_type": "DWord",
+                "value": 0
+            }],
+            "services": [],
+            "scheduled_tasks": [],
+            "features": []
+        });
+
+        let snapshot: SystemSnapshot = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(snapshot.strategy, "telemetry");
+        assert_eq!(snapshot.registry[0].existence, RegistryExistence::Present);
+        assert_eq!(snapshot.registry[0].value, Some(serde_json::json!(0)));
+        assert_eq!(
+            serde_json::to_value(snapshot).unwrap()["registry"][0]["exists"],
+            true
+        );
+    }
     #[test]
     fn services_restore_all_states() {
         for (startup, running) in [
@@ -756,26 +986,31 @@ mod tests {
     }
     #[test]
     fn rollback_without_snapshot_fails() {
-        let mut manager = SafetyManager::new();
-        let change = manager.record_change(
-            "exec-1",
-            "desengordurar_telemetria",
-            "x",
-            true,
-            None,
-            "applied",
-        );
+        let path = std::env::temp_dir().join(format!("qboa-rollback-missing-{}.json", unique_id()));
+        let mut manager = SafetyManager::with_journal_path(path.clone());
+        let change = manager
+            .record_change(
+                "exec-1",
+                "desengordurar_telemetria",
+                "x",
+                true,
+                None,
+                "applied",
+            )
+            .unwrap();
         assert!(manager.rollback_task(&change.id).is_err());
         assert_eq!(
             manager.journal()[0].rollback_status,
             RollbackStatus::RollbackFailed
-        )
+        );
+        fs::remove_file(path).unwrap();
     }
     #[test]
     fn repeated_rollback_is_rejected() {
         let mut manager = SafetyManager::new();
-        let mut change =
-            manager.record_change("exec-1", "x", "x", true, Some("missing"), "applied");
+        let mut change = manager
+            .record_change("exec-1", "x", "x", true, Some("missing"), "applied")
+            .unwrap();
         change.rollback_status = RollbackStatus::RolledBack;
         manager.changes[0] = change;
         let change_id = manager.changes[0].id.clone();
@@ -807,14 +1042,16 @@ mod tests {
     fn journal_round_trip_uses_persistent_file() {
         let path = std::env::temp_dir().join(format!("qboa-journal-test-{}.json", unique_id()));
         let mut manager = SafetyManager::with_journal_path(path.clone());
-        let change = manager.record_change(
-            "exec-roundtrip",
-            "desengordurar_telemetria",
-            "roundtrip",
-            true,
-            None,
-            "applied",
-        );
+        let change = manager
+            .record_change(
+                "exec-roundtrip",
+                "desengordurar_telemetria",
+                "roundtrip",
+                true,
+                None,
+                "applied",
+            )
+            .unwrap();
 
         let restored = SafetyManager::with_journal_path(path.clone());
         assert_eq!(restored.changes, vec![change]);
@@ -823,21 +1060,47 @@ mod tests {
     }
 
     #[test]
+    fn failed_journal_persistence_does_not_register_change() {
+        let path = std::env::temp_dir().join(format!("qboa-journal-failure-{}", unique_id()));
+        fs::create_dir_all(&path).unwrap();
+        let mut manager = SafetyManager::with_journal_path(path.clone());
+
+        let error = manager
+            .record_change(
+                "exec-persist-failure",
+                "desengordurar_telemetria",
+                "unpersisted",
+                true,
+                None,
+                "completed",
+            )
+            .unwrap_err();
+
+        assert!(error.error.contains("journal"));
+        assert_eq!(error.change.result, "completed");
+        assert!(manager.journal().is_empty());
+
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
     fn journal_persists_result_and_rollback_status() {
         let path = std::env::temp_dir().join(format!("qboa-journal-status-{}.json", unique_id()));
         let mut manager = SafetyManager::with_journal_path(path.clone());
-        let change = manager.record_change(
-            "exec-status",
-            "desengordurar_telemetria",
-            "status",
-            true,
-            None,
-            "applied",
-        );
+        let change = manager
+            .record_change(
+                "exec-status",
+                "desengordurar_telemetria",
+                "status",
+                true,
+                None,
+                "applied",
+            )
+            .unwrap();
 
-        manager.update_change_result(&change.id, "updated");
+        manager.update_change_result(&change.id, "updated").unwrap();
         manager.changes[0].rollback_status = RollbackStatus::RollbackPartial;
-        manager.persist_after_change("test_status");
+        manager.persist_after_change("test_status").unwrap();
 
         let restored = SafetyManager::with_journal_path(path.clone());
         assert_eq!(restored.changes[0].result, "updated");
@@ -854,30 +1117,36 @@ mod tests {
         let path = std::env::temp_dir().join(format!("qboa-journal-session-{}.json", unique_id()));
         let mut manager = SafetyManager::with_journal_path(path.clone());
 
-        let first = manager.record_change(
-            "exec-session",
-            "desengordurar_telemetria",
-            "first",
-            true,
-            None,
-            "applied",
-        );
-        let second = manager.record_change(
-            "exec-session",
-            "desengordurar_telemetria",
-            "second",
-            true,
-            None,
-            "applied",
-        );
-        let third = manager.record_change(
-            "exec-session",
-            "desengordurar_telemetria",
-            "third",
-            true,
-            None,
-            "applied",
-        );
+        let first = manager
+            .record_change(
+                "exec-session",
+                "desengordurar_telemetria",
+                "first",
+                true,
+                None,
+                "applied",
+            )
+            .unwrap();
+        let second = manager
+            .record_change(
+                "exec-session",
+                "desengordurar_telemetria",
+                "second",
+                true,
+                None,
+                "applied",
+            )
+            .unwrap();
+        let third = manager
+            .record_change(
+                "exec-session",
+                "desengordurar_telemetria",
+                "third",
+                true,
+                None,
+                "applied",
+            )
+            .unwrap();
 
         let error = manager.rollback_session(Some("exec-session")).unwrap_err();
         assert!(error.contains("third"));
@@ -892,6 +1161,126 @@ mod tests {
         }
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rollback_restores_each_legacy_snapshot_strategy() {
+        let fixtures = [
+            (
+                "desengordurar_telemetria",
+                r#"{"strategy":"telemetry","registry":[{"hive":"LocalMachine","path":"SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection","value_name":"AllowTelemetry","exists":false,"value_type":null,"value":null}],"services":[{"name":"DiagTrack","exists":true,"startup_type":"Auto","state":"Running"}],"scheduled_tasks":[{"task_path":"\\Microsoft\\Windows\\Application Experience\\","task_name":"Microsoft Compatibility Appraiser","exists":true,"enabled":true}],"features":[{"name":"Recall","exists":false,"state":null}]}"#,
+            ),
+            (
+                "desengordurar_tarefas",
+                r#"{"strategy":"diagnostic_tasks","registry":[],"services":[],"scheduled_tasks":[{"task_path":"\\Microsoft\\Windows\\Application Experience\\","task_name":"Microsoft Compatibility Appraiser","exists":true,"enabled":false}],"features":[]}"#,
+            ),
+        ];
+
+        for (task_id, fixture) in fixtures {
+            let snapshot: SystemSnapshot = serde_json::from_str(fixture).unwrap();
+            let snapshot_path =
+                std::env::temp_dir().join(format!("qboa-snapshot-{}.json", unique_id()));
+            fs::write(&snapshot_path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+
+            let journal_path =
+                std::env::temp_dir().join(format!("qboa-rollback-{}.json", unique_id()));
+            let mut manager = SafetyManager::with_journal_path(journal_path.clone());
+            let change = manager
+                .record_change(
+                    "exec-legacy",
+                    task_id,
+                    "legacy snapshot",
+                    true,
+                    Some(snapshot_path.to_str().unwrap()),
+                    "completed",
+                )
+                .unwrap();
+            let restored = manager.rollback_task_with(&change.id, &|location, requested_task| {
+                assert_eq!(requested_task, task_id);
+                let restored_snapshot: SystemSnapshot =
+                    serde_json::from_slice(&fs::read(location).unwrap()).unwrap();
+                assert_eq!(restored_snapshot, snapshot);
+                Ok("Rollback aplicado e validado.".to_string())
+            });
+
+            assert_eq!(restored.unwrap(), "Rollback aplicado e validado.");
+            assert_eq!(
+                manager.rollback_status(&change.id),
+                Some(RollbackStatus::RolledBack)
+            );
+
+            fs::remove_file(snapshot_path).unwrap();
+            fs::remove_file(journal_path).unwrap();
+        }
+    }
+
+    #[test]
+    fn rollback_session_does_not_restore_another_execution_batch() {
+        let first_path = std::env::temp_dir().join(format!("qboa-batch-a-{}.json", unique_id()));
+        let second_path = std::env::temp_dir().join(format!("qboa-batch-b-{}.json", unique_id()));
+        fs::write(
+            &first_path,
+            r#"{"strategy":"telemetry","registry":[],"services":[],"scheduled_tasks":[],"features":[]}"#,
+        )
+        .unwrap();
+        fs::write(
+            &second_path,
+            r#"{"strategy":"diagnostic_tasks","registry":[],"services":[],"scheduled_tasks":[],"features":[]}"#,
+        )
+        .unwrap();
+
+        let journal_path =
+            std::env::temp_dir().join(format!("qboa-batch-journal-{}.json", unique_id()));
+        let mut manager = SafetyManager::with_journal_path(journal_path.clone());
+        let first = manager
+            .record_change(
+                "batch-a",
+                "desengordurar_telemetria",
+                "first batch",
+                true,
+                Some(first_path.to_str().unwrap()),
+                "completed",
+            )
+            .unwrap();
+        let second = manager
+            .record_change(
+                "batch-b",
+                "desengordurar_tarefas",
+                "second batch",
+                true,
+                Some(second_path.to_str().unwrap()),
+                "completed",
+            )
+            .unwrap();
+        let restored_paths = std::cell::RefCell::new(Vec::new());
+
+        let result = manager.rollback_session_with(Some("batch-a"), &|location, task_id| {
+            restored_paths
+                .borrow_mut()
+                .push((location.to_string(), task_id.to_string()));
+            Ok("restored".to_string())
+        });
+
+        assert_eq!(result.unwrap(), ["restored"]);
+        assert_eq!(
+            restored_paths.into_inner(),
+            [(
+                first_path.to_string_lossy().to_string(),
+                "desengordurar_telemetria".to_string()
+            )]
+        );
+        assert_eq!(
+            manager.rollback_status(&first.id),
+            Some(RollbackStatus::RolledBack)
+        );
+        assert_eq!(
+            manager.rollback_status(&second.id),
+            Some(RollbackStatus::RollbackAvailable)
+        );
+
+        fs::remove_file(first_path).unwrap();
+        fs::remove_file(second_path).unwrap();
+        fs::remove_file(journal_path).unwrap();
     }
 
     #[test]

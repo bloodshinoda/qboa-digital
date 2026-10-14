@@ -1,19 +1,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod registry_executor;
 mod safety;
 mod task_registry;
 
 use serde::Serialize;
-use std::io::{BufRead, BufReader, Read};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
 
-use safety::SafetyManager;
+use safety::{ChangeRecord, SafetyManager};
 use task_registry::{Task, TaskRegistry};
 
 #[derive(Clone, Serialize, Debug)]
@@ -67,7 +68,10 @@ fn emit_event<R: Runtime>(
     let _ = app.emit("qboa-event", payload);
 }
 
-fn forward_output<R: Read + Send + 'static>(stream: R, sender: mpsc::Sender<String>) -> std::thread::JoinHandle<()> {
+fn forward_output<R: Read + Send + 'static>(
+    stream: R,
+    sender: mpsc::Sender<String>,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         for line in BufReader::new(stream).lines() {
             if let Ok(line) = line {
@@ -159,12 +163,19 @@ fn run_command(
             }
             write_execution_log(
                 execution_id,
-                &format!("finished pid={} status={status} output_bytes={}", child.id(), output.len()),
+                &format!(
+                    "finished pid={} status={status} output_bytes={}",
+                    child.id(),
+                    output.len()
+                ),
             );
             if status.success() {
                 return Ok(output);
             }
-            write_execution_log(execution_id, &format!("failed command={cmd} output={output}"));
+            write_execution_log(
+                execution_id,
+                &format!("failed command={cmd} output={output}"),
+            );
             return Err(format!("Comando falhou ({cmd}):\n{output}"));
         }
 
@@ -219,11 +230,13 @@ fn run_powershell(
 }
 
 fn cleanup_standard(
+    task_id: &str,
     execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
+    apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
 ) -> Result<String, String> {
-    run_powershell(
+    let output = run_powershell(
         r#"
 $ErrorActionPreference = 'SilentlyContinue';
 foreach ($path in @($env:TEMP, "$env:WINDIR\Temp")) {
@@ -246,17 +259,15 @@ foreach ($root in $browserRoots) {
     }
 }
 Clear-RecycleBin -Force -ErrorAction SilentlyContinue;
-foreach ($key in @(
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs',
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU',
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths'
-)) { Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue }
-Write-Output 'Limpeza padrão concluída: temporários, caches, MRUs e lixeira.';
 "#,
         execution_id,
         on_output,
         is_cancelled,
-    )
+    )?;
+    apply_registry(task_id)?;
+    let summary = "Limpeza padrão concluída: temporários, caches, MRUs e lixeira.";
+    on_output(summary);
+    Ok(format!("{output}\n{summary}"))
 }
 
 fn cleanup_heavy_temp(
@@ -295,7 +306,7 @@ Write-Output 'Cache temporário do Windows Update processado.';
     )
 }
 
-fn disable_telemetry(
+fn disable_telemetry_components(
     execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
@@ -303,22 +314,6 @@ fn disable_telemetry(
     run_powershell(
         r#"
 $ErrorActionPreference = 'SilentlyContinue';
-function Set-Dword { param([string]$Path, [string]$Name, [int]$Value) New-Item -Path $Path -Force -ErrorAction SilentlyContinue | Out-Null; New-ItemProperty -Path $Path -Name $Name -PropertyType DWord -Value $Value -Force -ErrorAction SilentlyContinue | Out-Null }
-$telemetryKeys = @(
-  @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'AllowTelemetry', 0),
-  @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'AllowDeviceNameInTelemetry', 0),
-  @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection', 'AllowTelemetry', 0),
-  @('HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Policies\DataCollection', 'AllowTelemetry', 0),
-  @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DoNotShowFeedbackNotifications', 1),
-    @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DisableTelemetryOptInChangeNotification', 1),
-    @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection', 'DisableEnterpriseAuthProxy', 1),
-    @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI', 'DisableAIDataAnalysis', 1),
-    @('HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI', 'TurnOffWindowsCopilot', 1),
-    @('HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI', 'DisableAIDataAnalysis', 1),
-    @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'EnableRecallOnDevice', 0),
-    @('HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'EnableRecallOnDevice', 0)
-)
-foreach ($key in $telemetryKeys) { Set-Dword -Path $key[0] -Name $key[1] -Value $key[2] }
 foreach ($serviceName in @('DiagTrack', 'dmwappushservice')) {
   $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
   if ($service) { Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue; Set-Service -Name $serviceName -StartupType Disabled -ErrorAction SilentlyContinue }
@@ -382,9 +377,38 @@ fn schedule_shutdown() -> Result<(), String> {
     Err("Desligamento automático só está disponível no Windows.".to_string())
 }
 
-fn resolve_task(task_id: &str) -> Option<Task> {
-    let registry = TaskRegistry::new();
-    registry.resolve(task_id).cloned()
+fn resolve_task(task_id: &str) -> Result<Option<Task>, String> {
+    let registry = TaskRegistry::try_new()?;
+    Ok(registry.resolve(task_id).cloned())
+}
+
+#[cfg(target_os = "windows")]
+fn apply_registry_task(
+    task_id: &str,
+    execution_id: &str,
+    snapshot_location: &str,
+) -> Result<ChangeRecord, String> {
+    let catalog = TaskRegistry::try_new()?;
+    let mut backend = registry_executor::PowerShellRegistryBackend;
+    registry_executor::execute_registry_task(
+        task_id,
+        &catalog,
+        execution_id,
+        snapshot_location,
+        &mut safety_state().lock().unwrap(),
+        &mut backend,
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_registry_task(
+    task_id: &str,
+    _execution_id: &str,
+    _snapshot_location: &str,
+) -> Result<ChangeRecord, String> {
+    Err(format!(
+        "Executor de Registro só está disponível no Windows: {task_id}"
+    ))
 }
 
 fn execute_task(
@@ -392,11 +416,24 @@ fn execute_task(
     execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
+    apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
 ) -> Result<String, String> {
     match task.id.as_str() {
-        "limpeza_leve" => cleanup_standard(execution_id, on_output, is_cancelled),
+        "limpeza_leve" => cleanup_standard(
+            &task.id,
+            execution_id,
+            on_output,
+            is_cancelled,
+            apply_registry,
+        ),
         "limpeza_media" => {
-            let part_1 = cleanup_standard(execution_id, on_output, is_cancelled)?;
+            let part_1 = cleanup_standard(
+                &task.id,
+                execution_id,
+                on_output,
+                is_cancelled,
+                apply_registry,
+            )?;
             let part_2 = run_system_command(
                 "cleanmgr",
                 &["/sagerun:1"],
@@ -415,7 +452,13 @@ fn execute_task(
             Ok(format!("{part_1}\n{part_2}\n{part_3}\n{part_4}"))
         }
         "limpeza_pesada" => {
-            let part_1 = cleanup_standard(execution_id, on_output, is_cancelled)?;
+            let part_1 = cleanup_standard(
+                &task.id,
+                execution_id,
+                on_output,
+                is_cancelled,
+                apply_registry,
+            )?;
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             let part_4 = run_system_command(
@@ -445,7 +488,10 @@ fn execute_task(
                 "{part_1}\n{part_2}\n{part_3}\n{part_4}\n{part_5}\n{part_6}\n{part_7}"
             ))
         }
-        "desengordurar_telemetria" => disable_telemetry(execution_id, on_output, is_cancelled),
+        "desengordurar_telemetria" => {
+            apply_registry(&task.id)?;
+            disable_telemetry_components(execution_id, on_output, is_cancelled)
+        }
         "desengordurar_tarefas" => disable_diagnostic_tasks(execution_id, on_output, is_cancelled),
         "limpeza_windows_update" => cleanup_windows_update(execution_id, on_output, is_cancelled),
         "diagnostico_dism_scan" => run_system_command(
@@ -478,7 +524,7 @@ fn task_risk_label(task: &Task) -> &'static str {
 
 #[tauri::command]
 async fn get_tasks() -> Result<Vec<Task>, String> {
-    Ok(TaskRegistry::new().list())
+    Ok(TaskRegistry::try_new()?.list())
 }
 
 #[tauri::command]
@@ -487,7 +533,7 @@ async fn run_task(
     task_id: String,
     shutdown_on_complete: bool,
 ) -> Result<TaskResult, String> {
-    let registry = TaskRegistry::new();
+    let registry = TaskRegistry::try_new()?;
     let task = registry
         .resolve(&task_id)
         .cloned()
@@ -526,7 +572,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
     let execution_id_for_spawn = execution_id.clone();
 
     tauri::async_runtime::spawn(async move {
-        write_execution_log(&execution_id_for_spawn, &format!("task-started task_id={task_id_for_spawn}"));
+        write_execution_log(
+            &execution_id_for_spawn,
+            &format!("task-started task_id={task_id_for_spawn}"),
+        );
         emit_event(
             &app_for_spawn,
             "task-started",
@@ -538,7 +587,9 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             &task_risk_for_spawn,
         );
 
-        let snapshot_location = if task_for_spawn.reversible {
+        let snapshot_location = if task_for_spawn.reversible
+            || task_for_spawn.executor == task_registry::ExecutorType::Registry
+        {
             write_execution_log(&execution_id_for_spawn, "snapshot-started");
             match safety_state()
                 .lock()
@@ -547,7 +598,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             {
                 Ok(location) => Some(location),
                 Err(error) => {
-                    write_execution_log(&execution_id_for_spawn, &format!("snapshot-failed error={error}"));
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        &format!("snapshot-failed error={error}"),
+                    );
                     safety_state()
                         .lock()
                         .unwrap()
@@ -593,7 +647,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                     Some(point)
                 }
                 Err(err) => {
-                    write_execution_log(&execution_id_for_spawn, &format!("restore-point-phase-failed error={err}"));
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        &format!("restore-point-phase-failed error={err}"),
+                    );
                     safety_state()
                         .lock()
                         .unwrap()
@@ -649,23 +706,84 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 .unwrap()
                 .is_cancelled(&execution_id_for_cancel)
         };
+        let mut registry_change = None;
+        let mut apply_registry = |registry_task_id: &str| {
+            if task_for_spawn.executor != task_registry::ExecutorType::Registry {
+                return Ok(());
+            }
+            match apply_registry_task(
+                registry_task_id,
+                &execution_id_for_spawn,
+                snapshot_location.as_deref().unwrap_or_default(),
+            ) {
+                Ok(change) => {
+                    registry_change = Some(change);
+                    Ok(())
+                }
+                Err(error) => {
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        &format!("registry-operation-failed error={error}"),
+                    );
+                    Err(error)
+                }
+            }
+        };
+
         let execution = execute_task(
             &task_for_spawn,
             &execution_id_for_spawn,
             &mut on_output,
             &is_cancelled,
+            &mut apply_registry,
         );
+        drop(apply_registry);
         match execution {
             Ok(output) => {
                 write_execution_log(&execution_id_for_spawn, "task-executor-completed");
-                let change = safety_state().lock().unwrap().record_change(
-                    &execution_id_for_spawn,
-                    &task_id_for_spawn,
-                    &task_name,
-                    task.reversible,
-                    snapshot_location.as_deref(),
-                    "completed",
-                );
+                let journal_result = if let Some(change) = registry_change.take() {
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .update_change_result(&change.id, "completed")
+                        .map_err(|error| error)
+                } else {
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .record_change(
+                            &execution_id_for_spawn,
+                            &task_id_for_spawn,
+                            &task_name,
+                            task.reversible,
+                            snapshot_location.as_deref(),
+                            "completed",
+                        )
+                        .map(|_| ())
+                        .map_err(|error| error.error)
+                };
+                if let Err(error) = journal_result {
+                    let message = format!(
+                        "Tarefa executada, mas não foi possível registrar a alteração no journal: {}",
+                        error
+                    );
+                    write_execution_log(&execution_id_for_spawn, &message);
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .finish_execution(&execution_id_for_spawn, "journal_failed");
+                    emit_event(
+                        &app_for_spawn,
+                        "task-error",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        &message,
+                        false,
+                        None,
+                        &task_risk_for_spawn,
+                    );
+                    return;
+                }
 
                 safety_state()
                     .lock()
@@ -716,11 +834,12 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                         ),
                     }
                 }
-
-                let _ = change;
             }
             Err(err) => {
-                write_execution_log(&execution_id_for_spawn, &format!("task-executor-failed error={err}"));
+                write_execution_log(
+                    &execution_id_for_spawn,
+                    &format!("task-executor-failed error={err}"),
+                );
                 let cancelled = safety_state()
                     .lock()
                     .unwrap()
@@ -741,14 +860,63 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                         &task_risk_for_spawn,
                     );
                 } else {
-                    let failed_change = safety_state().lock().unwrap().record_change(
-                        &execution_id_for_spawn,
-                        &task_id_for_spawn,
-                        &task_name,
-                        task.reversible,
-                        snapshot_location.as_deref(),
-                        "failed",
-                    );
+                    let failed_change_result = if let Some(change) = registry_change.take() {
+                        Ok(change)
+                    } else {
+                        safety_state().lock().unwrap().record_change(
+                            &execution_id_for_spawn,
+                            &task_id_for_spawn,
+                            &task_name,
+                            task.reversible,
+                            snapshot_location.as_deref(),
+                            "failed",
+                        )
+                    };
+                    let failed_change = match failed_change_result {
+                        Ok(change) => change,
+                        Err(record_error) => {
+                            let rollback_result = if task.rollback_on_failure && task.reversible {
+                                Some(
+                                    safety_state()
+                                        .lock()
+                                        .unwrap()
+                                        .rollback_unrecorded_change(&record_error.change),
+                                )
+                            } else {
+                                None
+                            };
+                            let final_status = match rollback_result.as_ref() {
+                                Some(Ok(_)) => "failed_journal_error_and_rolled_back",
+                                Some(Err(_)) => "failed_journal_error_rollback_failed",
+                                None => "failed_journal_error",
+                            };
+                            let mut message = format!(
+                                "{err}; não foi possível registrar a alteração no journal: {}",
+                                record_error.error
+                            );
+                            if let Some(Err(rollback_error)) = rollback_result.as_ref() {
+                                message.push_str(&format!(
+                                    "; rollback também falhou: {rollback_error}"
+                                ));
+                            }
+                            write_execution_log(&execution_id_for_spawn, &message);
+                            safety_state()
+                                .lock()
+                                .unwrap()
+                                .finish_execution(&execution_id_for_spawn, final_status);
+                            emit_event(
+                                &app_for_spawn,
+                                "task-error",
+                                &task_id_for_spawn,
+                                &execution_id_for_spawn,
+                                &message,
+                                false,
+                                None,
+                                &task_risk_for_spawn,
+                            );
+                            return;
+                        }
+                    };
                     let final_status = if task.rollback_on_failure && task.reversible {
                         let rollback_result = safety_state()
                             .lock()
@@ -770,10 +938,16 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                     } else {
                         "failed"
                     };
-                    safety_state()
+                    if let Err(persist_error) = safety_state()
                         .lock()
                         .unwrap()
-                        .update_change_result(&failed_change.id, final_status);
+                        .update_change_result(&failed_change.id, final_status)
+                    {
+                        write_execution_log(
+                            &execution_id_for_spawn,
+                            &format!("journal update failed after task error: {persist_error}"),
+                        );
+                    }
                     safety_state()
                         .lock()
                         .unwrap()
@@ -816,7 +990,7 @@ async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<St
 
 #[tauri::command]
 async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, String> {
-    let registry = TaskRegistry::new();
+    let registry = TaskRegistry::try_new()?;
     let tasks: Vec<Task> = registry
         .preset_tasks(&preset_id)
         .into_iter()
@@ -861,14 +1035,14 @@ mod tests {
 
     #[test]
     fn known_tasks_are_resolved() {
-        assert!(resolve_task("limpeza_leve").is_some());
-        assert!(resolve_task("desengordurar_telemetria").is_some());
-        assert!(resolve_task("diagnostico_sfc").is_some());
+        assert!(resolve_task("limpeza_leve").unwrap().is_some());
+        assert!(resolve_task("desengordurar_telemetria").unwrap().is_some());
+        assert!(resolve_task("diagnostico_sfc").unwrap().is_some());
     }
 
     #[test]
     fn unknown_tasks_are_rejected() {
-        let registry = TaskRegistry::new();
+        let registry = TaskRegistry::try_new().unwrap();
         assert!(registry.resolve("task_inexistente").is_none());
     }
 }
