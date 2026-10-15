@@ -11,6 +11,7 @@ let consoleBuffer = "";
 let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
+let serviceProfileState = null;
 
 const Qboa = {
   async analyze() {
@@ -35,6 +36,26 @@ const Qboa = {
 
   async deleteCleanupFinding(findingId) {
     return invoke("delete_cleanup_finding", { findingId, confirmed: true });
+  },
+
+  async getServiceProfileState() {
+    return invoke("get_service_profile_state");
+  },
+
+  async previewServiceProfile(profile) {
+    return invoke("preview_service_profile", { profile });
+  },
+
+  async applyServiceProfile(profile) {
+    return invoke("apply_service_profile", { profile });
+  },
+
+  async restoreWindowsServiceDefaults() {
+    return invoke("restore_windows_service_defaults");
+  },
+
+  async undoServiceProfileChanges() {
+    return invoke("undo_service_profile_changes");
   },
 
   async createRestorePoint() {
@@ -387,6 +408,59 @@ async function refreshCleanupFindings() {
   });
 }
 
+function renderServiceProfilePreview(preview) {
+  const items = document.getElementById("service-profile-preview");
+  const ignored = document.getElementById("service-profile-ignored");
+  items.replaceChildren();
+  ignored.replaceChildren();
+  document.getElementById("service-profile-preview-status").textContent = preview.message;
+  document.getElementById("service-profile-apply-btn").disabled =
+    !serviceProfileState?.profile?.validated || !preview.applicable;
+
+  preview.services.forEach((service) => {
+    const item = document.createElement("li");
+    const proposed = service.proposed || "Sem alteração";
+    const incompatibility = service.incompatible ? ` — ${service.incompatible}` : "";
+    item.textContent = `${service.service}: ${service.current} → ${proposed}${incompatibility}`;
+    if (service.ignored) {
+      ignored.appendChild(item);
+    } else {
+      items.appendChild(item);
+    }
+  });
+  if (!ignored.children.length) {
+    const item = document.createElement("li");
+    item.textContent = "Nenhum serviço ignorado.";
+    ignored.appendChild(item);
+  }
+}
+
+async function loadServiceProfileState() {
+  const status = document.getElementById("service-profile-status");
+  const details = document.getElementById("service-system-details");
+  const controls = [
+    "service-profile-apply-btn",
+    "service-profile-defaults-btn",
+    "service-profile-undo-btn"
+  ].map((id) => document.getElementById(id));
+  controls.forEach((control) => { control.disabled = true; });
+
+  try {
+    serviceProfileState = await Qboa.getServiceProfileState();
+    const { system, profile } = serviceProfileState;
+    const formFactor = system.form_factor ? ` · ${system.form_factor}` : "";
+    details.textContent = `${system.os} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
+    status.textContent = profile.validated
+      ? "Perfil validado disponível."
+      : "Nenhum perfil validado. Aplicação indisponível.";
+    controls.forEach((control) => { control.disabled = !profile.validated; });
+  } catch (error) {
+    serviceProfileState = null;
+    status.textContent = "Nenhum perfil validado. Aplicação indisponível.";
+    details.textContent = `Não foi possível detectar os serviços. ${error}`;
+  }
+}
+
 async function registerEvents() {
   const unlisten = await listen("qboa-event", (event) => {
     const payload = event.payload;
@@ -431,6 +505,7 @@ async function registerEvents() {
   bindLevels();
   await registerEvents();
   await refreshHistory();
+  await loadServiceProfileState();
   writeStatus("Selecione uma tarefa para executar.");
 
   document.getElementById("restore-point-btn").addEventListener("click", async () => {
@@ -486,6 +561,63 @@ async function registerEvents() {
       appendConsole(String(error));
     } finally {
       button.disabled = false;
+    }
+  });
+
+  document.getElementById("service-profile-preview-btn").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      if (!serviceProfileState) await loadServiceProfileState();
+      if (!serviceProfileState) return;
+      const profile = document.getElementById("service-profile-select").value;
+      const preview = await Qboa.previewServiceProfile(profile);
+      renderServiceProfilePreview(preview);
+    } catch (error) {
+      document.getElementById("service-profile-preview-status").textContent = String(error);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById("service-profile-select").addEventListener("change", () => {
+    document.getElementById("service-profile-apply-btn").disabled = true;
+    document.getElementById("service-profile-preview").replaceChildren();
+    document.getElementById("service-profile-ignored").replaceChildren();
+    document.getElementById("service-profile-preview-status").textContent = "";
+  });
+
+  document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
+    if (!serviceProfileState?.profile?.validated) return;
+    const profile = document.getElementById("service-profile-select").value;
+    if (profile === "custom" || !window.confirm("Aplicar este perfil de serviços?")) return;
+    try {
+      await Qboa.applyServiceProfile(profile);
+      appendConsole("Perfil de serviços aplicado.");
+    } catch (error) {
+      appendConsole(String(error));
+    }
+  });
+
+  document.getElementById("service-profile-defaults-btn").addEventListener("click", async () => {
+    if (!serviceProfileState?.profile?.validated) return;
+    if (!window.confirm("Restaurar o padrão do Windows?")) return;
+    try {
+      await Qboa.restoreWindowsServiceDefaults();
+      appendConsole("Padrão do Windows restaurado.");
+    } catch (error) {
+      appendConsole(String(error));
+    }
+  });
+
+  document.getElementById("service-profile-undo-btn").addEventListener("click", async () => {
+    if (!serviceProfileState?.profile?.validated) return;
+    if (!window.confirm("Desfazer minhas alterações?")) return;
+    try {
+      await Qboa.undoServiceProfileChanges();
+      appendConsole("Alterações desfeitas.");
+    } catch (error) {
+      appendConsole(String(error));
     }
   });
 })();

@@ -302,6 +302,44 @@ button {
   overflow-wrap: anywhere;
 }
 
+.service-profile-panel {
+  background: var(--qboa-panel);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  margin: 0 24px 16px;
+  padding: 16px;
+}
+
+.service-profile-panel h2,
+.service-profile-panel h3 {
+  margin-top: 0;
+}
+
+.service-profile-panel select {
+  display: block;
+  margin-top: 6px;
+  max-width: 100%;
+  padding: 8px;
+}
+
+.service-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.service-profile-preview {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+}
+
+.service-profile-preview li {
+  overflow-wrap: anywhere;
+}
+
 .toolbar {
   display: flex;
   align-items: center;

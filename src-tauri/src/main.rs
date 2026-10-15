@@ -3,6 +3,7 @@
 mod cleanup_findings;
 mod registry_executor;
 mod safety;
+mod service_profiles;
 mod task_registry;
 
 use serde::Serialize;
@@ -16,6 +17,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
 
 use safety::{ChangeRecord, SafetyManager};
+use service_profiles::ServiceProfileBackend;
 use task_registry::{Task, TaskRegistry};
 
 #[derive(Clone, Serialize, Debug)]
@@ -1042,6 +1044,63 @@ async fn delete_cleanup_finding(finding_id: String, confirmed: bool) -> Result<(
     cleanup_findings::delete_by_id(&mut backend, &finding_id, confirmed)
 }
 
+#[derive(Clone, Serialize)]
+struct ServiceProfileState {
+    system: service_profiles::DetectedSystem,
+    profile: service_profiles::ServiceProfileFile,
+    products: Vec<service_profiles::ProductProfile>,
+}
+
+#[tauri::command]
+async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
+    let mut backend = service_profiles::WindowsServiceProfileBackend::default();
+    let system = backend.detect_system()?;
+    let profile = service_profiles::system_profile(&system)?;
+    Ok(ServiceProfileState {
+        system,
+        profile,
+        products: service_profiles::product_profiles(),
+    })
+}
+
+#[tauri::command]
+async fn preview_service_profile(
+    profile: service_profiles::ProductProfile,
+) -> Result<service_profiles::ServicePreview, String> {
+    let mut backend = service_profiles::WindowsServiceProfileBackend::default();
+    let system = backend.detect_system()?;
+    let service_profile = service_profiles::system_profile(&system)?;
+    Ok(service_profiles::preview(
+        &system,
+        &service_profile,
+        profile,
+    ))
+}
+
+#[tauri::command]
+async fn apply_service_profile(profile: service_profiles::ProductProfile) -> Result<(), String> {
+    let mut backend = service_profiles::WindowsServiceProfileBackend::default();
+    let system = backend.detect_system()?;
+    let service_profile = service_profiles::system_profile(&system)?;
+    service_profiles::apply_profile(&mut backend, &service_profile, profile)
+}
+
+#[tauri::command]
+async fn restore_windows_service_defaults() -> Result<(), String> {
+    let mut backend = service_profiles::WindowsServiceProfileBackend::default();
+    let system = backend.detect_system()?;
+    let profile = service_profiles::system_profile(&system)?;
+    service_profiles::restore_windows_defaults(&mut backend, &profile)
+}
+
+#[tauri::command]
+async fn undo_service_profile_changes() -> Result<(), String> {
+    let mut backend = service_profiles::WindowsServiceProfileBackend::default();
+    let system = backend.detect_system()?;
+    let profile = service_profiles::system_profile(&system)?;
+    service_profiles::undo_last_application(&mut backend, &profile)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1071,7 +1130,12 @@ fn main() {
             rollback_session,
             get_session_history,
             get_cleanup_findings,
-            delete_cleanup_finding
+            delete_cleanup_finding,
+            get_service_profile_state,
+            preview_service_profile,
+            apply_service_profile,
+            restore_windows_service_defaults,
+            undo_service_profile_changes
         ])
         .run(tauri::generate_context!())
         .expect("erro ao rodar o Qboa Digital");

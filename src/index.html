@@ -50,6 +50,29 @@
     </aside>
   </main>
 
+  <section class="service-profile-panel">
+    <h2>Alterar perfil de serviços do Windows</h2>
+    <p id="service-profile-status">Nenhum perfil validado. Aplicação indisponível.</p>
+    <p id="service-system-details"></p>
+    <label for="service-profile-select">Perfil de produto</label>
+    <select id="service-profile-select">
+      <option value="recommended">Padrão recomendado</option>
+      <option value="safe">Safe</option>
+      <option value="tweaked">Tweaked</option>
+      <option value="custom">Personalizado</option>
+    </select>
+    <div class="service-profile-actions">
+      <button id="service-profile-preview-btn" type="button">Prévia</button>
+      <button id="service-profile-apply-btn" type="button" disabled>Aplicar perfil</button>
+      <button id="service-profile-defaults-btn" type="button" disabled>Restaurar padrão do Windows</button>
+      <button id="service-profile-undo-btn" type="button" disabled>Desfazer minhas alterações</button>
+    </div>
+    <p id="service-profile-preview-status"></p>
+    <ul id="service-profile-preview" class="service-profile-preview"></ul>
+    <h3>Ignorados</h3>
+    <ul id="service-profile-ignored" class="service-profile-preview"></ul>
+  </section>
+
   <section class="console" id="console">
     <div class="console-title">saída</div>
     <pre id="console-output">Selecione um item para executar.</pre>
