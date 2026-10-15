@@ -12,6 +12,8 @@ let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
+let selectedTweakTaskIds = new Set();
+let debloatProfileQueue = null;
 
 const Qboa = {
   async analyze() {
@@ -24,6 +26,10 @@ const Qboa = {
 
   async runPreset(presetId) {
     return invoke("run_preset", { presetId });
+  },
+
+  async getDebloatProfileTasks(profile, selectedIds) {
+    return invoke("get_debloat_profile_tasks", { profile, selectedIds });
   },
 
   async getSessionHistory() {
@@ -118,6 +124,8 @@ function renderCards() {
   const cardsEl = document.getElementById("cards");
   const dashboard = document.querySelector(".dashboard");
   const recoveryPanel = document.querySelector(".recovery-panel");
+  const profileControls = document.getElementById("debloat-profile-controls");
+  profileControls.hidden = activeSection !== "desengordurar";
   cardsEl.innerHTML = "";
   if (activeSection === "contribuir") {
     dashboard.classList.add("contribution-view");
@@ -168,6 +176,24 @@ function renderCards() {
       const riskLabel = item.risk === "safe" ? "🟢 Seguro" : item.risk === "moderate" ? "🟡 Moderado" : "🟠 Avançado";
       risk.textContent = riskLabel;
       card.appendChild(risk);
+    }
+    if (
+      activeSection === "desengordurar" &&
+      document.getElementById("debloat-profile-select").value === "personalizado"
+    ) {
+      const selection = document.createElement("label");
+      selection.className = "custom-profile-selection";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = selectedTweakTaskIds.has(item.id);
+      checkbox.addEventListener("click", (event) => event.stopPropagation());
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selectedTweakTaskIds.add(item.id);
+        else selectedTweakTaskIds.delete(item.id);
+      });
+      selection.append(checkbox, document.createTextNode("Incluir no perfil Personalizado"));
+      selection.addEventListener("click", (event) => event.stopPropagation());
+      card.appendChild(selection);
     }
     card.addEventListener("click", () => runTask(item, card));
     cardsEl.appendChild(card);
@@ -228,8 +254,8 @@ function requiresConfirmation(item) {
   return item.risk === "moderate" || item.risk === "advanced";
 }
 
-function showRiskModal(item, cardEl) {
-  pendingTask = { item, cardEl };
+function showRiskModal(item, cardEl, profileQueue = false) {
+  pendingTask = { item, cardEl, profileQueue };
   const modal = document.getElementById("risk-modal");
   const message = document.getElementById("risk-message");
 
@@ -260,21 +286,84 @@ async function executeTask(item, cardEl) {
     const output = result.output || "(sem saída)";
     activeExecutionId = result.execution_id || activeExecutionId;
     appendConsole(output);
+    return true;
   } catch (err) {
     stopActivity();
     appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
     activeTaskId = null;
+    return false;
   }
 }
 
 async function runTask(item, cardEl) {
+  if (debloatProfileQueue) {
+    appendConsole("Aguarde a conclusão do perfil de Desengordurar.");
+    return;
+  }
   if (requiresConfirmation(item)) {
     showRiskModal(item, cardEl);
     return;
   }
 
   await executeTask(item, cardEl);
+}
+
+function stopDebloatProfileQueue(message) {
+  if (!debloatProfileQueue) return;
+  debloatProfileQueue = null;
+  document.getElementById("debloat-profile-run-btn").disabled = false;
+  document.getElementById("debloat-profile-status").textContent = message;
+}
+
+async function runNextDebloatProfileTask() {
+  if (!debloatProfileQueue || activeTaskId) return;
+  if (!debloatProfileQueue.items.length) {
+    stopDebloatProfileQueue("Perfil concluído.");
+    return;
+  }
+
+  const item = debloatProfileQueue.items.shift();
+  debloatProfileQueue.currentTaskId = item.id;
+  const card = document.querySelector(`[data-task-id="${item.id}"]`);
+  if (requiresConfirmation(item)) {
+    showRiskModal(item, card, true);
+    document.getElementById("debloat-profile-status").textContent =
+      `Confirme a tarefa ${item.name} para continuar.`;
+    return;
+  }
+  if (!(await executeTask(item, card))) {
+    stopDebloatProfileQueue(`Perfil interrompido em ${item.name}.`);
+  }
+}
+
+async function startDebloatProfile() {
+  const button = document.getElementById("debloat-profile-run-btn");
+  const status = document.getElementById("debloat-profile-status");
+  if (activeTaskId || debloatProfileQueue) {
+    status.textContent = "Aguarde a tarefa atual terminar.";
+    return;
+  }
+  const profile = document.getElementById("debloat-profile-select").value;
+  const selectedIds = profile === "personalizado" ? [...selectedTweakTaskIds] : [];
+  if (profile === "personalizado" && selectedIds.length === 0) {
+    status.textContent = "Marque ao menos uma tarefa para o perfil Personalizado.";
+    return;
+  }
+  button.disabled = true;
+  status.textContent = "Preparando perfil...";
+  try {
+    const ids = await Qboa.getDebloatProfileTasks(profile, selectedIds);
+    const debloatItems = structure.sections.find((section) => section.id === "desengordurar").items;
+    const items = ids.map((id) => debloatItems.find((item) => item.id === id));
+    if (items.some((item) => !item)) throw new Error("O catálogo retornou uma tarefa desconhecida.");
+    debloatProfileQueue = { items, currentTaskId: null };
+    status.textContent = "Executando tarefas do perfil.";
+    await runNextDebloatProfileTask();
+  } catch (error) {
+    button.disabled = false;
+    status.textContent = String(error);
+  }
 }
 
 function bindLevels() {
@@ -291,7 +380,7 @@ function bindLevels() {
   });
 
   document.getElementById("preset-run-btn").addEventListener("click", async () => {
-    if (activeTaskId) {
+    if (activeTaskId || debloatProfileQueue) {
       appendConsole("Já existe uma tarefa em execução.");
       return;
     }
@@ -314,6 +403,13 @@ function bindLevels() {
     } catch (error) {
       appendConsole(String(error));
     }
+  });
+
+  document.getElementById("debloat-profile-select").addEventListener("change", () => {
+    if (activeSection === "desengordurar") renderCards();
+  });
+  document.getElementById("debloat-profile-run-btn").addEventListener("click", () => {
+    void startDebloatProfile();
   });
 }
 
@@ -491,6 +587,14 @@ async function registerEvents() {
       if (activeTaskId === payload.task_id) activeTaskId = null;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
       refreshHistory();
+      if (debloatProfileQueue?.currentTaskId === payload.task_id) {
+        debloatProfileQueue.currentTaskId = null;
+        if (payload.event === "task-completed") {
+          void runNextDebloatProfileTask();
+        } else {
+          stopDebloatProfileQueue(`Perfil interrompido em ${taskDisplayName(payload.task_id)}.`);
+        }
+      }
     }
   });
 
@@ -520,6 +624,9 @@ async function registerEvents() {
   });
 
   document.getElementById("risk-cancel").addEventListener("click", () => {
+    if (pendingTask?.profileQueue) {
+      stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
+    }
     closeRiskModal();
   });
 
@@ -530,7 +637,10 @@ async function registerEvents() {
     confirmButton.disabled = true;
     closeRiskModal();
     try {
-      await executeTask(task.item, task.cardEl);
+      const started = await executeTask(task.item, task.cardEl);
+      if (!started && task.profileQueue) {
+        stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
+      }
     } finally {
       confirmButton.disabled = false;
       closeRiskModal();

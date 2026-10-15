@@ -5,6 +5,7 @@ mod registry_executor;
 mod safety;
 mod service_profiles;
 mod task_registry;
+mod tweak_profiles;
 
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -1016,6 +1017,15 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
 }
 
 #[tauri::command]
+async fn get_debloat_profile_tasks(
+    profile: task_registry::TweakProfile,
+    selected_ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let registry = TaskRegistry::try_new()?;
+    tweak_profiles::resolve_task_ids(&registry, profile, &selected_ids)
+}
+
+#[tauri::command]
 async fn create_restore_point() -> Result<String, String> {
     let mut safety = safety_state().lock().unwrap();
     safety.create_restore_point("Qboa Digital — Proteção do sistema")
@@ -1126,6 +1136,7 @@ fn main() {
             run_task,
             cancel_task,
             run_preset,
+            get_debloat_profile_tasks,
             create_restore_point,
             rollback_session,
             get_session_history,

@@ -22,6 +22,15 @@ pub enum TaskRisk {
     Advanced,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TweakProfile {
+    Conservador,
+    Equilibrado,
+    Agressivo,
+    Personalizado,
+}
+
 impl TaskRisk {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -97,6 +106,8 @@ pub struct Task {
     pub reboot: RebootRequirement,
     pub profiles: Vec<String>,
     pub presets: Vec<String>,
+    #[serde(default)]
+    pub tweak_profiles: Vec<TweakProfile>,
 }
 
 #[derive(Clone, Debug)]
@@ -128,6 +139,7 @@ impl From<LegacyTask> for Task {
         let verification = task_verification(&legacy.id).to_string();
         let reboot = task_reboot(&legacy.id);
         let profiles = legacy.presets.clone();
+        let tweak_profiles = task_tweak_profiles(&legacy.id);
 
         Self {
             id: legacy.id,
@@ -154,6 +166,7 @@ impl From<LegacyTask> for Task {
             reboot,
             profiles,
             presets: legacy.presets,
+            tweak_profiles,
         }
     }
 }
@@ -501,6 +514,27 @@ fn validate_tasks(tasks: &[Task]) -> Result<(), String> {
                 task.id
             ));
         }
+        if task.category == TaskCategory::Debloat && task.tweak_profiles.is_empty() {
+            return Err(format!(
+                "Tarefa {}: perfil de desengordurar obrigatório.",
+                task.id
+            ));
+        }
+        if task.category != TaskCategory::Debloat && !task.tweak_profiles.is_empty() {
+            return Err(format!(
+                "Tarefa {}: perfil de desengordurar só é válido no módulo Desengordurar.",
+                task.id
+            ));
+        }
+        if task.tweak_profiles.contains(&TweakProfile::Agressivo)
+            && !task.reversible
+            && task.risk == TaskRisk::Safe
+        {
+            return Err(format!(
+                "Tarefa {}: perfil Agressivo não pode incluir tarefa irreversível sem confirmação.",
+                task.id
+            ));
+        }
         if task.reversible
             && !matches!(
                 task.rollback_strategy.as_str(),
@@ -607,6 +641,26 @@ fn task_impact(id: &str) -> Vec<ExpectedImpact> {
         area,
         description: description.to_string(),
     }]
+}
+
+fn task_tweak_profiles(id: &str) -> Vec<TweakProfile> {
+    match id {
+        "desengordurar_telemetria" => vec![
+            TweakProfile::Conservador,
+            TweakProfile::Equilibrado,
+            TweakProfile::Agressivo,
+            TweakProfile::Personalizado,
+        ],
+        "desengordurar_tarefas" => vec![
+            TweakProfile::Equilibrado,
+            TweakProfile::Agressivo,
+            TweakProfile::Personalizado,
+        ],
+        "desengordurar_telemetria_avancada" => {
+            vec![TweakProfile::Agressivo, TweakProfile::Personalizado]
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn task_verification(id: &str) -> &'static str {

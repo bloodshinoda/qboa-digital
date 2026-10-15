@@ -24,6 +24,18 @@
 
   <nav class="tabs" id="tabs"></nav>
 
+  <section id="debloat-profile-controls" class="debloat-profile-controls" hidden>
+    <label for="debloat-profile-select">Perfil de Desengordurar</label>
+    <select id="debloat-profile-select">
+      <option value="conservador">Conservador</option>
+      <option value="equilibrado">Equilibrado</option>
+      <option value="agressivo">Agressivo</option>
+      <option value="personalizado">Personalizado</option>
+    </select>
+    <button id="debloat-profile-run-btn" type="button">Executar perfil</button>
+    <span id="debloat-profile-status" aria-live="polite"></span>
+  </section>
+
   <main class="dashboard">
     <section class="cards-panel">
       <div class="cards" id="cards"></div>

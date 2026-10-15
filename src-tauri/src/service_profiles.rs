@@ -837,6 +837,22 @@ mod tests {
     }
 
     #[test]
+    fn tweak_profile_metadata_does_not_validate_service_profiles() {
+        let profiles = profile_files().unwrap();
+        assert!(profiles.iter().all(|profile| !profile.validated));
+        let profile = profiles
+            .into_iter()
+            .find(|profile| {
+                profile.os == WindowsVersion::Windows10 && profile.edition == WindowsEdition::Home
+            })
+            .unwrap();
+        let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
+        assert!(apply_profile(&mut backend, &profile, ProductProfile::Safe).is_err());
+        assert!(backend.changes.is_empty());
+        assert!(backend.saved.is_empty());
+    }
+
+    #[test]
     fn undo_without_snapshot_fails_without_changing_service() {
         let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
         profile.validated = true;
