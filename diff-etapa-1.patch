@@ -1,0 +1,1200 @@
+diff --git a/src-tauri/src/diagnostics.rs b/src-tauri/src/diagnostics.rs
+index 8f50b70..d1417e0 100644
+--- a/src-tauri/src/diagnostics.rs
++++ b/src-tauri/src/diagnostics.rs
+@@ -25,6 +25,7 @@ pub(crate) enum DiagnosticStatus {
+     Atencao,
+     Falha,
+     Indisponivel,
++    Informativo,
+ }
+ 
+ #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+@@ -39,6 +40,15 @@ pub(crate) struct DiagnosticResult {
+ pub(crate) struct DiagnosticReport {
+     pub mode: DiagnosticMode,
+     pub results: Vec<DiagnosticResult>,
++    pub checks: Vec<DiagnosticCheck>,
++}
++
++#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
++pub(crate) struct DiagnosticCheck {
++    pub name: String,
++    pub status: DiagnosticStatus,
++    pub evidence: String,
++    pub source: String,
+ }
+ 
+ #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+@@ -69,8 +79,9 @@ pub(crate) struct DiagnosticData {
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub(crate) struct ExtendedCheck {
++    pub name: String,
+     pub evidence: String,
+-    pub succeeded: bool,
++    pub status: DiagnosticStatus,
+ }
+ 
+ pub(crate) trait DiagnosticBackend {
+@@ -83,72 +94,88 @@ pub(crate) fn run<B: DiagnosticBackend>(
+     mode: DiagnosticMode,
+ ) -> Result<DiagnosticReport, String> {
+     let data = backend.collect()?;
+-    let mut results = build_results(&data);
+-    if mode == DiagnosticMode::Complete {
+-        let checks = backend.run_extended_checks()?;
+-        let system = results
+-            .iter_mut()
+-            .find(|result| result.category == DiagnosticCategory::Sistema)
+-            .expect("system result is always created");
+-        if checks.iter().any(|check| !check.succeeded) {
+-            system.status = DiagnosticStatus::Falha;
+-        }
+-        for check in checks {
+-            system.evidence.push(check.evidence);
+-            system.source.push("SFC / DISM".to_string());
++    let results = build_results(&data);
++    let checks = if mode == DiagnosticMode::Complete {
++        match backend.run_extended_checks() {
++            Ok(checks) if !checks.is_empty() => checks
++                .into_iter()
++                .map(|check| DiagnosticCheck {
++                    name: check.name,
++                    status: check.status,
++                    evidence: check.evidence,
++                    source: "Verificação do Windows".to_string(),
++                })
++                .collect(),
++            Ok(_) => unavailable_checks("O provedor não retornou resultados."),
++            Err(error) => unavailable_checks(&error),
+         }
+-        system.source.sort();
+-        system.source.dedup();
+-    }
+-    Ok(DiagnosticReport { mode, results })
++    } else {
++        Vec::new()
++    };
++    Ok(DiagnosticReport {
++        mode,
++        results,
++        checks,
++    })
+ }
+ 
+ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
+     let mut system_evidence = Vec::new();
+     if let Some(name) = data.os_name.as_deref() {
+-        system_evidence.push(name.to_string());
++        if !name.trim().is_empty() {
++            system_evidence.push(format!("Sistema: {name}"));
++        }
+     }
+     if let Some(version) = data.os_version.as_deref() {
+-        system_evidence.push(format!("Versão {version}"));
++        if !version.trim().is_empty() {
++            system_evidence.push(format!("Versão {version}"));
++        }
+     }
+     if let Some(build) = data.os_build.as_deref() {
+-        system_evidence.push(format!("Build {build}"));
++        if !build.trim().is_empty() {
++            system_evidence.push(format!("Build {build}"));
++        }
+     }
+     if let Some(edition) = data.os_edition.as_deref() {
+-        system_evidence.push(format!("Edição {edition}"));
++        if !edition.trim().is_empty() {
++            system_evidence.push(format!("Edição {edition}"));
++        }
+     }
+-    let system_sources = if system_evidence.is_empty() {
++    let system_status = if system_evidence.is_empty() {
++        system_evidence.push("Identificação do sistema não disponível.".to_string());
++        DiagnosticStatus::Indisponivel
++    } else {
++        DiagnosticStatus::Informativo
++    };
++    let system_sources = if system_status == DiagnosticStatus::Indisponivel {
+         Vec::new()
+     } else {
+         vec!["Win32_OperatingSystem e registro do Windows".to_string()]
+     };
+ 
+-    let valid_disks: Vec<(&str, u64, u64)> = data
+-        .disks
+-        .iter()
+-        .filter_map(|disk| {
+-            let (Some(name), Some(size), Some(free)) =
+-                (disk.name.as_deref(), disk.size_bytes, disk.free_bytes)
+-            else {
+-                return None;
+-            };
+-            if name.trim().is_empty() || size == 0 || free > size {
+-                return None;
++    let mut valid_disks = Vec::new();
++    let mut invalid_disks = 0;
++    for disk in &data.disks {
++        match (disk.name.as_deref(), disk.size_bytes, disk.free_bytes) {
++            (Some(name), Some(size), Some(free))
++                if !name.trim().is_empty() && size > 0 && free <= size =>
++            {
++                valid_disks.push((name, size, free));
+             }
+-            Some((name, size, free))
+-        })
+-        .collect();
+-    let storage_status = if valid_disks.is_empty() {
+-        DiagnosticStatus::Indisponivel
+-    } else if valid_disks
++            _ => invalid_disks += 1,
++        }
++    }
++    let low_space = valid_disks
+         .iter()
+-        .any(|(_, size, free)| *free as f64 / (*size as f64) < 0.10)
+-    {
++        .any(|(_, size, free)| *free as f64 / (*size as f64) < 0.10);
++    let storage_status = if low_space {
+         DiagnosticStatus::Atencao
++    } else if valid_disks.is_empty() || invalid_disks > 0 {
++        DiagnosticStatus::Indisponivel
+     } else {
+         DiagnosticStatus::Ok
+     };
+-    let storage_evidence = valid_disks
++    let mut storage_evidence: Vec<String> = valid_disks
+         .iter()
+         .map(|(name, size, free)| {
+             format!(
+@@ -159,59 +186,76 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
+             )
+         })
+         .collect();
++    if low_space {
++        storage_evidence.push("Alerta: espaço livre abaixo de 10%.".to_string());
++    } else if !valid_disks.is_empty() {
++        storage_evidence.push(
++            "Espaço livre acima do limite de alerta; isso não testa a saúde do disco.".to_string(),
++        );
++    }
++    if invalid_disks > 0 {
++        storage_evidence.push(format!(
++            "{invalid_disks} unidade(s) com dados ausentes ou inválidos."
++        ));
++    }
++    if data.disks.is_empty() {
++        storage_evidence.push("Dados de armazenamento não disponíveis.".to_string());
++    }
+     let storage_sources = if valid_disks.is_empty() {
+         Vec::new()
+     } else {
+         vec!["Win32_LogicalDisk".to_string()]
+     };
+ 
+-    let ram_evidence = match (data.ram_total_bytes, data.ram_available_bytes) {
+-        (Some(total), Some(available)) if total > 0 && available <= total => vec![format!(
+-            "{} totais; {} disponíveis",
+-            format_bytes(total),
+-            format_bytes(available)
+-        )],
+-        _ => Vec::new(),
++    let (ram_status, ram_evidence) = match (data.ram_total_bytes, data.ram_available_bytes) {
++        (Some(total), Some(available)) if total > 0 && available <= total => {
++            let available_percent = available as f64 * 100.0 / total as f64;
++            let status = if available_percent < 10.0 {
++                DiagnosticStatus::Atencao
++            } else {
++                DiagnosticStatus::Informativo
++            };
++            let mut evidence = vec![format!(
++                "{} totais; {} disponíveis ({available_percent:.1}%)",
++                format_bytes(total),
++                format_bytes(available)
++            )];
++            if status == DiagnosticStatus::Atencao {
++                evidence.push("Alerta: memória disponível abaixo de 10%.".to_string());
++            } else {
++                evidence.push("A coleta não testa a integridade da RAM.".to_string());
++            }
++            (status, evidence)
++        }
++        _ => (
++            DiagnosticStatus::Indisponivel,
++            vec!["Dados de memória ausentes ou inválidos.".to_string()],
++        ),
+     };
+-    let ram_sources = if ram_evidence.is_empty() {
++    let ram_sources = if ram_status == DiagnosticStatus::Indisponivel {
+         Vec::new()
+     } else {
+         vec!["Win32_OperatingSystem".to_string()]
+     };
+ 
+-    let gpu_temperature = data
+-        .gpu_sensor_temperature_c
+-        .filter(|temperature| temperature.is_finite() && (0.0..=150.0).contains(temperature));
+     let mut gpu_evidence: Vec<String> = data
+         .gpu_names
+         .iter()
+         .filter(|name| !name.trim().is_empty())
+         .cloned()
+         .collect();
+-    if let (Some(temperature), Some(_)) = (
+-        gpu_temperature,
+-        data.gpu_sensor_source
+-            .as_deref()
+-            .filter(|source| !source.trim().is_empty()),
+-    ) {
+-        gpu_evidence.push(format!("Sensor GPU: {temperature:.1} °C"));
+-    }
+     let gpu_sources = if gpu_evidence.is_empty() {
+         Vec::new()
+     } else {
+-        let mut sources = Vec::new();
+-        if !data.gpu_names.is_empty() {
+-            sources.push("Win32_VideoController".to_string());
+-        }
+-        if gpu_temperature.is_some() {
+-            sources.extend(
+-                data.gpu_sensor_source
+-                    .as_deref()
+-                    .filter(|source| !source.trim().is_empty())
+-                    .map(str::to_string),
+-            );
+-        }
+-        sources
++        vec!["Win32_VideoController".to_string()]
++    };
++    if gpu_evidence.is_empty() {
++        gpu_evidence.push("Identificação da placa de vídeo não disponível.".to_string());
++    }
++    let gpu_status = if gpu_sources.is_empty() {
++        DiagnosticStatus::Indisponivel
++    } else {
++        DiagnosticStatus::Informativo
+     };
+ 
+     let mut processor_evidence = Vec::new();
+@@ -230,40 +274,44 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
+     } else {
+         vec!["Win32_Processor".to_string()]
+     };
++    if processor_evidence.is_empty() {
++        processor_evidence.push("Identificação do processador não disponível.".to_string());
++    }
++    let processor_status = if processor_sources.is_empty() {
++        DiagnosticStatus::Indisponivel
++    } else {
++        DiagnosticStatus::Informativo
++    };
+ 
+     let mut temperature_evidence = Vec::new();
+     let mut temperature_sources = Vec::new();
+-    if let Some(temperature) = data
+-        .thermal_zone_temperature_c
+-        .filter(|temperature| temperature.is_finite() && (0.0..=150.0).contains(temperature))
+-    {
+-        if let Some(source) = data
+-            .thermal_zone_source
+-            .as_deref()
+-            .filter(|source| !source.trim().is_empty())
+-        {
+-            temperature_evidence.push(format!("Zona térmica: {temperature:.1} °C"));
+-            temperature_sources.push(source.to_string());
+-        }
+-    }
+-    if let (Some(temperature), Some(source)) = (
+-        gpu_temperature,
+-        data.gpu_sensor_source
+-            .as_deref()
+-            .filter(|source| !source.trim().is_empty()),
+-    ) {
+-        temperature_evidence.push(format!("GPU: {temperature:.1} °C"));
+-        temperature_sources.push(source.to_string());
++    let mut has_valid_temperature = append_temperature(
++        &mut temperature_evidence,
++        &mut temperature_sources,
++        "Zona térmica (componente não identificado)",
++        data.thermal_zone_temperature_c,
++        data.thermal_zone_source.as_deref(),
++    );
++    has_valid_temperature |= append_temperature(
++        &mut temperature_evidence,
++        &mut temperature_sources,
++        "Sensor GPU",
++        data.gpu_sensor_temperature_c,
++        data.gpu_sensor_source.as_deref(),
++    );
++    let temperature_status = if has_valid_temperature {
++        DiagnosticStatus::Informativo
++    } else {
++        DiagnosticStatus::Indisponivel
++    };
++    if temperature_evidence.is_empty() {
++        temperature_evidence.push("Leitura de temperatura confiável não disponível.".to_string());
+     }
+ 
+     vec![
+         result(
+             DiagnosticCategory::Sistema,
+-            if system_evidence.is_empty() {
+-                DiagnosticStatus::Indisponivel
+-            } else {
+-                DiagnosticStatus::Ok
+-            },
++            system_status,
+             system_evidence,
+             system_sources,
+         ),
+@@ -275,47 +323,105 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
+         ),
+         result(
+             DiagnosticCategory::MemoriaRam,
+-            if ram_evidence.is_empty() {
+-                DiagnosticStatus::Indisponivel
+-            } else {
+-                DiagnosticStatus::Ok
+-            },
++            ram_status,
+             ram_evidence,
+             ram_sources,
+         ),
+         result(
+             DiagnosticCategory::PlacaDeVideo,
+-            if gpu_evidence.is_empty() {
+-                DiagnosticStatus::Indisponivel
+-            } else {
+-                DiagnosticStatus::Ok
+-            },
++            gpu_status,
+             gpu_evidence,
+             gpu_sources,
+         ),
+         result(
+             DiagnosticCategory::Processador,
+-            if processor_evidence.is_empty() {
+-                DiagnosticStatus::Indisponivel
+-            } else {
+-                DiagnosticStatus::Ok
+-            },
++            processor_status,
+             processor_evidence,
+             processor_sources,
+         ),
+         result(
+             DiagnosticCategory::Temperatura,
+-            if temperature_evidence.is_empty() {
+-                DiagnosticStatus::Indisponivel
+-            } else {
+-                DiagnosticStatus::Ok
+-            },
++            temperature_status,
+             temperature_evidence,
+             temperature_sources,
+         ),
+     ]
+ }
+ 
++fn append_temperature(
++    evidence: &mut Vec<String>,
++    sources: &mut Vec<String>,
++    label: &str,
++    temperature: Option<f64>,
++    source: Option<&str>,
++) -> bool {
++    let source = source.filter(|source| !source.trim().is_empty());
++    if let Some(source) = source.filter(|source| !temperature_source_is_recognized(source)) {
++        evidence.push(format!(
++            "{label}: leitura ignorada; origem não reconhecida."
++        ));
++        sources.push(source.to_string());
++        return false;
++    }
++    match (temperature, source) {
++        (Some(value), Some(source)) if value.is_finite() && (0.0..=150.0).contains(&value) => {
++            evidence.push(format!(
++                "{label}: {value:.1} °C (informativo; sem limite seguro validado)"
++            ));
++            sources.push(source.to_string());
++            true
++        }
++        (Some(value), Some(source)) => {
++            let reason = if value.is_finite() {
++                "fora da faixa plausível de 0 a 150 °C"
++            } else {
++                "não finita"
++            };
++            evidence.push(format!("{label}: leitura ignorada ({reason})."));
++            sources.push(source.to_string());
++            false
++        }
++        (Some(_), None) => {
++            evidence.push(format!(
++                "{label}: leitura ignorada; origem confiável ausente."
++            ));
++            false
++        }
++        (None, Some(source)) => {
++            evidence.push(format!(
++                "{label}: sensor identificado, leitura indisponível."
++            ));
++            sources.push(source.to_string());
++            false
++        }
++        (None, None) => false,
++    }
++}
++
++fn temperature_source_is_recognized(source: &str) -> bool {
++    matches!(
++        source.trim(),
++        "MSAcpi_ThermalZoneTemperature"
++            | "root/LibreHardwareMonitor Sensor"
++            | "root/OpenHardwareMonitor Sensor"
++    )
++}
++
++fn unavailable_checks(reason: &str) -> Vec<DiagnosticCheck> {
++    [
++        ("SFC /verifyonly", "sfc"),
++        ("DISM /Online /Cleanup-Image /ScanHealth", "dism"),
++    ]
++    .into_iter()
++    .map(|(name, program)| DiagnosticCheck {
++        name: name.to_string(),
++        status: DiagnosticStatus::Indisponivel,
++        evidence: format!("{program}: verificação não disponível: {reason}"),
++        source: "Verificação do Windows".to_string(),
++    })
++    .collect()
++}
++
+ fn result(
+     category: DiagnosticCategory,
+     status: DiagnosticStatus,
+@@ -380,15 +486,15 @@ $thermal = @()
+ try {
+   $thermal = @(Get-CimInstance -Namespace 'root/wmi' -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop | ForEach-Object {
+     $c = ($_.CurrentTemperature / 10) - 273.15
+-    if ($c -ge 0 -and $c -le 150) { [double]$c }
+-  } | Where-Object { $_ -ne $null })
++    if ($_.CurrentTemperature -ne $null) { [double]$c }
++  })
+ } catch {}
+ $gpuTemperature = $null
+ $gpuTemperatureSource = $null
+ foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor')) {
+   try {
+     $gpuSensors = @(Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop | Where-Object {
+-      $_.SensorType -eq 'Temperature' -and $_.HardwareType -like 'Gpu*' -and $_.Value -ge 0 -and $_.Value -le 150
++      $_.SensorType -eq 'Temperature' -and $_.HardwareType -like 'Gpu*' -and $_.Value -ne $null
+     })
+     if ($gpuSensors.Count -gt 0) {
+       $gpuTemperature = [double]$gpuSensors[0].Value
+@@ -423,31 +529,44 @@ foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor'
+         use std::process::Command;
+ 
+         let mut results = Vec::new();
+-        for (program, args) in [
+-            ("sfc", vec!["/verifyonly"]),
+-            ("dism", vec!["/Online", "/Cleanup-Image", "/ScanHealth"]),
++        for (name, program, args) in [
++            ("SFC /verifyonly", "sfc", vec!["/verifyonly"]),
++            (
++                "DISM /Online /Cleanup-Image /ScanHealth",
++                "dism",
++                vec!["/Online", "/Cleanup-Image", "/ScanHealth"],
++            ),
+         ] {
+-            match Command::new(program).args(&args).output() {
++            match Command::new(program).args(args).output() {
+                 Ok(output) => {
+-                    let succeeded = output.status.success();
+-                    let text = if output.stdout.is_empty() {
+-                        String::from_utf8_lossy(&output.stderr)
+-                    } else {
+-                        String::from_utf8_lossy(&output.stdout)
++                    let stdout = String::from_utf8_lossy(&output.stdout);
++                    let stderr = String::from_utf8_lossy(&output.stderr);
++                    let status =
++                        classify_extended_status(program, output.status.code(), &stdout, &stderr);
++                    let stdout_summary = summarize_command_output(&stdout);
++                    let stderr_summary = summarize_command_output(&stderr);
++                    let summary = match (stdout_summary, stderr_summary) {
++                        (Some(stdout), Some(stderr)) => {
++                            format!("saída: {stdout}; erro: {stderr}")
++                        }
++                        (Some(stdout), None) => format!("saída: {stdout}"),
++                        (None, Some(stderr)) => format!("erro: {stderr}"),
++                        (None, None) => "Sem saída textual.".to_string(),
+                     };
++                    let exit = output.status.code().map_or_else(
++                        || "sem código (processo interrompido ou cancelado)".to_string(),
++                        |code| format!("código {code}"),
++                    );
+                     results.push(ExtendedCheck {
+-                        evidence: format!(
+-                            "{program} {}: código {}; {}",
+-                            args.join(" "),
+-                            output.status.code().unwrap_or(-1),
+-                            text.lines().last().unwrap_or("Sem resumo de saída.")
+-                        ),
+-                        succeeded,
++                        name: name.to_string(),
++                        status,
++                        evidence: format!("{exit}; {summary}"),
+                     });
+                 }
+                 Err(error) => results.push(ExtendedCheck {
++                    name: name.to_string(),
++                    status: DiagnosticStatus::Indisponivel,
+                     evidence: format!("Não foi possível executar {program}: {error}"),
+-                    succeeded: false,
+                 }),
+             }
+         }
+@@ -455,6 +574,96 @@ foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor'
+     }
+ }
+ 
++#[cfg(target_os = "windows")]
++fn summarize_command_output(output: &str) -> Option<String> {
++    let lines = output
++        .lines()
++        .filter(|line| !line.trim().is_empty())
++        .collect::<Vec<_>>();
++    if lines.is_empty() {
++        return None;
++    }
++    let mut summary = lines
++        .iter()
++        .rev()
++        .take(8)
++        .rev()
++        .copied()
++        .collect::<Vec<_>>()
++        .join(" | ");
++    if summary.chars().count() > 700 {
++        summary = summary.chars().rev().take(700).collect::<String>();
++        summary = summary.chars().rev().collect();
++    }
++    Some(summary)
++}
++
++#[cfg(any(target_os = "windows", test))]
++fn classify_extended_status(
++    program: &str,
++    exit_code: Option<i32>,
++    stdout: &str,
++    stderr: &str,
++) -> DiagnosticStatus {
++    let Some(code) = exit_code else {
++        return DiagnosticStatus::Indisponivel;
++    };
++    if code != 0 {
++        return DiagnosticStatus::Falha;
++    }
++
++    let output = format!("{stdout}\n{stderr}").to_lowercase();
++    let detected_issue = match program {
++        "sfc" => [
++            "found corrupt files",
++            "found integrity violations",
++            "encontrou arquivos corrompidos",
++            "encontrou violações de integridade",
++            "encontrou violacoes de integridade",
++        ]
++        .iter()
++        .any(|phrase| output.contains(phrase)),
++        "dism" => [
++            "the component store is repairable",
++            "the component store is not repairable",
++            "corrupção detectada no armazenamento de componentes",
++            "corrupcao detectada no armazenamento de componentes",
++        ]
++        .iter()
++        .any(|phrase| output.contains(phrase)),
++        _ => false,
++    };
++    if detected_issue {
++        return DiagnosticStatus::Atencao;
++    }
++    if !stderr.trim().is_empty() {
++        return DiagnosticStatus::Informativo;
++    }
++
++    let known_clean = match program {
++        "sfc" => [
++            "did not find any integrity violations",
++            "não encontrou nenhuma violação de integridade",
++            "nao encontrou nenhuma violacao de integridade",
++        ]
++        .iter()
++        .any(|phrase| output.contains(phrase)),
++        "dism" => [
++            "no component store corruption detected",
++            "nenhuma corrupção detectada no armazenamento de componentes",
++            "nenhuma corrupcao detectada no armazenamento de componentes",
++        ]
++        .iter()
++        .any(|phrase| output.contains(phrase)),
++        _ => false,
++    };
++    if known_clean {
++        DiagnosticStatus::Ok
++    } else {
++        DiagnosticStatus::Informativo
++    }
++}
++
+ #[cfg(not(target_os = "windows"))]
+ #[derive(Default)]
+ pub(crate) struct WindowsDiagnosticBackend;
+@@ -530,11 +739,33 @@ fn base64_encode(bytes: &[u8]) -> String {
+ mod tests {
+     use super::*;
+ 
+-    #[derive(Default)]
+     struct FakeBackend {
+         data: DiagnosticData,
+         extended_calls: usize,
+-        extended_failure: bool,
++        checks: Vec<ExtendedCheck>,
++        extended_error: Option<String>,
++    }
++
++    impl Default for FakeBackend {
++        fn default() -> Self {
++            Self {
++                data: DiagnosticData::default(),
++                extended_calls: 0,
++                checks: vec![
++                    ExtendedCheck {
++                        name: "SFC /verifyonly".to_string(),
++                        status: DiagnosticStatus::Ok,
++                        evidence: "código 0; verificação concluída".to_string(),
++                    },
++                    ExtendedCheck {
++                        name: "DISM /Online /Cleanup-Image /ScanHealth".to_string(),
++                        status: DiagnosticStatus::Ok,
++                        evidence: "código 0; verificação concluída".to_string(),
++                    },
++                ],
++                extended_error: None,
++            }
++        }
+     }
+ 
+     impl DiagnosticBackend for FakeBackend {
+@@ -544,164 +775,338 @@ mod tests {
+ 
+         fn run_extended_checks(&mut self) -> Result<Vec<ExtendedCheck>, String> {
+             self.extended_calls += 1;
+-            Ok(vec![
+-                ExtendedCheck {
+-                    evidence: "sfc /verifyonly: código 0".to_string(),
+-                    succeeded: !self.extended_failure,
+-                },
+-                ExtendedCheck {
+-                    evidence: "dism /Online /Cleanup-Image /ScanHealth: código 0".to_string(),
+-                    succeeded: true,
+-                },
+-            ])
++            match &self.extended_error {
++                Some(error) => Err(error.clone()),
++                None => Ok(self.checks.clone()),
++            }
+         }
+     }
+ 
++    fn result_for(report: &DiagnosticReport, category: DiagnosticCategory) -> &DiagnosticResult {
++        report
++            .results
++            .iter()
++            .find(|result| result.category == category)
++            .unwrap()
++    }
++
+     #[test]
+     fn quick_check_does_not_run_sfc_or_dism() {
+         let mut backend = FakeBackend::default();
+         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+         assert_eq!(backend.extended_calls, 0);
+         assert_eq!(report.results.len(), 6);
++        assert!(report.checks.is_empty());
+     }
+ 
+     #[test]
+-    fn complete_check_runs_extended_checks() {
++    fn system_identification_is_informational_and_missing_data_is_unavailable() {
+         let mut backend = FakeBackend::default();
++        backend.data.os_name = Some("Windows test".to_string());
++        backend.data.os_version = Some("24H2".to_string());
+         let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
+-        assert_eq!(backend.extended_calls, 1);
+-        let system = report
+-            .results
+-            .iter()
+-            .find(|result| result.category == DiagnosticCategory::Sistema)
+-            .unwrap();
+-        assert!(system
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Sistema).status,
++            DiagnosticStatus::Informativo
++        );
++        assert_eq!(report.checks.len(), 2);
++
++        backend.data = DiagnosticData::default();
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Sistema).status,
++            DiagnosticStatus::Indisponivel
++        );
++    }
++
++    #[test]
++    fn storage_classifies_safe_boundary_and_low_space() {
++        let mut backend = FakeBackend::default();
++        backend.data.disks = vec![DiskData {
++            name: Some("C:".to_string()),
++            size_bytes: Some(1000),
++            free_bytes: Some(100),
++        }];
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Armazenamento).status,
++            DiagnosticStatus::Ok
++        );
++
++        backend.data.disks[0].free_bytes = Some(99);
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        let storage = result_for(&report, DiagnosticCategory::Armazenamento);
++        assert_eq!(storage.status, DiagnosticStatus::Atencao);
++        assert!(storage
+             .evidence
+             .iter()
+-            .any(|item| item.contains("sfc /verifyonly")));
+-        assert!(system.evidence.iter().any(|item| item.contains("dism")));
++            .any(|line| line.contains("abaixo de 10%")));
+     }
+ 
+     #[test]
+-    fn failed_extended_check_is_reported_as_failure() {
+-        let mut backend = FakeBackend {
+-            extended_failure: true,
+-            ..FakeBackend::default()
+-        };
+-        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
+-        let system = report
+-            .results
+-            .iter()
+-            .find(|result| result.category == DiagnosticCategory::Sistema)
+-            .unwrap();
+-        assert_eq!(system.status, DiagnosticStatus::Falha);
++    fn storage_missing_or_invalid_values_are_unavailable() {
++        let mut backend = FakeBackend::default();
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Armazenamento).status,
++            DiagnosticStatus::Indisponivel
++        );
++
++        backend.data.disks = vec![DiskData {
++            name: Some("C:".to_string()),
++            size_bytes: Some(0),
++            free_bytes: Some(5),
++        }];
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        let storage = result_for(&report, DiagnosticCategory::Armazenamento);
++        assert_eq!(storage.status, DiagnosticStatus::Indisponivel);
++        assert!(!storage.evidence.iter().any(|line| line.contains("0 GiB")));
++    }
++
++    #[test]
++    fn ram_uses_documented_ten_percent_alert_boundary_and_rejects_invalid_values() {
++        let mut backend = FakeBackend::default();
++        backend.data.ram_total_bytes = Some(1000);
++        backend.data.ram_available_bytes = Some(100);
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::MemoriaRam).status,
++            DiagnosticStatus::Informativo
++        );
++
++        backend.data.ram_available_bytes = Some(99);
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::MemoriaRam).status,
++            DiagnosticStatus::Atencao
++        );
++
++        backend.data.ram_available_bytes = None;
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::MemoriaRam).status,
++            DiagnosticStatus::Indisponivel
++        );
++
++        backend.data.ram_available_bytes = Some(100);
++        backend.data.ram_total_bytes = Some(0);
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::MemoriaRam).status,
++            DiagnosticStatus::Indisponivel
++        );
++
++        backend.data.ram_total_bytes = Some(100);
++        backend.data.ram_available_bytes = Some(101);
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::MemoriaRam).status,
++            DiagnosticStatus::Indisponivel
++        );
++    }
++
++    #[test]
++    fn complete_check_status_requires_exit_code_and_recognized_result() {
++        assert_eq!(
++            classify_extended_status(
++                "sfc",
++                Some(0),
++                "Windows Resource Protection did not find any integrity violations.",
++                ""
++            ),
++            DiagnosticStatus::Ok
++        );
++        assert_eq!(
++            classify_extended_status(
++                "sfc",
++                Some(0),
++                "Windows Resource Protection found corrupt files.",
++                ""
++            ),
++            DiagnosticStatus::Atencao
++        );
++        assert_eq!(
++            classify_extended_status("dism", Some(0), "Unexpected successful output.", ""),
++            DiagnosticStatus::Informativo
++        );
++        assert_eq!(
++            classify_extended_status("sfc", Some(1), "Check output", ""),
++            DiagnosticStatus::Falha
++        );
++        assert_eq!(
++            classify_extended_status("dism", None, "", ""),
++            DiagnosticStatus::Indisponivel
++        );
++        assert_eq!(
++            classify_extended_status("sfc", Some(0), "Known clean output", "warning"),
++            DiagnosticStatus::Informativo
++        );
+     }
+ 
+     #[test]
+-    fn absent_sensors_are_unavailable_without_zero_values() {
++    fn gpu_and_processor_identification_are_not_health_approvals() {
+         let mut backend = FakeBackend::default();
++        backend.data.gpu_names = vec!["Example GPU".to_string()];
+         backend.data.processor_name = Some("Example CPU".to_string());
+         backend.data.processor_logical_count = Some(8);
+-        backend.data.gpu_names = vec!["Example GPU".to_string()];
+         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+-        let temperature = report
+-            .results
+-            .iter()
+-            .find(|result| result.category == DiagnosticCategory::Temperatura)
+-            .unwrap();
+-        let processor = report
+-            .results
+-            .iter()
+-            .find(|result| result.category == DiagnosticCategory::Processador)
+-            .unwrap();
+-        let gpu = report
+-            .results
+-            .iter()
+-            .find(|result| result.category == DiagnosticCategory::PlacaDeVideo)
+-            .unwrap();
+-        assert_eq!(temperature.status, DiagnosticStatus::Indisponivel);
+-        assert!(temperature
+-            .evidence
+-            .iter()
+-            .all(|item| !item.contains("0 °C")));
+-        assert_eq!(processor.status, DiagnosticStatus::Ok);
+-        assert_eq!(gpu.status, DiagnosticStatus::Ok);
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::PlacaDeVideo).status,
++            DiagnosticStatus::Informativo
++        );
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Processador).status,
++            DiagnosticStatus::Informativo
++        );
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Temperatura).status,
++            DiagnosticStatus::Indisponivel
++        );
+     }
+ 
+     #[test]
+-    fn absent_gpu_sensor_does_not_hide_thermal_zone_temperature() {
++    fn temperatures_require_a_source_and_plausible_finite_values() {
+         let mut backend = FakeBackend::default();
+         backend.data.thermal_zone_temperature_c = Some(47.0);
+-        backend.data.thermal_zone_source = Some("Fake thermal provider".to_string());
++        backend.data.thermal_zone_source = Some("MSAcpi_ThermalZoneTemperature".to_string());
+         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+-        let temperature = report
+-            .results
+-            .iter()
+-            .find(|result| result.category == DiagnosticCategory::Temperatura)
+-            .unwrap();
+-        assert_eq!(temperature.status, DiagnosticStatus::Ok);
+-        assert_eq!(temperature.evidence, ["Zona térmica: 47.0 °C"]);
++        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
++        assert_eq!(temperature.status, DiagnosticStatus::Informativo);
++        assert!(temperature.evidence[0].contains("componente não identificado"));
++        assert!(temperature.evidence[0].contains("sem limite seguro validado"));
++        assert!(!temperature.evidence[0].to_lowercase().contains("cpu"));
++
++        backend.data.thermal_zone_temperature_c = Some(f64::NAN);
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
++        assert_eq!(temperature.status, DiagnosticStatus::Indisponivel);
++        assert!(temperature.evidence[0].contains("não finita"));
++
++        backend.data.thermal_zone_temperature_c = Some(151.0);
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Temperatura).status,
++            DiagnosticStatus::Indisponivel
++        );
++
++        backend.data.thermal_zone_temperature_c = Some(40.0);
++        backend.data.thermal_zone_source = Some("unknown provider".to_string());
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
++        assert_eq!(temperature.status, DiagnosticStatus::Indisponivel);
++        assert!(temperature.evidence[0].contains("origem não reconhecida"));
++
++        backend.data.thermal_zone_source = Some("MSAcpi_ThermalZoneTemperature".to_string());
++        for temperature_value in [0.0, 150.0] {
++            backend.data.thermal_zone_temperature_c = Some(temperature_value);
++            let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++            assert_eq!(
++                result_for(&report, DiagnosticCategory::Temperatura).status,
++                DiagnosticStatus::Informativo
++            );
++        }
++
++        backend.data.thermal_zone_temperature_c = Some(42.0);
++        backend.data.thermal_zone_source = None;
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
++        assert_eq!(temperature.status, DiagnosticStatus::Indisponivel);
++        assert!(temperature.evidence[0].contains("origem confiável ausente"));
++
++        backend.data.thermal_zone_temperature_c = None;
++        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Temperatura).status,
++            DiagnosticStatus::Indisponivel
++        );
+     }
+ 
+     #[test]
+-    fn gpu_sensor_is_reported_only_when_provider_supplies_a_value_and_source() {
++    fn gpu_identification_without_temperature_sensor_remains_informational() {
+         let mut backend = FakeBackend::default();
+         backend.data.gpu_names = vec!["Example GPU".to_string()];
+-        backend.data.gpu_sensor_temperature_c = Some(51.5);
+-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+-        let gpu = report
+-            .results
+-            .iter()
+-            .find(|result| result.category == DiagnosticCategory::PlacaDeVideo)
+-            .unwrap();
+-        assert_eq!(gpu.status, DiagnosticStatus::Ok);
+-        assert!(!gpu.evidence.iter().any(|item| item.contains("Sensor GPU")));
+-
+-        backend.data.gpu_sensor_source = Some("Optional fake sensor".to_string());
+         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+-        let gpu = report
+-            .results
+-            .iter()
+-            .find(|result| result.category == DiagnosticCategory::PlacaDeVideo)
+-            .unwrap();
+-        assert!(gpu.evidence.iter().any(|item| item.contains("51.5 °C")));
+-        assert!(gpu.source.iter().any(|item| item == "Optional fake sensor"));
++        let gpu = result_for(&report, DiagnosticCategory::PlacaDeVideo);
++        assert_eq!(gpu.status, DiagnosticStatus::Informativo);
++        assert!(gpu.evidence.iter().any(|line| line == "Example GPU"));
++        assert_eq!(
++            result_for(&report, DiagnosticCategory::Temperatura).status,
++            DiagnosticStatus::Indisponivel
++        );
+     }
+ 
+     #[test]
+-    fn storage_provider_failure_does_not_change_other_categories() {
++    fn complete_checks_separate_pass_failure_and_cancellation() {
+         let mut backend = FakeBackend::default();
+-        backend.data.ram_total_bytes = Some(8 * 1024 * 1024 * 1024);
+-        backend.data.ram_available_bytes = Some(4 * 1024 * 1024 * 1024);
+-        backend.data.disks = vec![DiskData {
+-            name: Some("C:".to_string()),
+-            size_bytes: Some(0),
+-            free_bytes: None,
+-        }];
+         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+-        let storage = report
+-            .results
++        assert!(report.checks.is_empty());
++
++        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
++        assert_eq!(report.checks.len(), 2);
++        assert!(report
++            .checks
+             .iter()
+-            .find(|result| result.category == DiagnosticCategory::Armazenamento)
+-            .unwrap();
+-        let ram = report
+-            .results
++            .all(|check| check.status == DiagnosticStatus::Ok));
++
++        backend.checks[0].status = DiagnosticStatus::Falha;
++        backend.checks[0].evidence = "código 2; erro de verificação".to_string();
++        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
++        assert_eq!(report.checks[0].status, DiagnosticStatus::Falha);
++        assert!(report.checks[0].evidence.contains("código 2"));
++
++        backend.checks[0].status = DiagnosticStatus::Indisponivel;
++        backend.checks[0].evidence = "processo cancelado".to_string();
++        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
++        assert_eq!(report.checks[0].status, DiagnosticStatus::Indisponivel);
++        assert!(report.checks[0].evidence.contains("cancelado"));
++    }
++
++    #[test]
++    fn failed_to_start_complete_checks_are_reported_unavailable() {
++        let mut backend = FakeBackend {
++            extended_error: Some("provedor não executável".to_string()),
++            ..FakeBackend::default()
++        };
++        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
++        assert_eq!(report.checks.len(), 2);
++        assert!(report
++            .checks
+             .iter()
+-            .find(|result| result.category == DiagnosticCategory::MemoriaRam)
+-            .unwrap();
+-        assert_eq!(storage.status, DiagnosticStatus::Indisponivel);
+-        assert_eq!(ram.status, DiagnosticStatus::Ok);
+-        assert!(storage.evidence.iter().all(|item| !item.contains("0 GiB")));
++            .all(|check| check.status == DiagnosticStatus::Indisponivel));
++        assert!(report.checks[0]
++            .evidence
++            .contains("provedor não executável"));
++    }
++
++    #[test]
++    fn diagnostic_status_serializes_informational_state_explicitly() {
++        assert_eq!(
++            serde_json::to_string(&DiagnosticStatus::Informativo).unwrap(),
++            "\"informativo\""
++        );
++        let report = DiagnosticReport {
++            mode: DiagnosticMode::Quick,
++            results: vec![DiagnosticResult {
++                category: DiagnosticCategory::Sistema,
++                status: DiagnosticStatus::Informativo,
++                evidence: vec!["Windows test".to_string()],
++                source: vec!["fake".to_string()],
++            }],
++            checks: Vec::new(),
++        };
++        let json = serde_json::to_value(report).unwrap();
++        assert_eq!(json["results"][0]["status"], "informativo");
++        assert!(json["checks"].as_array().unwrap().is_empty());
+     }
+ 
+     #[test]
+-    fn low_storage_is_attention_and_all_categories_have_evidence_and_source() {
++    fn all_categories_always_include_evidence_and_source() {
+         let mut backend = FakeBackend::default();
+         backend.data.os_name = Some("Windows test".to_string());
+         backend.data.disks = vec![DiskData {
+             name: Some("C:".to_string()),
+             size_bytes: Some(1000),
+-            free_bytes: Some(50),
++            free_bytes: Some(500),
+         }];
+         backend.data.ram_total_bytes = Some(16_000);
+         backend.data.ram_available_bytes = Some(8_000);
+@@ -714,13 +1119,8 @@ mod tests {
+             .iter()
+             .all(|result| !result.evidence.is_empty() && !result.source.is_empty()));
+         assert_eq!(
+-            report
+-                .results
+-                .iter()
+-                .find(|result| result.category == DiagnosticCategory::Armazenamento)
+-                .unwrap()
+-                .status,
+-            DiagnosticStatus::Atencao
++            result_for(&report, DiagnosticCategory::Armazenamento).status,
++            DiagnosticStatus::Ok
+         );
+     }
+ }
+diff --git a/src/main.js b/src/main.js
+index e5d9e66..8108532 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -551,8 +551,9 @@ function diagnosticStatusLabel(status) {
+     ok: "ok",
+     atencao: "atenção",
+     falha: "falha",
+-    indisponivel: "indisponível"
+-  }[status] || status;
++    indisponivel: "indisponível",
++    informativo: "informativo"
++  }[status] || "estado desconhecido";
+ }
+ 
+ function renderDiagnosticReport(report) {
+@@ -569,10 +570,22 @@ function renderDiagnosticReport(report) {
+     item.append(heading, evidence, source);
+     list.appendChild(item);
+   });
++  (report.checks || []).forEach((check) => {
++    const item = document.createElement("li");
++    const heading = document.createElement("strong");
++    heading.textContent = `Verificação · ${check.name} · ${diagnosticStatusLabel(check.status)}`;
++    const evidence = document.createElement("p");
++    evidence.textContent = check.evidence;
++    const source = document.createElement("small");
++    source.textContent = `Origem: ${check.source}`;
++    item.append(heading, evidence, source);
++    list.appendChild(item);
++  });
+ }
+ 
+ async function runDiagnostic(mode) {
+   const status = document.getElementById("diagnostic-status");
++  document.getElementById("diagnostic-results").replaceChildren();
+   const buttons = [
+     document.getElementById("diagnostic-quick-btn"),
+     document.getElementById("diagnostic-complete-btn")
+@@ -583,8 +596,8 @@ async function runDiagnostic(mode) {
+     const report = await Qboa.runDiagnosticCheck(mode);
+     renderDiagnosticReport(report);
+     status.textContent = mode === "quick"
+-      ? "Verificação rápida concluída."
+-      : "Verificação completa concluída.";
++      ? "Coleta rápida concluída. Informações não representam aprovação de saúde."
++      : "Verificação completa finalizada; confira cada resultado e sua disponibilidade.";
+   } catch (error) {
+     status.textContent = String(error);
+   } finally {

@@ -551,8 +551,9 @@ function diagnosticStatusLabel(status) {
     ok: "ok",
     atencao: "atenção",
     falha: "falha",
-    indisponivel: "indisponível"
-  }[status] || status;
+    indisponivel: "indisponível",
+    informativo: "informativo"
+  }[status] || "estado desconhecido";
 }
 
 function renderDiagnosticReport(report) {
@@ -569,10 +570,22 @@ function renderDiagnosticReport(report) {
     item.append(heading, evidence, source);
     list.appendChild(item);
   });
+  (report.checks || []).forEach((check) => {
+    const item = document.createElement("li");
+    const heading = document.createElement("strong");
+    heading.textContent = `Verificação · ${check.name} · ${diagnosticStatusLabel(check.status)}`;
+    const evidence = document.createElement("p");
+    evidence.textContent = check.evidence;
+    const source = document.createElement("small");
+    source.textContent = `Origem: ${check.source}`;
+    item.append(heading, evidence, source);
+    list.appendChild(item);
+  });
 }
 
 async function runDiagnostic(mode) {
   const status = document.getElementById("diagnostic-status");
+  document.getElementById("diagnostic-results").replaceChildren();
   const buttons = [
     document.getElementById("diagnostic-quick-btn"),
     document.getElementById("diagnostic-complete-btn")
@@ -583,8 +596,8 @@ async function runDiagnostic(mode) {
     const report = await Qboa.runDiagnosticCheck(mode);
     renderDiagnosticReport(report);
     status.textContent = mode === "quick"
-      ? "Verificação rápida concluída."
-      : "Verificação completa concluída.";
+      ? "Coleta rápida concluída. Informações não representam aprovação de saúde."
+      : "Verificação completa finalizada; confira cada resultado e sua disponibilidade.";
   } catch (error) {
     status.textContent = String(error);
   } finally {
