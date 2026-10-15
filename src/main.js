@@ -106,10 +106,21 @@ function renderTabs() {
       renderTabs();
       renderSectionSummary();
       renderCards();
-      appendConsole(`Selecione uma tarefa de ${section.title.toLowerCase()} para executar.`);
     });
     tabsEl.appendChild(btn);
   });
+
+  const serviceTab = document.createElement("button");
+  serviceTab.className = "tab" + (activeSection === "servicos" ? " active" : "");
+  serviceTab.textContent = "Serviços";
+  serviceTab.addEventListener("click", async () => {
+    activeSection = "servicos";
+    renderTabs();
+    document.getElementById("section-summary").textContent = "Alterar perfil de serviços do Windows";
+    renderCards();
+    if (!serviceProfileState) await loadServiceProfileState();
+  });
+  tabsEl.appendChild(serviceTab);
 
   const contributionTab = document.createElement("button");
   contributionTab.className = "tab" + (activeSection === "contribuir" ? " active" : "");
@@ -119,7 +130,6 @@ function renderTabs() {
     renderTabs();
     document.getElementById("section-summary").textContent = "Contribua com código, testes, ideias ou Pix.";
     renderCards();
-    appendConsole("Área de contribuição do Qboa Digital.");
   });
   tabsEl.appendChild(contributionTab);
 }
@@ -129,8 +139,13 @@ function renderCards() {
   const dashboard = document.querySelector(".dashboard");
   const recoveryPanel = document.querySelector(".recovery-panel");
   const profileControls = document.getElementById("debloat-profile-controls");
+  const serviceProfilePanel = document.getElementById("service-profile-panel");
   profileControls.hidden = activeSection !== "desengordurar";
+  serviceProfilePanel.hidden = activeSection !== "servicos";
+  dashboard.hidden = activeSection === "servicos";
+  document.getElementById("preset-run-btn").disabled = activeSection === "servicos";
   cardsEl.innerHTML = "";
+  if (activeSection === "servicos") return;
   if (activeSection === "contribuir") {
     dashboard.classList.add("contribution-view");
     recoveryPanel.hidden = true;
@@ -511,8 +526,10 @@ async function refreshCleanupFindings() {
 function renderServiceProfilePreview(preview) {
   const items = document.getElementById("service-profile-preview");
   const ignored = document.getElementById("service-profile-ignored");
+  const ignoredTitle = document.getElementById("service-profile-ignored-title");
   items.replaceChildren();
   ignored.replaceChildren();
+  ignoredTitle.hidden = true;
   document.getElementById("service-profile-preview-status").textContent = preview.message;
   document.getElementById("service-profile-apply-btn").disabled =
     !serviceProfileState?.profile?.validated || !preview.applicable;
@@ -528,11 +545,7 @@ function renderServiceProfilePreview(preview) {
       items.appendChild(item);
     }
   });
-  if (!ignored.children.length) {
-    const item = document.createElement("li");
-    item.textContent = "Nenhum serviço ignorado.";
-    ignored.appendChild(item);
-  }
+  ignoredTitle.hidden = ignored.children.length === 0;
 }
 
 function diagnosticCategoryLabel(category) {
@@ -683,8 +696,6 @@ async function registerEvents() {
   bindLevels();
   await registerEvents();
   await refreshHistory();
-  await loadServiceProfileState();
-  writeStatus("Selecione uma tarefa para executar.");
 
   document.getElementById("restore-point-btn").addEventListener("click", async () => {
     try {
@@ -776,6 +787,7 @@ async function registerEvents() {
     document.getElementById("service-profile-preview").replaceChildren();
     document.getElementById("service-profile-ignored").replaceChildren();
     document.getElementById("service-profile-preview-status").textContent = "";
+    document.getElementById("service-profile-ignored-title").hidden = true;
   });
 
   document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {

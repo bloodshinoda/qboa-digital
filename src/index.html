@@ -71,7 +71,7 @@
     </aside>
   </main>
 
-  <section class="service-profile-panel">
+  <section class="service-profile-panel" id="service-profile-panel" hidden>
     <h2>Alterar perfil de serviços do Windows</h2>
     <p id="service-profile-status">Nenhum perfil validado. Aplicação indisponível.</p>
     <p id="service-system-details"></p>
@@ -90,13 +90,13 @@
     </div>
     <p id="service-profile-preview-status"></p>
     <ul id="service-profile-preview" class="service-profile-preview"></ul>
-    <h3>Ignorados</h3>
+    <h3 id="service-profile-ignored-title" hidden>Ignorados</h3>
     <ul id="service-profile-ignored" class="service-profile-preview"></ul>
   </section>
 
   <section class="console" id="console">
     <div class="console-title">saída</div>
-    <pre id="console-output">Selecione um item para executar.</pre>
+    <pre id="console-output"></pre>
   </section>
 
   <div class="toolbar">
