@@ -40,6 +40,10 @@ const Qboa = {
     return invoke("get_cleanup_findings");
   },
 
+  async runDiagnosticCheck(mode) {
+    return invoke("run_diagnostic_check", { mode });
+  },
+
   async deleteCleanupFinding(findingId) {
     return invoke("delete_cleanup_finding", { findingId, confirmed: true });
   },
@@ -531,6 +535,63 @@ function renderServiceProfilePreview(preview) {
   }
 }
 
+function diagnosticCategoryLabel(category) {
+  return {
+    sistema: "Sistema",
+    armazenamento: "Armazenamento",
+    memoria_ram: "Memória RAM",
+    placa_de_video: "Placa de vídeo",
+    processador: "Processador",
+    temperatura: "Temperatura"
+  }[category] || category;
+}
+
+function diagnosticStatusLabel(status) {
+  return {
+    ok: "ok",
+    atencao: "atenção",
+    falha: "falha",
+    indisponivel: "indisponível"
+  }[status] || status;
+}
+
+function renderDiagnosticReport(report) {
+  const list = document.getElementById("diagnostic-results");
+  list.replaceChildren();
+  report.results.forEach((result) => {
+    const item = document.createElement("li");
+    const heading = document.createElement("strong");
+    heading.textContent = `${diagnosticCategoryLabel(result.category)} · ${diagnosticStatusLabel(result.status)}`;
+    const evidence = document.createElement("p");
+    evidence.textContent = result.evidence.join(" · ");
+    const source = document.createElement("small");
+    source.textContent = `Origem: ${result.source.join(", ")}`;
+    item.append(heading, evidence, source);
+    list.appendChild(item);
+  });
+}
+
+async function runDiagnostic(mode) {
+  const status = document.getElementById("diagnostic-status");
+  const buttons = [
+    document.getElementById("diagnostic-quick-btn"),
+    document.getElementById("diagnostic-complete-btn")
+  ];
+  buttons.forEach((item) => { item.disabled = true; });
+  status.textContent = "Verificando...";
+  try {
+    const report = await Qboa.runDiagnosticCheck(mode);
+    renderDiagnosticReport(report);
+    status.textContent = mode === "quick"
+      ? "Verificação rápida concluída."
+      : "Verificação completa concluída.";
+  } catch (error) {
+    status.textContent = String(error);
+  } finally {
+    buttons.forEach((item) => { item.disabled = false; });
+  }
+}
+
 async function loadServiceProfileState() {
   const status = document.getElementById("service-profile-status");
   const details = document.getElementById("service-system-details");
@@ -672,6 +733,13 @@ async function registerEvents() {
     } finally {
       button.disabled = false;
     }
+  });
+
+  document.getElementById("diagnostic-quick-btn").addEventListener("click", () => {
+    void runDiagnostic("quick");
+  });
+  document.getElementById("diagnostic-complete-btn").addEventListener("click", () => {
+    void runDiagnostic("complete");
   });
 
   document.getElementById("service-profile-preview-btn").addEventListener("click", async (event) => {

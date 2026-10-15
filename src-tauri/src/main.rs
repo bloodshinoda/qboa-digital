@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod cleanup_findings;
+mod diagnostics;
 mod registry_executor;
 mod safety;
 mod service_profiles;
@@ -1049,6 +1050,14 @@ async fn get_cleanup_findings() -> Result<Vec<cleanup_findings::CleanupFinding>,
 }
 
 #[tauri::command]
+async fn run_diagnostic_check(
+    mode: diagnostics::DiagnosticMode,
+) -> Result<diagnostics::DiagnosticReport, String> {
+    let mut backend = diagnostics::WindowsDiagnosticBackend::default();
+    diagnostics::run(&mut backend, mode)
+}
+
+#[tauri::command]
 async fn delete_cleanup_finding(finding_id: String, confirmed: bool) -> Result<(), String> {
     let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
     cleanup_findings::delete_by_id(&mut backend, &finding_id, confirmed)
@@ -1141,6 +1150,7 @@ fn main() {
             rollback_session,
             get_session_history,
             get_cleanup_findings,
+            run_diagnostic_check,
             delete_cleanup_finding,
             get_service_profile_state,
             preview_service_profile,

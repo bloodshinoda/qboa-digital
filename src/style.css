@@ -276,6 +276,25 @@ button {
   padding: 14px;
 }
 
+.diagnostic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.diagnostic-results {
+  padding-left: 18px;
+}
+
+.diagnostic-results li {
+  margin-bottom: 10px;
+}
+
+.diagnostic-results p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
 .recovery-box h3 {
   margin: 0 0 8px;
   font-size: 0.9rem;
