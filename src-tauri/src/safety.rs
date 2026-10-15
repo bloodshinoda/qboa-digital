@@ -229,6 +229,13 @@ impl SafetyManager {
     }
 
     fn persist_journal(&self) -> Result<(), String> {
+        self.persist_journal_with(replace_file_atomically)
+    }
+
+    fn persist_journal_with<F>(&self, replace: F) -> Result<(), String>
+    where
+        F: FnOnce(&Path, &Path) -> Result<(), String>,
+    {
         let parent = self
             .journal_path
             .parent()
@@ -251,7 +258,7 @@ impl SafetyManager {
                 .map_err(|e| format!("Falha ao sincronizar journal temporário: {e}"))?;
         }
 
-        if let Err(error) = replace_file_atomically(&temp_path, &self.journal_path) {
+        if let Err(error) = replace(&temp_path, &self.journal_path) {
             let _ = fs::remove_file(&temp_path);
             return Err(error);
         }
@@ -495,13 +502,16 @@ impl SafetyManager {
             .map(|change| change.rollback_status.clone())
     }
     pub fn update_change_result(&mut self, change_id: &str, result: &str) -> Result<(), String> {
-        if let Some(change) = self
+        if let Some(index) = self
             .changes
-            .iter_mut()
-            .find(|change| change.id == change_id)
+            .iter()
+            .position(|change| change.id == change_id)
         {
-            change.result = result.to_string();
-            self.persist_after_change("update_change_result")?;
+            let previous = std::mem::replace(&mut self.changes[index].result, result.to_string());
+            if let Err(error) = self.persist_after_change("update_change_result") {
+                self.changes[index].result = previous;
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -766,13 +776,113 @@ fn replace_file_atomically(temp_path: &Path, destination: &Path) -> Result<(), S
     #[cfg(target_os = "windows")]
     {
         if destination.exists() {
-            fs::remove_file(destination)
-                .map_err(|e| format!("Falha ao substituir journal existente: {e}"))?;
+            return replace_existing_file_windows(temp_path, destination);
         }
+
+        return move_new_file_windows(temp_path, destination);
     }
 
+    #[cfg(not(target_os = "windows"))]
     fs::rename(temp_path, destination)
         .map_err(|e| format!("Falha ao finalizar journal atômico: {e}"))
+}
+
+#[cfg(target_os = "windows")]
+fn replace_existing_file_windows(temp_path: &Path, destination: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+    let backup_path = destination.with_extension(format!("backup-{}", unique_id()));
+    let destination_wide: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let temp_wide: Vec<u16> = temp_path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let backup_wide: Vec<u16> = backup_path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let replaced = unsafe {
+        ReplaceFileW(
+            destination_wide.as_ptr(),
+            temp_wide.as_ptr(),
+            backup_wide.as_ptr(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if replaced == 0 {
+        let error = std::io::Error::last_os_error();
+        if backup_path.exists() {
+            let restored = unsafe {
+                MoveFileExW(
+                    backup_wide.as_ptr(),
+                    destination_wide.as_ptr(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+                )
+            };
+            if restored == 0 {
+                return Err(format!(
+                    "Falha ao substituir journal existente: {error}; o journal anterior está preservado em {} e não pôde ser restaurado: {}",
+                    backup_path.display(),
+                    std::io::Error::last_os_error()
+                ));
+            }
+        }
+        return Err(format!("Falha ao substituir journal existente: {error}"));
+    }
+    if let Err(error) = fs::remove_file(&backup_path) {
+        write_safety_log(&format!(
+            "journal replacement succeeded but backup cleanup failed path={} error={error}",
+            backup_path.display()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn move_new_file_windows(temp_path: &Path, destination: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+    let temp_wide: Vec<u16> = temp_path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination_wide: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let moved = unsafe {
+        MoveFileExW(
+            temp_wide.as_ptr(),
+            destination_wide.as_ptr(),
+            MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        return Err(format!(
+            "Falha ao finalizar journal: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "Kernel32")]
+extern "system" {
+    fn ReplaceFileW(
+        replaced_file_name: *const u16,
+        replacement_file_name: *const u16,
+        backup_file_name: *const u16,
+        replace_flags: u32,
+        exclude: *mut std::ffi::c_void,
+        reserved: *mut std::ffi::c_void,
+    ) -> i32;
+    fn MoveFileExW(existing_file_name: *const u16, new_file_name: *const u16, flags: u32) -> i32;
 }
 
 fn unique_id() -> String {
@@ -1084,6 +1194,63 @@ mod tests {
     }
 
     #[test]
+    fn journal_replacement_updates_existing_file() {
+        let root = std::env::temp_dir().join(format!("qboa-journal-replace-{}", unique_id()));
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("changes.json");
+        let temporary = root.join("changes.tmp");
+        fs::write(&destination, b"old journal").unwrap();
+        fs::write(&temporary, b"new journal").unwrap();
+
+        replace_file_atomically(&temporary, &destination).unwrap();
+
+        assert_eq!(fs::read(&destination).unwrap(), b"new journal");
+        assert!(!temporary.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_journal_replacement_preserves_previous_file() {
+        let root = std::env::temp_dir().join(format!("qboa-journal-replace-fail-{}", unique_id()));
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("changes.json");
+        let missing_temporary = root.join("missing.tmp");
+        fs::write(&destination, b"previous journal").unwrap();
+
+        assert!(replace_file_atomically(&missing_temporary, &destination).is_err());
+        assert_eq!(fs::read(&destination).unwrap(), b"previous journal");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_journal_persistence_keeps_previous_journal_contents() {
+        let path = std::env::temp_dir().join(format!("qboa-journal-preserve-{}", unique_id()));
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"[]").unwrap();
+        let mut manager = SafetyManager::with_journal_path(path.clone());
+        manager.changes.push(ChangeRecord {
+            id: "change-unpersisted".to_string(),
+            execution_id: "exec-unpersisted".to_string(),
+            timestamp: iso_timestamp(),
+            task_id: "test".to_string(),
+            description: "unpersisted".to_string(),
+            backup_location: None,
+            reversible: false,
+            rollback_status: RollbackStatus::Irreversible,
+            result: "completed".to_string(),
+        });
+
+        let error = manager
+            .persist_journal_with(|_, _| Err("replacement intentionally failed".to_string()))
+            .unwrap_err();
+
+        assert!(error.contains("replacement intentionally failed"));
+        assert_eq!(fs::read(&path).unwrap(), b"[]");
+        assert_eq!(manager.journal().len(), 1);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn journal_persists_result_and_rollback_status() {
         let path = std::env::temp_dir().join(format!("qboa-journal-status-{}.json", unique_id()));
         let mut manager = SafetyManager::with_journal_path(path.clone());
@@ -1110,6 +1277,31 @@ mod tests {
         );
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn failed_journal_update_does_not_change_in_memory_result() {
+        let path =
+            std::env::temp_dir().join(format!("qboa-journal-update-failure-{}", unique_id()));
+        fs::create_dir_all(&path).unwrap();
+        let mut manager = SafetyManager::with_journal_path(path.clone());
+        manager.changes.push(ChangeRecord {
+            id: "change-update-failure".to_string(),
+            execution_id: "exec-update-failure".to_string(),
+            timestamp: iso_timestamp(),
+            task_id: "test".to_string(),
+            description: "update failure".to_string(),
+            backup_location: None,
+            reversible: false,
+            rollback_status: RollbackStatus::Irreversible,
+            result: "before".to_string(),
+        });
+
+        assert!(manager
+            .update_change_result("change-update-failure", "after")
+            .is_err());
+        assert_eq!(manager.changes[0].result, "before");
+        fs::remove_dir_all(path).unwrap();
     }
 
     #[test]

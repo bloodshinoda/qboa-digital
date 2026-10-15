@@ -33,6 +33,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Build Windows installer
         run: npm run build
 

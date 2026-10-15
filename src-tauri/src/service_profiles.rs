@@ -528,7 +528,7 @@ $services = Get-CimInstance Win32_Service | ForEach-Object {
         let script = format!(
             r#"$ErrorActionPreference='Stop';$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'));$services=@(Get-Service|Where-Object{{$_.Name -ieq $name}});if($services.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};Set-Service -InputObject $services[0] -StartupType {start_type}"#
         );
-        run_powershell(&script)
+        run_powershell(&script).map(|_| ())
     }
 
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String> {
