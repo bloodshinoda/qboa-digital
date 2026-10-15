@@ -532,7 +532,9 @@ function renderServiceProfilePreview(preview) {
   ignoredTitle.hidden = true;
   document.getElementById("service-profile-preview-status").textContent = preview.message;
   document.getElementById("service-profile-apply-btn").disabled =
-    !serviceProfileState?.profile?.validated || !preview.applicable;
+    !serviceProfileState?.system?.supported ||
+    !serviceProfileState?.profile?.validated ||
+    !preview.applicable;
 
   preview.services.forEach((service) => {
     const item = document.createElement("li");
@@ -631,6 +633,12 @@ async function loadServiceProfileState() {
   try {
     serviceProfileState = await Qboa.getServiceProfileState();
     const { system, profile } = serviceProfileState;
+    if (!system.supported) {
+      details.textContent = "";
+      status.textContent = `Edição detectada: ${system.edition_id}. Não há perfil para ela.`;
+      controls.forEach((control) => { control.disabled = true; });
+      return;
+    }
     const formFactor = system.form_factor ? ` · ${system.form_factor}` : "";
     details.textContent = `${system.os} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
     status.textContent = profile.validated
@@ -639,8 +647,8 @@ async function loadServiceProfileState() {
     controls.forEach((control) => { control.disabled = !profile.validated; });
   } catch (error) {
     serviceProfileState = null;
-    status.textContent = "Nenhum perfil validado. Aplicação indisponível.";
-    details.textContent = `Não foi possível detectar os serviços. ${error}`;
+    status.textContent = "Não foi possível consultar os serviços do Windows.";
+    details.textContent = "";
   }
 }
 

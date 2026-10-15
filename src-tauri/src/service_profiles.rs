@@ -37,6 +37,7 @@ pub(crate) enum WindowsEdition {
     ProForWorkstations,
     Enterprise,
     Education,
+    Unknown,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -85,6 +86,8 @@ pub(crate) struct DetectedSystem {
     pub version: String,
     pub build: String,
     pub edition: WindowsEdition,
+    pub edition_id: String,
+    pub supported: bool,
     pub form_factor: Option<FormFactor>,
     pub services: Vec<InstalledService>,
 }
@@ -144,10 +147,39 @@ pub(crate) fn profile_files() -> Result<Vec<ServiceProfileFile>, String> {
 }
 
 pub(crate) fn system_profile(system: &DetectedSystem) -> Result<ServiceProfileFile, String> {
-    profile_files()?
+    let profile = profile_files()?
         .into_iter()
-        .find(|profile| profile.os == system.os && profile.edition == system.edition)
-        .ok_or_else(|| "Não há perfil para este Windows.".to_string())
+        .find(|profile| profile.os == system.os && profile.edition == system.edition);
+    match profile {
+        Some(profile) => Ok(profile),
+        None if !system.supported => Ok(ServiceProfileFile {
+            os: system.os.clone(),
+            edition: WindowsEdition::Unknown,
+            form_factor: FormFactor::Any,
+            validated: false,
+            services: Vec::new(),
+        }),
+        None => Err("Não há perfil para este Windows.".to_string()),
+    }
+}
+
+fn detected_system_edition(edition_id: &str) -> (WindowsEdition, bool) {
+    match parse_edition(edition_id) {
+        Some(edition) => (edition, true),
+        None => (WindowsEdition::Unknown, false),
+    }
+}
+
+fn powershell_output_result(
+    succeeded: bool,
+    stdout: &[u8],
+    _stderr: &[u8],
+) -> Result<String, String> {
+    if succeeded {
+        Ok(String::from_utf8_lossy(stdout).trim().to_string())
+    } else {
+        Err("Não foi possível consultar os serviços do Windows.".to_string())
+    }
 }
 
 pub(crate) fn preview(
@@ -382,6 +414,9 @@ fn profile_incompatibilities(
     profile: &ServiceProfileFile,
 ) -> Vec<&'static str> {
     let mut reasons = Vec::new();
+    if !system.supported {
+        reasons.push("Edição não suportada.");
+    }
     if system.os != profile.os {
         reasons.push("Versão do Windows incompatível.");
     }
@@ -435,54 +470,31 @@ impl Default for WindowsServiceProfileBackend {
 impl ServiceProfileBackend for WindowsServiceProfileBackend {
     fn detect_system(&mut self) -> Result<DetectedSystem, String> {
         let script = r#"
+$ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
-$os = Get-CimInstance Win32_OperatingSystem
-$edition = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
-$editionName = switch ([string]$edition.EditionID) {
-    'Core' { 'Home' }
-    'CoreN' { 'Home' }
-    'CoreSingleLanguage' { 'Home' }
-    'Professional' { 'Pro' }
-    'ProfessionalN' { 'Pro' }
-    'ProfessionalWorkstation' { 'ProForWorkstations' }
-    'ProfessionalWorkstationN' { 'ProForWorkstations' }
-    'Enterprise' { 'Enterprise' }
-    'EnterpriseN' { 'Enterprise' }
-    'Education' { 'Education' }
-    'EducationN' { 'Education' }
-    default {
-        switch ([int]$os.OperatingSystemSKU) {
-            4 { 'Enterprise' }
-            27 { 'Enterprise' }
-            48 { 'Pro' }
-            121 { 'Education' }
-            122 { 'Education' }
-            161 { 'ProForWorkstations' }
-            162 { 'ProForWorkstations' }
-            164 { 'Enterprise' }
-            165 { 'Enterprise' }
-            98 { 'Home' }
-            101 { 'Home' }
-            default { throw 'Edição do Windows não suportada.' }
+$key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\Microsoft\Windows NT\CurrentVersion')
+if (-not $key) { throw 'Registro do Windows indisponível.' }
+$editionId = [string]$key.GetValue('EditionID', '')
+$build = [string]$key.GetValue('CurrentBuildNumber', '')
+$buildNumber = 0
+[void][int]::TryParse($build, [ref]$buildNumber)
+$version = if ($buildNumber -ge 22000) { 'Windows11' } else { 'Windows10' }
+$displayVersion = [string]$key.GetValue('DisplayVersion', '')
+if (-not $displayVersion) { $displayVersion = [string]$key.GetValue('ReleaseId', '') }
+$services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-Object {
+    $serviceKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\$($_.ServiceName)")
+    if ($serviceKey) {
+        $start = switch ([int]$serviceKey.GetValue('Start', -1)) {
+            2 { 'Automatic' }
+            3 { 'Manual' }
+            4 { 'Disabled' }
+            default { [string]$serviceKey.GetValue('Start', 'Unknown') }
         }
+        [pscustomobject]@{ name=$_.ServiceName; start_type=$start }
+        $serviceKey.Dispose()
     }
 }
-$caption = [string]$os.Caption
-$version = if ($caption -match 'Windows 11') { 'Windows11' } elseif ($caption -match 'Windows 10') { 'Windows10' } else { throw 'Versão do Windows não suportada.' }
-$chassis = @(Get-CimInstance Win32_SystemEnclosure -ErrorAction Stop | ForEach-Object { $_.ChassisTypes })
-$types = @($chassis | ForEach-Object {
-    switch ([int]$_) {
-        { $_ -in @(8,9,10,14,30,31,32) } { 'Notebook' }
-        { $_ -in @(3,4,5,6,7,15,16) } { 'Desktop' }
-    }
-})
-$factors = @($types | Select-Object -Unique)
-$form = if ($chassis.Count -gt 0 -and $types.Count -eq $chassis.Count -and $factors.Count -eq 1) { $factors[0] } else { $null }
-$services = Get-CimInstance Win32_Service | ForEach-Object {
-    $start = switch ($_.StartMode) { 'Auto' { 'Automatic' } 'Manual' { 'Manual' } 'Disabled' { 'Disabled' } default { $_.StartMode } }
-    [pscustomobject]@{ name=$_.Name; start_type=$start }
-}
-[pscustomobject]@{ version=$version; display_version=$(if ($edition.DisplayVersion) { $edition.DisplayVersion } else { $edition.ReleaseId }); build=$os.BuildNumber; edition=$editionName; form_factor=$form; services=@($services) } | ConvertTo-Json -Depth 5 -Compress
+[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; services=@($services) } | ConvertTo-Json -Depth 5 -Compress
 "#;
         let data: WindowsSystemData = run_powershell_json(script)?;
         let os = match data.version.as_str() {
@@ -490,19 +502,15 @@ $services = Get-CimInstance Win32_Service | ForEach-Object {
             "Windows11" => WindowsVersion::Windows11,
             _ => return Err("Versão do Windows não suportada.".to_string()),
         };
-        let edition = parse_edition(&data.edition)
-            .ok_or_else(|| format!("Edição do Windows não suportada: {}.", data.edition))?;
-        let form_factor = match data.form_factor.as_deref() {
-            Some("Notebook") => Some(FormFactor::Notebook),
-            Some("Desktop") => Some(FormFactor::Desktop),
-            _ => None,
-        };
+        let (edition, supported) = detected_system_edition(&data.edition_id);
         Ok(DetectedSystem {
             os,
             version: data.display_version,
             build: data.build,
             edition,
-            form_factor,
+            edition_id: data.edition_id,
+            supported,
+            form_factor: None,
             services: data.services,
         })
     }
@@ -563,27 +571,28 @@ $services = Get-CimInstance Win32_Service | ForEach-Object {
     }
 }
 
-#[cfg(target_os = "windows")]
 #[derive(Deserialize)]
 struct WindowsSystemData {
     version: String,
     display_version: String,
     build: String,
-    edition: String,
-    form_factor: Option<String>,
+    edition_id: String,
     services: Vec<InstalledService>,
 }
 
-#[cfg(target_os = "windows")]
 fn parse_edition(value: &str) -> Option<WindowsEdition> {
-    match value.to_ascii_lowercase().as_str() {
-        "home" | "core" | "corenc" | "coresinglelanguage" => Some(WindowsEdition::Home),
-        "pro" | "professional" | "professionaln" => Some(WindowsEdition::Pro),
-        "proforworkstations" | "professionalworkstation" | "professionalworkstationn" => {
+    match value {
+        "Core" | "CoreN" | "CoreSingleLanguage" | "CoreCountrySpecific" => {
+            Some(WindowsEdition::Home)
+        }
+        "Professional" | "ProfessionalN" => Some(WindowsEdition::Pro),
+        "ProfessionalWorkstation" | "ProfessionalWorkstationN" => {
             Some(WindowsEdition::ProForWorkstations)
         }
-        "enterprise" | "enterprises" | "enterprisen" => Some(WindowsEdition::Enterprise),
-        "education" | "educations" | "educationn" => Some(WindowsEdition::Education),
+        "Enterprise" | "EnterpriseN" | "EnterpriseG" | "EnterpriseS" | "IoTEnterprise" => {
+            Some(WindowsEdition::Enterprise)
+        }
+        "Education" | "EducationN" | "ProfessionalEducation" => Some(WindowsEdition::Education),
         _ => None,
     }
 }
@@ -592,12 +601,15 @@ fn parse_edition(value: &str) -> Option<WindowsEdition> {
 fn run_powershell_json<T: for<'de> Deserialize<'de>>(script: &str) -> Result<T, String> {
     let output = run_powershell(script)?;
     serde_json::from_str(output.trim_start_matches('\u{feff}'))
-        .map_err(|error| format!("Resposta de serviços inválida: {error}"))
+        .map_err(|_| "Não foi possível interpretar os dados dos serviços do Windows.".to_string())
 }
 
 #[cfg(target_os = "windows")]
 fn run_powershell(script: &str) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let encoded = base64_encode(
         &format!(
             "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
@@ -615,16 +627,10 @@ fn run_powershell(script: &str) -> Result<String, String> {
             "-EncodedCommand",
             &encoded,
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
-        .map_err(|error| format!("Não foi possível iniciar consulta de serviços: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "Consulta de serviços falhou: {}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .map_err(|_| "Não foi possível consultar os serviços do Windows.".to_string())?;
+    powershell_output_result(output.status.success(), &output.stdout, &output.stderr)
 }
 
 #[cfg(target_os = "windows")]
@@ -742,6 +748,16 @@ mod tests {
             os,
             version: "22H2".to_string(),
             build: "19045".to_string(),
+            edition_id: match &edition {
+                WindowsEdition::Home => "Core",
+                WindowsEdition::Pro => "Professional",
+                WindowsEdition::ProForWorkstations => "ProfessionalWorkstation",
+                WindowsEdition::Enterprise => "Enterprise",
+                WindowsEdition::Education => "Education",
+                WindowsEdition::Unknown => "UnknownEdition",
+            }
+            .to_string(),
+            supported: edition != WindowsEdition::Unknown,
             edition,
             form_factor: Some(FormFactor::Desktop),
             services: vec![
@@ -779,6 +795,75 @@ mod tests {
         let mut wrong_edition = profile(WindowsVersion::Windows11, WindowsEdition::Home);
         wrong_edition.validated = true;
         assert!(!preview(&detected, &wrong_edition, ProductProfile::Safe,).applicable);
+    }
+
+    #[test]
+    fn unknown_edition_is_retained_and_never_applicable() {
+        let (edition, supported) = detected_system_edition("FutureEditionID");
+        assert_eq!(edition, WindowsEdition::Unknown);
+        assert!(!supported);
+
+        let mut backend = fake_backend(WindowsVersion::Windows11, edition);
+        backend.system.edition_id = "FutureEditionID".to_string();
+        let detected = backend.detect_system().unwrap();
+        let profile = system_profile(&detected).unwrap();
+        assert!(!profile.validated);
+        assert!(profile.services.is_empty());
+        assert!(detected
+            .services
+            .iter()
+            .any(|service| service.name == "MysterySvc"));
+
+        let preview = preview(&detected, &profile, ProductProfile::Safe);
+        assert!(!preview.applicable);
+        assert!(preview.message.contains("Edição não suportada."));
+        assert!(preview.ignored.contains(&"MysterySvc".to_string()));
+    }
+
+    #[test]
+    fn edition_ids_map_to_the_requested_windows_families() {
+        let cases = [
+            ("Core", WindowsEdition::Home),
+            ("CoreN", WindowsEdition::Home),
+            ("CoreSingleLanguage", WindowsEdition::Home),
+            ("CoreCountrySpecific", WindowsEdition::Home),
+            ("Professional", WindowsEdition::Pro),
+            ("ProfessionalN", WindowsEdition::Pro),
+            (
+                "ProfessionalWorkstation",
+                WindowsEdition::ProForWorkstations,
+            ),
+            (
+                "ProfessionalWorkstationN",
+                WindowsEdition::ProForWorkstations,
+            ),
+            ("Enterprise", WindowsEdition::Enterprise),
+            ("EnterpriseN", WindowsEdition::Enterprise),
+            ("EnterpriseG", WindowsEdition::Enterprise),
+            ("EnterpriseS", WindowsEdition::Enterprise),
+            ("IoTEnterprise", WindowsEdition::Enterprise),
+            ("Education", WindowsEdition::Education),
+            ("EducationN", WindowsEdition::Education),
+            ("ProfessionalEducation", WindowsEdition::Education),
+        ];
+        for (edition_id, expected) in cases {
+            assert_eq!(detected_system_edition(edition_id), (expected, true));
+        }
+    }
+
+    #[test]
+    fn powershell_clixml_stderr_is_never_returned_to_the_interface() {
+        let clixml = b"#< CLIXML\r\n<Objs><Obj S='Error'>Preparando m\xC3\xB3dulos para primeiro uso</Obj></Objs>";
+        let error = powershell_output_result(false, b"", clixml).unwrap_err();
+        assert_eq!(error, "Não foi possível consultar os serviços do Windows.");
+        assert!(!error.contains("CLIXML"));
+        assert!(!error.contains("Preparando módulos"));
+
+        let stdout = b"{\"services\":[]}";
+        assert_eq!(
+            powershell_output_result(true, stdout, clixml).unwrap(),
+            "{\"services\":[]}"
+        );
     }
 
     #[test]
