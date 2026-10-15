@@ -187,6 +187,40 @@ pub(crate) fn preview(
     profile: &ServiceProfileFile,
     selected: ProductProfile,
 ) -> ServicePreview {
+    if !system.supported || !profile.validated || profile.services.is_empty() {
+        let services = system
+            .services
+            .iter()
+            .map(|service| ServicePreviewItem {
+                service: service.name.clone(),
+                current: service.start_type.clone(),
+                proposed: None,
+                incompatible: None,
+                ignored: false,
+            })
+            .collect();
+        let message = if !system.supported {
+            format!(
+                "Edição detectada: {}. Não há perfil para ela.",
+                system.edition_id
+            )
+        } else {
+            format!(
+                "Edição {} detectada ({}). Perfil ainda não validado; nada será alterado.",
+                edition_label(&system.edition),
+                system.edition_id
+            )
+        };
+        return ServicePreview {
+            profile: selected,
+            applicable: false,
+            validated: false,
+            message,
+            services,
+            ignored: Vec::new(),
+        };
+    }
+
     let mut reasons = profile_incompatibilities(system, profile);
     let rules: HashMap<String, &ServiceRule> = if selected == ProductProfile::Custom {
         HashMap::new()
@@ -282,6 +316,7 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     profile: &ServiceProfileFile,
     selected: ProductProfile,
 ) -> Result<(), String> {
+    ensure_profile_has_validated_services(profile)?;
     if selected != ProductProfile::Custom
         && profile.services.iter().any(|rule| {
             rule.profiles.contains(&selected) && protected_disable(&rule.name, &rule.start_type)
@@ -323,9 +358,7 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
     backend: &mut B,
     profile: &ServiceProfileFile,
 ) -> Result<(), String> {
-    if !profile.validated {
-        return Err("Perfil ainda não validado.".to_string());
-    }
+    ensure_profile_has_validated_services(profile)?;
     let system = backend.detect_system()?;
     if !profile_incompatibilities(&system, profile).is_empty() {
         return Err("Perfil não corresponde ao Windows detectado.".to_string());
@@ -360,9 +393,7 @@ pub(crate) fn undo_last_application<B: ServiceProfileBackend>(
     backend: &mut B,
     profile: &ServiceProfileFile,
 ) -> Result<(), String> {
-    if !profile.validated {
-        return Err("Perfil ainda não validado.".to_string());
-    }
+    ensure_profile_has_validated_services(profile)?;
     let system = backend.detect_system()?;
     if !profile_incompatibilities(&system, profile).is_empty() {
         return Err("Perfil não corresponde ao Windows detectado.".to_string());
@@ -393,6 +424,24 @@ pub(crate) fn undo_last_application<B: ServiceProfileBackend>(
         backend.set_start_type(&service.name, &service.start_type)?;
     }
     Ok(())
+}
+
+fn ensure_profile_has_validated_services(profile: &ServiceProfileFile) -> Result<(), String> {
+    if !profile.validated || profile.services.is_empty() {
+        return Err("Perfil ainda não validado.".to_string());
+    }
+    Ok(())
+}
+
+fn edition_label(edition: &WindowsEdition) -> &'static str {
+    match edition {
+        WindowsEdition::Home => "Home",
+        WindowsEdition::Pro => "Pro",
+        WindowsEdition::ProForWorkstations => "Pro for Workstations",
+        WindowsEdition::Enterprise => "Enterprise",
+        WindowsEdition::Education => "Education",
+        WindowsEdition::Unknown => "desconhecida",
+    }
 }
 
 fn ensure_snapshot_covers(names: &[String], services: &[InstalledService]) -> Result<(), String> {
@@ -816,8 +865,64 @@ mod tests {
 
         let preview = preview(&detected, &profile, ProductProfile::Safe);
         assert!(!preview.applicable);
-        assert!(preview.message.contains("Edição não suportada."));
-        assert!(preview.ignored.contains(&"MysterySvc".to_string()));
+        assert_eq!(
+            preview.message,
+            "Edição detectada: FutureEditionID. Não há perfil para ela."
+        );
+        assert!(preview.ignored.is_empty());
+        assert!(preview
+            .services
+            .iter()
+            .any(|service| service.service == "MysterySvc"
+                && service.proposed.is_none()
+                && !service.ignored));
+    }
+
+    #[test]
+    fn empty_unvalidated_profile_lists_detected_services_without_changes() {
+        let backend = fake_backend(
+            WindowsVersion::Windows11,
+            WindowsEdition::ProForWorkstations,
+        );
+        let profile = profile(
+            WindowsVersion::Windows11,
+            WindowsEdition::ProForWorkstations,
+        );
+        let preview = preview(&backend.system, &profile, ProductProfile::Safe);
+
+        assert!(!preview.applicable);
+        assert_eq!(
+            preview.message,
+            "Edição Pro for Workstations detectada (ProfessionalWorkstation). Perfil ainda não validado; nada será alterado."
+        );
+        assert_eq!(preview.services.len(), backend.system.services.len());
+        assert!(preview.services.iter().all(|service| {
+            service.proposed.is_none()
+                && service.incompatible.is_none()
+                && !service.ignored
+                && service.current
+                    == backend
+                        .system
+                        .services
+                        .iter()
+                        .find(|installed| installed.name == service.service)
+                        .unwrap()
+                        .start_type
+        }));
+        assert!(preview.ignored.is_empty());
+    }
+
+    #[test]
+    fn empty_profile_cannot_apply_restore_or_undo() {
+        let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
+        profile.validated = true;
+        let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
+
+        assert!(apply_profile(&mut backend, &profile, ProductProfile::Safe).is_err());
+        assert!(restore_windows_defaults(&mut backend, &profile).is_err());
+        assert!(undo_last_application(&mut backend, &profile).is_err());
+        assert!(backend.changes.is_empty());
+        assert!(backend.saved.is_empty());
     }
 
     #[test]
