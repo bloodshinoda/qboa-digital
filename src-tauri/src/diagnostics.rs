@@ -526,7 +526,7 @@ foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor'
       $gpuTemperatureSource = "$namespace Sensor"
     }
   } catch {}
-  if ($null -ne $cpuTemperature -or $null -ne $gpuTemperature) { break }
+  if ($null -ne $cpuTemperature -and $null -ne $gpuTemperature) { break }
 }
 [pscustomobject]@{
   os_name=if ($current) { [string]$current.ProductName } else { $null }
@@ -1163,8 +1163,14 @@ mod tests {
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
         let temperature = result_for(&report, DiagnosticCategory::Temperatura);
         assert_eq!(temperature.status, DiagnosticStatus::Informativo);
-        assert!(temperature.evidence.iter().any(|line| line.contains("Sensor CPU: 62.5 °C")));
-        assert!(temperature.evidence.iter().any(|line| line.contains("Sensor GPU: 71.0 °C")));
+        assert!(temperature
+            .evidence
+            .iter()
+            .any(|line| line.contains("Sensor CPU: 62.5 °C")));
+        assert!(temperature
+            .evidence
+            .iter()
+            .any(|line| line.contains("Sensor GPU: 71.0 °C")));
         assert!(temperature.evidence.iter().any(|line| line.contains("Zona térmica")));
         assert_eq!(temperature.source.len(), 3);
     }
