@@ -173,7 +173,8 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
     } else if valid_disks.is_empty() || invalid_disks > 0 {
         DiagnosticStatus::Indisponivel
     } else {
-        DiagnosticStatus::Ok
+        // A free-space check is not a disk-health test.
+        DiagnosticStatus::Informativo
     };
     let mut storage_evidence: Vec<String> = valid_disks
         .iter()
@@ -842,7 +843,7 @@ mod tests {
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
         assert_eq!(
             result_for(&report, DiagnosticCategory::Armazenamento).status,
-            DiagnosticStatus::Ok
+            DiagnosticStatus::Informativo
         );
 
         backend.data.disks[0].free_bytes = Some(99);
@@ -1234,7 +1235,7 @@ mod tests {
             .all(|result| !result.evidence.is_empty() && !result.source.is_empty()));
         assert_eq!(
             result_for(&report, DiagnosticCategory::Armazenamento).status,
-            DiagnosticStatus::Ok
+            DiagnosticStatus::Informativo
         );
     }
 }
