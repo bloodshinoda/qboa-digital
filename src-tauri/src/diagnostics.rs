@@ -507,7 +507,7 @@ foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor'
     $cpuSensors = @(Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop | Where-Object {
       $_.SensorType -eq 'Temperature' -and $_.HardwareType -like 'Cpu*' -and $_.Value -ne $null
     })
-    if ($cpuSensors.Count -gt 0) {
+    if ($cpuSensors.Count -gt 0 -and $null -eq $cpuTemperature) {
       $preferredCpuSensor = $cpuSensors | Sort-Object @{ Expression = {
         if ($_.Name -match '(?i)CPU Package|Package|Tctl|Tdie') { 0 }
         elseif ($_.Name -match '(?i)Core') { 1 }
@@ -521,7 +521,7 @@ foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor'
     $gpuSensors = @(Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop | Where-Object {
       $_.SensorType -eq 'Temperature' -and $_.HardwareType -like 'Gpu*' -and $_.Value -ne $null
     })
-    if ($gpuSensors.Count -gt 0) {
+    if ($gpuSensors.Count -gt 0 -and $null -eq $gpuTemperature) {
       $gpuTemperature = [double]$gpuSensors[0].Value
       $gpuTemperatureSource = "$namespace Sensor"
     }
