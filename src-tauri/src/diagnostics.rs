@@ -173,7 +173,8 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
     } else if valid_disks.is_empty() || invalid_disks > 0 {
         DiagnosticStatus::Indisponivel
     } else {
-        DiagnosticStatus::Ok
+        // A free-space check is not a disk-health test.
+        DiagnosticStatus::Informativo
     };
     let mut storage_evidence: Vec<String> = valid_disks
         .iter()
@@ -842,7 +843,7 @@ mod tests {
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
         assert_eq!(
             result_for(&report, DiagnosticCategory::Armazenamento).status,
-            DiagnosticStatus::Ok
+            DiagnosticStatus::Informativo
         );
 
         backend.data.disks[0].free_bytes = Some(99);
@@ -873,6 +874,51 @@ mod tests {
         let storage = result_for(&report, DiagnosticCategory::Armazenamento);
         assert_eq!(storage.status, DiagnosticStatus::Indisponivel);
         assert!(!storage.evidence.iter().any(|line| line.contains("0 GiB")));
+    }
+
+    #[test]
+    fn storage_never_claims_disk_health_and_marks_partial_data_unavailable() {
+        let mut backend = FakeBackend::default();
+        backend.data.disks = vec![
+            DiskData {
+                name: Some("C:".to_string()),
+                size_bytes: Some(1000),
+                free_bytes: Some(500),
+            },
+            DiskData {
+                name: Some("D:".to_string()),
+                size_bytes: Some(1000),
+                free_bytes: None,
+            },
+        ];
+
+        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+        let storage = result_for(&report, DiagnosticCategory::Armazenamento);
+        assert_eq!(storage.status, DiagnosticStatus::Indisponivel);
+        assert!(storage.evidence.iter().any(|line| line.contains("C:")));
+        assert!(storage
+            .evidence
+            .iter()
+            .any(|line| line.contains("1 unidade(s) com dados ausentes ou inválidos")));
+        assert!(!storage.evidence.iter().any(|line| {
+            line.to_lowercase().contains("disco saudável")
+                || line.to_lowercase().contains("saúde do disco confirmada")
+        }));
+    }
+
+    #[test]
+    fn storage_rejects_free_space_greater_than_capacity() {
+        let mut backend = FakeBackend::default();
+        backend.data.disks = vec![DiskData {
+            name: Some("C:".to_string()),
+            size_bytes: Some(100),
+            free_bytes: Some(101),
+        }];
+
+        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+        let storage = result_for(&report, DiagnosticCategory::Armazenamento);
+        assert_eq!(storage.status, DiagnosticStatus::Indisponivel);
+        assert!(!storage.evidence.iter().any(|line| line.contains("101")));
     }
 
     #[test]
@@ -1234,7 +1280,7 @@ mod tests {
             .all(|result| !result.evidence.is_empty() && !result.source.is_empty()));
         assert_eq!(
             result_for(&report, DiagnosticCategory::Armazenamento).status,
-            DiagnosticStatus::Ok
+            DiagnosticStatus::Informativo
         );
     }
 }
