@@ -648,3 +648,6 @@ button {
     padding: 20px;
   }
 }
+
+/* Ações da interface seguem o mesmo padrão visual. */
+button:not(.tab):not(.level) { font-family: var(--font-ui); font-weight: 700; }
