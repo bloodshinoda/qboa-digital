@@ -5,6 +5,7 @@ let structure = null;
 let activeSection = "limpeza";
 let activeLevel = "normal";
 let pendingTask = null;
+let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
 let consoleBuffer = "";
@@ -292,6 +293,39 @@ function closeRiskModal() {
   pendingTask = null;
 }
 
+function askConfirmation(message, title = "Confirmar operação") {
+  const modal = document.getElementById("confirmation-modal");
+  const titleElement = document.getElementById("confirmation-title");
+  const messageElement = document.getElementById("confirmation-message");
+  const confirmButton = document.getElementById("confirmation-confirm");
+
+  if (pendingConfirmationResolver) {
+    pendingConfirmationResolver(false);
+    pendingConfirmationResolver = null;
+  }
+
+  titleElement.textContent = title;
+  messageElement.textContent = message;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  confirmButton.focus();
+
+  return new Promise((resolve) => {
+    pendingConfirmationResolver = resolve;
+  });
+}
+
+function closeConfirmationModal(confirmed = false) {
+  const modal = document.getElementById("confirmation-modal");
+  if (modal.classList.contains("hidden")) return;
+
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  const resolve = pendingConfirmationResolver;
+  pendingConfirmationResolver = null;
+  if (resolve) resolve(confirmed);
+}
+
 async function executeTask(item, cardEl) {
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
@@ -412,7 +446,7 @@ function bindLevels() {
       return;
     }
 
-    if (activeLevel === "turbo" && !window.confirm("O preset Turbo executará alterações avançadas no Windows. Deseja continuar?")) {
+    if (activeLevel === "turbo" && !(await askConfirmation("O preset Turbo executará alterações avançadas no Windows. Deseja continuar?", "Executar preset Turbo?"))) {
       return;
     }
 
@@ -506,7 +540,7 @@ async function refreshCleanupFindings() {
     remove.type = "button";
     remove.textContent = "Excluir";
     remove.addEventListener("click", async () => {
-      if (!finding.id || !window.confirm(`Excluir este achado?\n${finding.path}`)) return;
+      if (!finding.id || !(await askConfirmation(`Excluir este achado?\n${finding.path}`, "Excluir achado?"))) return;
       remove.disabled = true;
       try {
         await Qboa.deleteCleanupFinding(finding.id);
@@ -723,6 +757,38 @@ async function registerEvents() {
     closeRiskModal();
   });
 
+  document.getElementById("confirmation-cancel").addEventListener("click", () => {
+    closeConfirmationModal(false);
+  });
+  document.getElementById("confirmation-confirm").addEventListener("click", () => {
+    closeConfirmationModal(true);
+  });
+
+  document.getElementById("confirmation-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeConfirmationModal(false);
+  });
+  document.getElementById("risk-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      if (pendingTask?.profileQueue) {
+        stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
+      }
+      closeRiskModal();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const confirmationModal = document.getElementById("confirmation-modal");
+    const riskModal = document.getElementById("risk-modal");
+    if (!confirmationModal.classList.contains("hidden")) {
+      closeConfirmationModal(false);
+    } else if (!riskModal.classList.contains("hidden")) {
+      if (pendingTask?.profileQueue) {
+        stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
+      }
+      closeRiskModal();
+    }
+  });
+
   document.getElementById("risk-confirm").addEventListener("click", async (event) => {
     if (!pendingTask) return;
     const confirmButton = event.currentTarget;
@@ -801,7 +867,7 @@ async function registerEvents() {
   document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
     if (!serviceProfileState?.profile?.validated) return;
     const profile = document.getElementById("service-profile-select").value;
-    if (profile === "custom" || !window.confirm("Aplicar este perfil de serviços?")) return;
+    if (profile === "custom" || !(await askConfirmation("Aplicar este perfil de serviços?", "Aplicar perfil de serviços?"))) return;
     try {
       await Qboa.applyServiceProfile(profile);
       appendConsole("Perfil de serviços aplicado.");
@@ -812,7 +878,7 @@ async function registerEvents() {
 
   document.getElementById("service-profile-defaults-btn").addEventListener("click", async () => {
     if (!serviceProfileState?.profile?.validated) return;
-    if (!window.confirm("Restaurar o padrão do Windows?")) return;
+    if (!(await askConfirmation("Restaurar o padrão do Windows?", "Restaurar serviços do Windows?"))) return;
     try {
       await Qboa.restoreWindowsServiceDefaults();
       appendConsole("Padrão do Windows restaurado.");
@@ -823,7 +889,7 @@ async function registerEvents() {
 
   document.getElementById("service-profile-undo-btn").addEventListener("click", async () => {
     if (!serviceProfileState?.profile?.validated) return;
-    if (!window.confirm("Desfazer minhas alterações?")) return;
+    if (!(await askConfirmation("Desfazer minhas alterações?", "Desfazer alterações?"))) return;
     try {
       await Qboa.undoServiceProfileChanges();
       appendConsole("Alterações desfeitas.");
