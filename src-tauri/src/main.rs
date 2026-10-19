@@ -450,7 +450,9 @@ fn execute_task(
             )?;
             on_output("[Etapa 3/4] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...");
+            on_output(
+                "[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
+            );
             let part_4 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/RestoreHealth"],
@@ -481,7 +483,12 @@ fn execute_task(
             on_output("[Etapa 5/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
             let part_5 = run_system_command(
                 "dism",
-                &["/Online", "/Cleanup-Image", "/StartComponentCleanup", "/ResetBase"],
+                &[
+                    "/Online",
+                    "/Cleanup-Image",
+                    "/StartComponentCleanup",
+                    "/ResetBase",
+                ],
                 execution_id,
                 on_output,
                 is_cancelled,
