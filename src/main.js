@@ -14,7 +14,8 @@ let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
 let selectedTweakTaskIds = new Set();
-let debloatProfileQueue = null;\nlet browserCleanupDecision = null;
+let debloatProfileQueue = null;
+let browserCleanupDecision = null;
 
 const Qboa = {
   async analyze() {
