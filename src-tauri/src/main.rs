@@ -16,6 +16,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
@@ -45,6 +46,8 @@ struct EventPayload {
     progress: Option<String>,
     risk: String,
 }
+
+static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
 
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
 
@@ -149,6 +152,7 @@ fn run_command(
     let mut command = Command::new(cmd);
     configure_hidden_console(&mut command);
     let mut child = command
+        .env("QBOA_CLEAN_BROWSER_CACHE", if BROWSER_CLEANUP_ENABLED.load(Ordering::Relaxed) { "1" } else { "0" })
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -310,6 +314,7 @@ $browserRoots = @(
     "$env:APPDATA\Mozilla\Firefox\Profiles"
 )
 $cacheNames = @('Cache', 'Cache2', 'Code Cache', 'GPUCache', 'StartupCache', 'shader-cache', 'CacheStorage')
+if ($env:QBOA_CLEAN_BROWSER_CACHE -eq '1') {
 foreach ($root in $browserRoots) {
     if (Test-Path -LiteralPath $root) {
         Write-Output ("Procurando caches do navegador: " + $root);
@@ -328,6 +333,9 @@ foreach ($root in $browserRoots) {
             }
         }
     }
+}
+} else {
+    Write-Output 'Caches dos navegadores ignorados conforme sua escolha.';
 }
 try {
     Clear-RecycleBin -Force -ErrorAction Stop;
@@ -1130,6 +1138,56 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         }
     });
     execution
+}
+
+#[tauri::command]
+async fn get_running_browsers() -> Result<Vec<String>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command",
+                "$names=@('chrome','msedge','brave','vivaldi','opera','firefox'); $found=@(Get-Process -Name $names -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName -Unique); ConvertTo-Json -InputObject @($found) -Compress"])
+            .output()
+            .map_err(|error| format!("Não foi possível verificar os navegadores abertos: {error}"))?;
+        if !output.status.success() {
+            return Err("Não foi possível verificar os navegadores abertos.".to_string());
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let value: serde_json::Value = serde_json::from_str(text.trim())
+            .map_err(|error| format!("Resposta inválida ao verificar navegadores: {error}"))?;
+        let values = value.as_array().cloned().unwrap_or_else(|| vec![value]);
+        return Ok(values.into_iter().filter_map(|item| item.as_str().map(str::to_string)).collect());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(Vec::new())
+    }
+}
+
+#[tauri::command]
+async fn prepare_browser_cleanup(close_running: bool) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        if close_running {
+            let output = Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+                    "$names=@('chrome','msedge','brave','vivaldi','opera','firefox'); Get-Process -Name $names -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; 'Navegadores encerrados quando estavam em execução.'"])
+                .output()
+                .map_err(|error| format!("Não foi possível fechar os navegadores: {error}"))?;
+            if !output.status.success() {
+                return Err("Não foi possível fechar os navegadores. Feche-os manualmente ou escolha ignorar a limpeza dos navegadores.".to_string());
+            }
+            BROWSER_CLEANUP_ENABLED.store(true, Ordering::Relaxed);
+            return Ok("A limpeza dos caches dos navegadores está habilitada.".to_string());
+        }
+        BROWSER_CLEANUP_ENABLED.store(false, Ordering::Relaxed);
+        return Ok("A limpeza dos caches dos navegadores será ignorada.".to_string());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = close_running;
+        Ok("A limpeza de navegadores só está disponível no Windows.".to_string())
+    }
 }
 
 #[tauri::command]
