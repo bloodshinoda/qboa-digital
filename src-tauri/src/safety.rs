@@ -7,9 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "windows")]
-use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use std::process::Command;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegistryExistence {
@@ -292,7 +293,8 @@ impl SafetyManager {
         {
             let script = format!("Checkpoint-Computer -Description '{}' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop", reason.replace("'", "''"));
             write_safety_log(&format!("restore-point started reason={reason}"));
-            let output = Command::new("powershell").creation_flags(0x08000000)
+            let output = Command::new("powershell")
+                .creation_flags(0x08000000)
                 .args([
                     "-NoProfile",
                     "-NonInteractive",
