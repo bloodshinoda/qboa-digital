@@ -558,13 +558,13 @@ impl RegistryBackend for PowerShellRegistryBackend {
         trees: &[RegistryTree],
     ) -> Result<Vec<RegistrySnapshot>, String> {
         let encoded = serde_json::to_string(trees).map_err(|error| error.to_string())?;
-        let script = format!(
-            "$ErrorActionPreference='Stop';$roots=ConvertFrom-Json -InputObject '{}';$r=@();foreach($root in $roots){{$b=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root.hive),[Microsoft.Win32.RegistryView]::Default);$queue=New-Object System.Collections.Queue;$queue.Enqueue($root.path);while($queue.Count -gt 0){{$p=[string]$queue.Dequeue();$k=$b.OpenSubKey($p);if($k){{foreach($n in $k.GetValueNames()){{$t=$k.GetValueKind($n).ToString();$v=$k.GetValue($n,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames);if($t-eq'Binary' -or $t-eq'None'){{$v=[Convert]::ToBase64String($v)}};$r+=[pscustomobject]@{{hive=$root.hive;path=$p;value_name=$n;exists=$true;value_type=$t;value=$v}}}};foreach($n in $k.GetSubKeyNames()){{$queue.Enqueue(\"$p\\$n\")}};$k.Dispose()}}}};ConvertTo-Json -InputObject @($r) -Depth 8 -Compress",
-            powershell_literal(&encoded)
-        );
+        // Substituição por placeholder evita escapes de aspas e chaves do format! no PowerShell.
+        // A concatenação monta o caminho da subchave sem interpolação de strings ambígua.
+        let template = r#"$ErrorActionPreference='Stop';$roots=ConvertFrom-Json -InputObject '__JSON__';$r=@();foreach($root in $roots){$b=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root.hive),[Microsoft.Win32.RegistryView]::Default);$queue=New-Object System.Collections.Queue;$queue.Enqueue($root.path);while($queue.Count -gt 0){$p=[string]$queue.Dequeue();$k=$b.OpenSubKey($p);if($k){foreach($n in $k.GetValueNames()){$t=$k.GetValueKind($n).ToString();$v=$k.GetValue($n,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames);if($t-eq'Binary' -or $t-eq'None'){$v=[Convert]::ToBase64String($v)};$r+=[pscustomobject]@{hive=$root.hive;path=$p;value_name=$n;exists=$true;value_type=$t;value=$v}};foreach($n in $k.GetSubKeyNames()){$queue.Enqueue([string]$p + [string][char]92 + [string]$n)};$k.Dispose()}}};ConvertTo-Json -InputObject @($r) -Depth 8 -Compress"#;
+        let script = template.replace("__JSON__", &powershell_literal(&encoded));
         let output = run_powershell_script(&script)?;
         let mut result: Vec<RegistrySnapshot> =
-            serde_json::from_str(output.trim_start_matches('\u{feff}'))
+            serde_json::from_str(output.trim_start_matches('\\u{feff}'))
                 .map_err(|error| format!("Resposta de leitura da árvore inválida: {error}"))?;
         sort_registry_values(&mut result);
         Ok(result)
