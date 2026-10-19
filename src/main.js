@@ -790,14 +790,26 @@ async function registerEvents() {
   });
 
   document.getElementById("risk-confirm").addEventListener("click", async (event) => {
-    if (!pendingTask) return;
     const confirmButton = event.currentTarget;
+    // Evita iniciar a mesma operação duas vezes por cliques rápidos.
+    if (confirmButton.disabled || !pendingTask) return;
+
     const task = pendingTask;
     confirmButton.disabled = true;
+    // Desvincula a confirmação antes de fechar o modal: a operação passa a
+    // pertencer ao handler, e não a um estado global que outros eventos limpam.
+    pendingTask = null;
     closeRiskModal();
+
     try {
       const started = await executeTask(task.item, task.cardEl);
       if (!started && task.profileQueue) {
+        stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
+      }
+    } catch (error) {
+      appendConsole(`Falha ao iniciar ${task.item.name}: ${String(error)}`);
+      if (task.cardEl) task.cardEl.classList.remove("running");
+      if (task.profileQueue) {
         stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
       }
     } finally {
