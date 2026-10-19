@@ -291,7 +291,7 @@ impl SafetyManager {
     pub fn create_restore_point(&mut self, reason: &str) -> Result<String, String> {
         #[cfg(target_os = "windows")]
         {
-            let script = format!("Checkpoint-Computer -Description '{}' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop", reason.replace("'", "''"));
+            let script = format!("$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;$OutputEncoding=$utf8;Checkpoint-Computer -Description '{}' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop", reason.replace("'", "''"));
             write_safety_log(&format!("restore-point started reason={reason}"));
             let output = Command::new("powershell")
                 .creation_flags(0x08000000)
