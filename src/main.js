@@ -687,7 +687,9 @@ async function loadServiceProfileState() {
 }
 
 async function registerEvents() {
-  const unlisten = await listen("qboa-event", (event) => {
+  // Não bloqueia o vínculo dos controles da interface esperando o listener Tauri.
+  // Se listen() demorar ou falhar, os botões de confirmação continuam funcionais.
+  void listen("qboa-event", (event) => {
     const payload = event.payload;
     if (payload.event === "task-started") {
       activeTaskId = payload.task_id;
@@ -725,9 +727,10 @@ async function registerEvents() {
         }
       }
     }
+  }).catch((error) => {
+    console.error("Não foi possível registrar os eventos do Qboa:", error);
+    appendConsole(`Aviso: eventos em tempo real indisponíveis: ${String(error)}`);
   });
-
-  return unlisten;
 }
 
 (async function init() {
