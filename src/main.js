@@ -248,7 +248,7 @@ function humanizeLogMessage(message) {
     "task-executor-failed": "A tarefa não pôde ser concluída"
   };
   return String(message ?? "")
-    .replace(/\\[(task-started|task-output|task-progress|task-completed|task-cancelled|task-error|snapshot-started|restore-point-phase-started|restore-point-phase-completed|restore-point-phase-failed|registry-operation-failed|task-executor-failed)\\]/gi,
+    .replace(/\[(task-started|task-output|task-progress|task-completed|task-cancelled|task-error|snapshot-started|restore-point-phase-started|restore-point-phase-completed|restore-point-phase-failed|registry-operation-failed|task-executor-failed)\]/gi,
       (match, key) => labels[key] || key)
     .replace(/status=exit code: 0/gi, "resultado: concluído")
     .replace(/exit code: 0/gi, "concluído");
