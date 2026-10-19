@@ -155,8 +155,14 @@ fn local_timestamp() -> String {
         fn GetLocalTime(time: *mut LocalSystemTime);
     }
     let mut now = LocalSystemTime {
-        year: 0, month: 0, day_of_week: 0, day: 0,
-        hour: 0, minute: 0, second: 0, milliseconds: 0,
+        year: 0,
+        month: 0,
+        day_of_week: 0,
+        day: 0,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        milliseconds: 0,
     };
     unsafe {
         GetLocalTime(&mut now);
