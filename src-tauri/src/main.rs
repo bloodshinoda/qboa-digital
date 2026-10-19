@@ -1144,7 +1144,9 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
 async fn get_running_browsers() -> Result<Vec<String>, String> {
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("powershell")
+        let mut command = Command::new("powershell");
+        configure_hidden_console(&mut command);
+        let output = command
             .args(["-NoProfile", "-NonInteractive", "-Command",
                 "$names=@('chrome','msedge','brave','vivaldi','opera','firefox'); $found=@(Get-Process -Name $names -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName -Unique); ConvertTo-Json -InputObject @($found) -Compress"])
             .output()
@@ -1169,7 +1171,9 @@ async fn prepare_browser_cleanup(close_running: bool) -> Result<String, String> 
     #[cfg(target_os = "windows")]
     {
         if close_running {
-            let output = Command::new("powershell")
+            let mut command = Command::new("powershell");
+            configure_hidden_console(&mut command);
+            let output = command
                 .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
                     "$names=@('chrome','msedge','brave','vivaldi','opera','firefox'); Get-Process -Name $names -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; 'Navegadores encerrados quando estavam em execução.'"])
                 .output()
