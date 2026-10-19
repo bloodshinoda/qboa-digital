@@ -1364,6 +1364,8 @@ fn main() {
             get_tasks,
             run_task,
             respond_restore_point_failure,
+            get_running_browsers,
+            prepare_browser_cleanup,
             cancel_task,
             run_preset,
             get_debloat_profile_tasks,
