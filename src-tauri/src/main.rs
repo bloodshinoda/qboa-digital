@@ -152,7 +152,14 @@ fn run_command(
     let mut command = Command::new(cmd);
     configure_hidden_console(&mut command);
     let mut child = command
-        .env("QBOA_CLEAN_BROWSER_CACHE", if BROWSER_CLEANUP_ENABLED.load(Ordering::Relaxed) { "1" } else { "0" })
+        .env(
+            "QBOA_CLEAN_BROWSER_CACHE",
+            if BROWSER_CLEANUP_ENABLED.load(Ordering::Relaxed) {
+                "1"
+            } else {
+                "0"
+            },
+        )
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1158,7 +1165,10 @@ async fn get_running_browsers() -> Result<Vec<String>, String> {
         let value: serde_json::Value = serde_json::from_str(text.trim())
             .map_err(|error| format!("Resposta inválida ao verificar navegadores: {error}"))?;
         let values = value.as_array().cloned().unwrap_or_else(|| vec![value]);
-        return Ok(values.into_iter().filter_map(|item| item.as_str().map(str::to_string)).collect());
+        return Ok(values
+            .into_iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect());
     }
     #[cfg(not(target_os = "windows"))]
     {
