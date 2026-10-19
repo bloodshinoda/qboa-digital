@@ -240,6 +240,8 @@ function humanizeLogMessage(message) {
     "task-completed": "Tarefa concluída",
     "task-cancelled": "Tarefa cancelada",
     "task-error": "Falha na tarefa",
+    "restore-point-created": "Ponto de restauração criado",
+    "restore-point-confirmation-required": "Confirmação necessária para continuar",
     "snapshot-started": "Preparando cópia de segurança",
     "restore-point-phase-started": "Criando ponto de restauração",
     "restore-point-phase-completed": "Ponto de restauração criado",
