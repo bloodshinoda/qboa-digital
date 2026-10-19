@@ -646,7 +646,8 @@ fn run_snapshot_script(strategy: &str) -> Result<String, String> {
     let utf8_script = format!(
         "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
     );
-    let output = Command::new("powershell").creation_flags(0x08000000)
+    let output = Command::new("powershell")
+        .creation_flags(0x08000000)
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
@@ -703,7 +704,8 @@ fn restore_snapshot(location: &str, task_id: &str) -> Result<String, String> {
         encoded.replace('\'', "''"),
         restore
     );
-    let output = Command::new("powershell").creation_flags(0x08000000)
+    let output = Command::new("powershell")
+        .creation_flags(0x08000000)
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
