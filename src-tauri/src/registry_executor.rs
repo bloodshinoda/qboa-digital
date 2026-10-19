@@ -6,6 +6,8 @@ use crate::safety::{FeatureSnapshot, ScheduledTaskSnapshot, ServiceSnapshot};
 use crate::task_registry::{ExecutorType, TaskRegistry};
 use serde::{Deserialize, Serialize};
 use std::fs;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct RegistryKey {
