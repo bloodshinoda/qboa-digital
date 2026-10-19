@@ -601,7 +601,10 @@ fn run_powershell_script(script: &str) -> Result<String, String> {
     let utf8_script = format!(
         "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
     );
-    let output = Command::new("powershell")
+    let mut command = Command::new("powershell");
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000);
+    let output = command
         .args([
             "-NoProfile",
             "-NonInteractive",
