@@ -194,7 +194,12 @@ fn write_execution_log(execution_id: &str, message: &str) {
         let mut lines = message.lines();
         if let Some(first) = lines.next() {
             let humanized = humanize_execution_log(first);
-            let _ = writeln!(file, "[{execution_id}] [{}] {}", local_timestamp(), humanized);
+            let _ = writeln!(
+                file,
+                "[{execution_id}] [{}] {}",
+                local_timestamp(),
+                humanized
+            );
             for line in lines {
                 let _ = writeln!(file, "    {line}");
             }
