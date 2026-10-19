@@ -522,8 +522,50 @@ button {
   z-index: 999;
 }
 
-.risk-modal.hidden {
+.risk-modal.hidden,
+.confirmation-modal.hidden {
   display: none;
+}
+
+.confirmation-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.68);
+  z-index: 1000;
+}
+
+.confirmation-dialog {
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  background: #112018;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.45);
+}
+
+.confirmation-head h3 {
+  margin: 0 0 12px;
+  color: #ffd166;
+  font-size: 1.15rem;
+}
+
+.confirmation-dialog p {
+  margin: 0 0 18px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .risk-dialog {
