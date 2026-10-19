@@ -50,8 +50,8 @@ static RESTORE_POINT_RESPONSES: std::sync::OnceLock<
     Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>,
 > = std::sync::OnceLock::new();
 
-fn restore_point_responses(
-) -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>> {
+fn restore_point_responses() -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>
+{
     RESTORE_POINT_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
