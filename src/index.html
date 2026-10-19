@@ -127,6 +127,19 @@
     </div>
   </div>
 
+  <div id="confirmation-modal" class="confirmation-modal hidden" aria-hidden="true">
+    <div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
+      <div class="confirmation-head">
+        <h3 id="confirmation-title">Confirmar operação</h3>
+      </div>
+      <p id="confirmation-message"></p>
+      <div class="confirmation-actions">
+        <button id="confirmation-cancel" type="button" class="secondary-button">Cancelar</button>
+        <button id="confirmation-confirm" type="button" class="primary-button">Continuar</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="main.js"></script>
 </body>
 </html>
