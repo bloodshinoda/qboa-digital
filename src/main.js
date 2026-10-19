@@ -486,6 +486,28 @@ async function startDebloatProfile() {
   }
 }
 
+function presetDisplayName(level) {
+  return {
+    express: "Rápido",
+    normal: "Equilibrado",
+    turbo: "Completo"
+  }[level] || "Personalizado";
+}
+
+function rollbackStatusLabel(status) {
+  return {
+    Pending: "Pendente",
+    Applied: "Aplicada",
+    RollbackAvailable: "Reversão disponível",
+    RollingBack: "Revertendo",
+    RolledBack: "Revertida",
+    RollbackFailed: "Falha na reversão",
+    RollbackPartial: "Reversão parcial",
+    Unknown: "Desconhecido",
+    Irreversible: "Irreversível"
+  }[status] || status;
+}
+
 function bindLevels() {
   document.querySelectorAll(".level").forEach((btn) => {
     if (btn.dataset.level === activeLevel) btn.classList.add("active");
@@ -509,7 +531,7 @@ function bindLevels() {
       section.items.filter((item) => item.preset && item.preset.includes(activeLevel))
     );
     if (!presetTasks.length) {
-      appendConsole(`Nenhuma tarefa disponível para o preset ${activeLevel}.`);
+      appendConsole(`Nenhuma tarefa disponível para o perfil ${presetDisplayName(activeLevel)}.`);
       return;
     }
 
@@ -522,7 +544,7 @@ function bindLevels() {
         await prepareBrowserCleanupIfNeeded();
       }
       const ids = await Qboa.runPreset(activeLevel);
-      appendConsole(`Preset ${activeLevel} iniciado: ${ids.length} tarefas em sequência.`);
+      appendConsole(`Perfil ${presetDisplayName(activeLevel)} iniciado: ${ids.length} tarefas em sequência.`);
     } catch (error) {
       appendConsole(String(error));
     }
@@ -549,7 +571,7 @@ async function refreshHistory() {
 
     history.slice(-6).forEach((entry) => {
       const item = document.createElement("li");
-      item.textContent = `${entry.description} (${entry.rollback_status})`;
+      item.textContent = `${entry.description} (${rollbackStatusLabel(entry.rollback_status)})`;
       list.appendChild(item);
     });
   } catch (error) {
