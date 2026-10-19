@@ -46,6 +46,12 @@ struct EventPayload {
 
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
 
+static RESTORE_POINT_RESPONSES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>> = std::sync::OnceLock::new();
+
+fn restore_point_responses() -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>> {
+    RESTORE_POINT_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
 fn safety_state() -> &'static Arc<Mutex<SafetyManager>> {
     SAFETY_STATE.get_or_init(|| Arc::new(Mutex::new(SafetyManager::new())))
 }
@@ -593,6 +599,18 @@ async fn get_tasks() -> Result<Vec<Task>, String> {
 }
 
 #[tauri::command]
+async fn respond_restore_point_failure(execution_id: String, proceed: bool) -> Result<(), String> {
+    let sender = restore_point_responses()
+        .lock()
+        .unwrap()
+        .remove(&execution_id)
+        .ok_or_else(|| "A confirmação do ponto de restauração expirou ou não está mais pendente.".to_string())?;
+    sender
+        .send(proceed)
+        .map_err(|_| "Não foi possível enviar a resposta para a tarefa.".to_string())
+}
+
+#[tauri::command]
 async fn run_task(
     app: AppHandle,
     task_id: String,
@@ -716,21 +734,64 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                         &execution_id_for_spawn,
                         &format!("restore-point-phase-failed error={err}"),
                     );
-                    safety_state()
+                    let (sender, receiver) = mpsc::channel();
+                    restore_point_responses()
                         .lock()
                         .unwrap()
-                        .finish_execution(&execution_id_for_spawn, "failed");
+                        .insert(execution_id_for_spawn.clone(), sender);
                     emit_event(
                         &app_for_spawn,
-                        "task-error",
+                        "restore-point-confirmation-required",
                         &task_id_for_spawn,
                         &execution_id_for_spawn,
-                        &err,
+                        &format!(
+                            "Não foi possível criar um ponto de restauração: {err}\nDeseja prosseguir sem ponto de restauração?"
+                        ),
                         false,
                         None,
                         &task_risk_for_spawn,
                     );
-                    return;
+                    let proceed = receiver.recv().unwrap_or(false);
+                    restore_point_responses()
+                        .lock()
+                        .unwrap()
+                        .remove(&execution_id_for_spawn);
+                    if !proceed {
+                        write_execution_log(
+                            &execution_id_for_spawn,
+                            "task-cancelled-by-user-after-restore-point-failure",
+                        );
+                        safety_state()
+                            .lock()
+                            .unwrap()
+                            .finish_execution(&execution_id_for_spawn, "cancelled");
+                        emit_event(
+                            &app_for_spawn,
+                            "task-cancelled",
+                            &task_id_for_spawn,
+                            &execution_id_for_spawn,
+                            "Tarefa cancelada. O ponto de restauração não foi criado.",
+                            false,
+                            None,
+                            &task_risk_for_spawn,
+                        );
+                        return;
+                    }
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        "user-approved-proceeding-without-restore-point",
+                    );
+                    emit_event(
+                        &app_for_spawn,
+                        "task-output",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        "Aviso: prosseguindo sem ponto de restauração; não será possível usar esse ponto para reverter alterações.",
+                        true,
+                        None,
+                        &task_risk_for_spawn,
+                    );
+                    None
                 }
             }
         } else {
@@ -1203,6 +1264,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_tasks,
             run_task,
+            respond_restore_point_failure,
             cancel_task,
             run_preset,
             get_debloat_profile_tasks,
