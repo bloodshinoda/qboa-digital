@@ -672,7 +672,7 @@ async fn run_task(
     let task = registry
         .resolve(&task_id)
         .cloned()
-        .ok_or_else(|| format!("Task desconhecida: {task_id}"))?;
+        .ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
     let execution = start_task(app, task.clone(), shutdown_on_complete);
     let result = task_result(&task, &execution.execution_id);
     Ok(result)
@@ -682,7 +682,7 @@ fn task_result(task: &Task, execution_id: &str) -> TaskResult {
     let task_risk = task_risk_label(task).to_string();
     TaskResult {
         ok: true,
-        output: format!("Task iniciada: {}", task.name),
+        output: format!("Tarefa iniciada: {}", task.name),
         task_id: task.id.clone(),
         execution_id: execution_id.to_string(),
         risk: task_risk,
@@ -1233,7 +1233,7 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
         .collect();
     let ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
     if tasks.is_empty() {
-        return Err(format!("Preset desconhecido ou vazio: {preset_id}"));
+        return Err(format!("Perfil desconhecido ou vazio: {preset_id}"));
     }
 
     tauri::async_runtime::spawn(async move {
