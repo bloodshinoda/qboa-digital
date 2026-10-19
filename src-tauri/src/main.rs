@@ -722,7 +722,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                         .finish_execution(&execution_id_for_spawn, "failed");
                     emit_event(
                         &app_for_spawn,
-                        "restore-point-error",
+                        "task-error",
                         &task_id_for_spawn,
                         &execution_id_for_spawn,
                         &err,
