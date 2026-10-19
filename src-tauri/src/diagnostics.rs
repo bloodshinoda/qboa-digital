@@ -71,6 +71,8 @@ pub(crate) struct DiagnosticData {
     pub gpu_names: Vec<String>,
     pub gpu_sensor_temperature_c: Option<f64>,
     pub gpu_sensor_source: Option<String>,
+    pub cpu_sensor_temperature_c: Option<f64>,
+    pub cpu_sensor_source: Option<String>,
     pub processor_name: Option<String>,
     pub processor_logical_count: Option<u32>,
     pub thermal_zone_temperature_c: Option<f64>,
@@ -173,7 +175,8 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
     } else if valid_disks.is_empty() || invalid_disks > 0 {
         DiagnosticStatus::Indisponivel
     } else {
-        DiagnosticStatus::Ok
+        // A free-space check is not a disk-health test.
+        DiagnosticStatus::Informativo
     };
     let mut storage_evidence: Vec<String> = valid_disks
         .iter()
@@ -286,6 +289,13 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
     let mut temperature_evidence = Vec::new();
     let mut temperature_sources = Vec::new();
     let mut has_valid_temperature = append_temperature(
+        &mut temperature_evidence,
+        &mut temperature_sources,
+        "Sensor CPU",
+        data.cpu_sensor_temperature_c,
+        data.cpu_sensor_source.as_deref(),
+    );
+    has_valid_temperature |= append_temperature(
         &mut temperature_evidence,
         &mut temperature_sources,
         "Zona térmica (componente não identificado)",
@@ -489,19 +499,35 @@ try {
     if ($_.CurrentTemperature -ne $null) { [double]$c }
   })
 } catch {}
+$cpuTemperature = $null
+$cpuTemperatureSource = $null
 $gpuTemperature = $null
 $gpuTemperatureSource = $null
 foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor')) {
   try {
+    $cpuSensors = @(Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop | Where-Object {
+      $_.SensorType -eq 'Temperature' -and $_.HardwareType -like 'Cpu*' -and $_.Value -ne $null
+    })
+    if ($cpuSensors.Count -gt 0 -and $null -eq $cpuTemperature) {
+      $preferredCpuSensor = $cpuSensors | Sort-Object @{ Expression = {
+        if ($_.Name -match '(?i)CPU Package|Package|Tctl|Tdie') { 0 }
+        elseif ($_.Name -match '(?i)Core') { 1 }
+        else { 2 }
+      }}
+      $cpuTemperature = [double]$preferredCpuSensor[0].Value
+      $cpuTemperatureSource = "$namespace Sensor"
+    }
+  } catch {}
+  try {
     $gpuSensors = @(Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop | Where-Object {
       $_.SensorType -eq 'Temperature' -and $_.HardwareType -like 'Gpu*' -and $_.Value -ne $null
     })
-    if ($gpuSensors.Count -gt 0) {
+    if ($gpuSensors.Count -gt 0 -and $null -eq $gpuTemperature) {
       $gpuTemperature = [double]$gpuSensors[0].Value
       $gpuTemperatureSource = "$namespace Sensor"
-      break
     }
   } catch {}
+  if ($null -ne $cpuTemperature -and $null -ne $gpuTemperature) { break }
 }
 [pscustomobject]@{
   os_name=if ($current) { [string]$current.ProductName } else { $null }
@@ -514,6 +540,8 @@ foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor'
   gpu_names=$gpus
   gpu_sensor_temperature_c=$gpuTemperature
   gpu_sensor_source=$gpuTemperatureSource
+  cpu_sensor_temperature_c=$cpuTemperature
+  cpu_sensor_source=$cpuTemperatureSource
   processor_name=if ($processors.Count -gt 0) { [string]$processors[0].Name } else { $null }
   processor_logical_count=if ($processors.Count -gt 0) { [uint32]$processors[0].NumberOfLogicalProcessors } else { $null }
   thermal_zone_temperature_c=if ($thermal.Count -gt 0) { [double]$thermal[0] } else { $null }
@@ -842,7 +870,7 @@ mod tests {
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
         assert_eq!(
             result_for(&report, DiagnosticCategory::Armazenamento).status,
-            DiagnosticStatus::Ok
+            DiagnosticStatus::Informativo
         );
 
         backend.data.disks[0].free_bytes = Some(99);
@@ -873,6 +901,51 @@ mod tests {
         let storage = result_for(&report, DiagnosticCategory::Armazenamento);
         assert_eq!(storage.status, DiagnosticStatus::Indisponivel);
         assert!(!storage.evidence.iter().any(|line| line.contains("0 GiB")));
+    }
+
+    #[test]
+    fn storage_never_claims_disk_health_and_marks_partial_data_unavailable() {
+        let mut backend = FakeBackend::default();
+        backend.data.disks = vec![
+            DiskData {
+                name: Some("C:".to_string()),
+                size_bytes: Some(1000),
+                free_bytes: Some(500),
+            },
+            DiskData {
+                name: Some("D:".to_string()),
+                size_bytes: Some(1000),
+                free_bytes: None,
+            },
+        ];
+
+        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+        let storage = result_for(&report, DiagnosticCategory::Armazenamento);
+        assert_eq!(storage.status, DiagnosticStatus::Indisponivel);
+        assert!(storage.evidence.iter().any(|line| line.contains("C:")));
+        assert!(storage
+            .evidence
+            .iter()
+            .any(|line| line.contains("1 unidade(s) com dados ausentes ou inválidos")));
+        assert!(!storage.evidence.iter().any(|line| {
+            line.to_lowercase().contains("disco saudável")
+                || line.to_lowercase().contains("saúde do disco confirmada")
+        }));
+    }
+
+    #[test]
+    fn storage_rejects_free_space_greater_than_capacity() {
+        let mut backend = FakeBackend::default();
+        backend.data.disks = vec![DiskData {
+            name: Some("C:".to_string()),
+            size_bytes: Some(100),
+            free_bytes: Some(101),
+        }];
+
+        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+        let storage = result_for(&report, DiagnosticCategory::Armazenamento);
+        assert_eq!(storage.status, DiagnosticStatus::Indisponivel);
+        assert!(!storage.evidence.iter().any(|line| line.contains("101")));
     }
 
     #[test]
@@ -1121,6 +1194,34 @@ mod tests {
     }
 
     #[test]
+    fn cpu_temperature_sensor_is_reported_separately_from_gpu_and_thermal_zone() {
+        let mut backend = FakeBackend::default();
+        backend.data.cpu_sensor_temperature_c = Some(62.5);
+        backend.data.cpu_sensor_source =
+            Some("root/LibreHardwareMonitor Sensor".to_string());
+        backend.data.gpu_sensor_temperature_c = Some(71.0);
+        backend.data.gpu_sensor_source =
+            Some("root/OpenHardwareMonitor Sensor".to_string());
+        backend.data.thermal_zone_temperature_c = Some(39.0);
+        backend.data.thermal_zone_source =
+            Some("MSAcpi_ThermalZoneTemperature".to_string());
+
+        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
+        assert_eq!(temperature.status, DiagnosticStatus::Informativo);
+        assert!(temperature
+            .evidence
+            .iter()
+            .any(|line| line.contains("Sensor CPU: 62.5 °C")));
+        assert!(temperature
+            .evidence
+            .iter()
+            .any(|line| line.contains("Sensor GPU: 71.0 °C")));
+        assert!(temperature.evidence.iter().any(|line| line.contains("Zona térmica")));
+        assert_eq!(temperature.source.len(), 3);
+    }
+
+    #[test]
     fn temperature_accepts_exact_sources_emitted_by_the_powershell_collector() {
         let sources = [
             "MSAcpi_ThermalZoneTemperature",
@@ -1234,7 +1335,7 @@ mod tests {
             .all(|result| !result.evidence.is_empty() && !result.source.is_empty()));
         assert_eq!(
             result_for(&report, DiagnosticCategory::Armazenamento).status,
-            DiagnosticStatus::Ok
+            DiagnosticStatus::Informativo
         );
     }
 }
