@@ -564,7 +564,7 @@ impl RegistryBackend for PowerShellRegistryBackend {
         let script = template.replace("__JSON__", &powershell_literal(&encoded));
         let output = run_powershell_script(&script)?;
         let mut result: Vec<RegistrySnapshot> =
-            serde_json::from_str(output.trim_start_matches('\\u{feff}'))
+            serde_json::from_str(output.trim_start_matches('\u{feff}'))
                 .map_err(|error| format!("Resposta de leitura da árvore inválida: {error}"))?;
         sort_registry_values(&mut result);
         Ok(result)
