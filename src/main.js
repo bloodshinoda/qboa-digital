@@ -14,11 +14,19 @@ let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
 let selectedTweakTaskIds = new Set();
-let debloatProfileQueue = null;
+let debloatProfileQueue = null;\nlet browserCleanupDecision = null;
 
 const Qboa = {
   async analyze() {
     return invoke("get_tasks");
+  },
+
+  async getRunningBrowsers() {
+    return invoke("get_running_browsers");
+  },
+
+  async prepareBrowserCleanup(closeRunning) {
+    return invoke("prepare_browser_cleanup", { closeRunning });
   },
 
   async runTask(taskId, shutdownOnComplete) {
@@ -353,6 +361,32 @@ function closeConfirmationModal(confirmed = false) {
 }
 
 async function executeTask(item, cardEl) {
+  if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id) && browserCleanupDecision === null) {
+    try {
+      const runningBrowsers = await Qboa.getRunningBrowsers();
+      if (runningBrowsers.length) {
+        const names = [...new Set(runningBrowsers)].map((name) => ({
+          chrome: "Google Chrome", msedge: "Microsoft Edge", brave: "Brave", vivaldi: "Vivaldi", opera: "Opera", firefox: "Mozilla Firefox"
+        }[name.toLowerCase()] || name)).join(", ");
+        const closeRunning = await askConfirmation(
+          `Estes navegadores estão abertos: ${names}.\n\nSe você autorizar, o QBoa vai fechá-los antes de limpar os caches. Salve seu trabalho antes de continuar. Se recusar, a limpeza dos caches dos navegadores será ignorada.`,
+          "Fechar navegadores abertos?"
+        );
+        await Qboa.prepareBrowserCleanup(closeRunning);
+        browserCleanupDecision = closeRunning;
+        appendConsole(closeRunning
+          ? "Navegadores autorizados para fechamento; a limpeza dos caches será executada."
+          : "Você optou por manter os navegadores abertos; seus caches serão ignorados.");
+      } else {
+        await Qboa.prepareBrowserCleanup(true);
+        browserCleanupDecision = true;
+      }
+    } catch (error) {
+      appendConsole(`Não foi possível preparar a limpeza dos navegadores: ${String(error)}`);
+      await Qboa.prepareBrowserCleanup(false);
+      browserCleanupDecision = false;
+    }
+  }
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
   writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
