@@ -360,32 +360,37 @@ function closeConfirmationModal(confirmed = false) {
   if (resolve) resolve(confirmed);
 }
 
-async function executeTask(item, cardEl) {
-  if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id) && browserCleanupDecision === null) {
-    try {
-      const runningBrowsers = await Qboa.getRunningBrowsers();
-      if (runningBrowsers.length) {
-        const names = [...new Set(runningBrowsers)].map((name) => ({
-          chrome: "Google Chrome", msedge: "Microsoft Edge", brave: "Brave", vivaldi: "Vivaldi", opera: "Opera", firefox: "Mozilla Firefox"
-        }[name.toLowerCase()] || name)).join(", ");
-        const closeRunning = await askConfirmation(
-          `Estes navegadores estão abertos: ${names}.\n\nSe você autorizar, o QBoa vai fechá-los antes de limpar os caches. Salve seu trabalho antes de continuar. Se recusar, a limpeza dos caches dos navegadores será ignorada.`,
-          "Fechar navegadores abertos?"
-        );
-        await Qboa.prepareBrowserCleanup(closeRunning);
-        browserCleanupDecision = closeRunning;
-        appendConsole(closeRunning
-          ? "Navegadores autorizados para fechamento; a limpeza dos caches será executada."
-          : "Você optou por manter os navegadores abertos; seus caches serão ignorados.");
-      } else {
-        await Qboa.prepareBrowserCleanup(true);
-        browserCleanupDecision = true;
-      }
-    } catch (error) {
-      appendConsole(`Não foi possível preparar a limpeza dos navegadores: ${String(error)}`);
-      await Qboa.prepareBrowserCleanup(false);
-      browserCleanupDecision = false;
+async function prepareBrowserCleanupIfNeeded() {
+  if (browserCleanupDecision !== null) return;
+  try {
+    const runningBrowsers = await Qboa.getRunningBrowsers();
+    if (runningBrowsers.length) {
+      const names = [...new Set(runningBrowsers)].map((name) => ({
+        chrome: "Google Chrome", msedge: "Microsoft Edge", brave: "Brave", vivaldi: "Vivaldi", opera: "Opera", firefox: "Mozilla Firefox"
+      }[name.toLowerCase()] || name)).join(", ");
+      const closeRunning = await askConfirmation(
+        `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os caches. Salve seu trabalho antes de continuar. Se recusar, a limpeza dos caches será ignorada.`,
+        "Fechar navegadores abertos?"
+      );
+      await Qboa.prepareBrowserCleanup(closeRunning);
+      browserCleanupDecision = closeRunning;
+      appendConsole(closeRunning
+        ? "Navegadores autorizados para fechamento; a limpeza dos caches será executada."
+        : "Você optou por manter os navegadores abertos; seus caches serão ignorados.");
+    } else {
+      await Qboa.prepareBrowserCleanup(true);
+      browserCleanupDecision = true;
     }
+  } catch (error) {
+    appendConsole(`Não foi possível preparar a limpeza dos navegadores: ${String(error)}`);
+    await Qboa.prepareBrowserCleanup(false);
+    browserCleanupDecision = false;
+  }
+}
+
+async function executeTask(item, cardEl) {
+  if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id)) {
+    await prepareBrowserCleanupIfNeeded();
   }
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
@@ -511,6 +516,9 @@ function bindLevels() {
     }
 
     try {
+      if (presetTasks.some((item) => ["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id))) {
+        await prepareBrowserCleanupIfNeeded();
+      }
       const ids = await Qboa.runPreset(activeLevel);
       appendConsole(`Preset ${activeLevel} iniciado: ${ids.length} tarefas em sequência.`);
     } catch (error) {
