@@ -25,6 +25,10 @@ const Qboa = {
     return invoke("run_task", { taskId, shutdownOnComplete });
   },
 
+  async respondRestorePointFailure(executionId, proceed) {
+    return invoke("respond_restore_point_failure", { executionId, proceed });
+  },
+
   async runPreset(presetId) {
     return invoke("run_preset", { presetId });
   },
@@ -697,6 +701,20 @@ async function registerEvents() {
       startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
+    if (payload.event === "restore-point-confirmation-required") {
+      void (async () => {
+        const proceed = await askConfirmation(
+          `${payload.message || "Não foi possível criar um ponto de restauração."}\n\nSe prosseguir, a tarefa será executada sem essa proteção. Deseja continuar?`,
+          "Ponto de restauração indisponível"
+        );
+        try {
+          await Qboa.respondRestorePointFailure(payload.execution_id, proceed);
+        } catch (error) {
+          appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
+        }
+      })();
+    }
+
 
     if (payload.event === "task-output" && payload.message) {
       appendConsole(payload.message);
