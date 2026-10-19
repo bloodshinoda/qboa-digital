@@ -46,9 +46,12 @@ struct EventPayload {
 
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
 
-static RESTORE_POINT_RESPONSES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>> = std::sync::OnceLock::new();
+static RESTORE_POINT_RESPONSES: std::sync::OnceLock<
+    Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>,
+> = std::sync::OnceLock::new();
 
-fn restore_point_responses() -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>> {
+fn restore_point_responses(
+) -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>> {
     RESTORE_POINT_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -604,7 +607,9 @@ async fn respond_restore_point_failure(execution_id: String, proceed: bool) -> R
         .lock()
         .unwrap()
         .remove(&execution_id)
-        .ok_or_else(|| "A confirmação do ponto de restauração expirou ou não está mais pendente.".to_string())?;
+        .ok_or_else(|| {
+            "A confirmação do ponto de restauração expirou ou não está mais pendente.".to_string()
+        })?;
     sender
         .send(proceed)
         .map_err(|_| "Não foi possível enviar a resposta para a tarefa.".to_string())
