@@ -13,6 +13,8 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -87,12 +89,33 @@ fn forward_output<R: Read + Send + 'static>(
     sender: mpsc::Sender<String>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
-        for line in BufReader::new(stream).lines() {
-            if let Ok(line) = line {
-                let _ = sender.send(line);
+        // Saídas de ferramentas legadas do Windows podem conter bytes fora de UTF-8.
+        // read_until + conversão lossless evita interromper a captura na primeira linha inválida.
+        let mut reader = BufReader::new(stream);
+        let mut bytes = Vec::new();
+        loop {
+            bytes.clear();
+            match reader.read_until(b'\n', &mut bytes) {
+                Ok(0) => break,
+                Ok(_) => {
+                    while matches!(bytes.last(), Some(b'\n' | b'\r')) { bytes.pop(); }
+                    let line = String::from_utf8_lossy(&bytes).into_owned();
+                    if sender.send(line).is_err() { break; }
+                }
+                Err(error) => {
+                    let _ = sender.send(format!("Falha ao ler saída do processo: {error}"));
+                    break;
+                }
             }
         }
     })
+}
+
+fn configure_hidden_console(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    #[cfg(not(target_os = "windows"))]
+    let _ = command;
 }
 
 fn execution_log_path() -> std::path::PathBuf {
@@ -119,7 +142,9 @@ fn run_command(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
-    let mut child = Command::new(cmd)
+    let mut command = Command::new(cmd);
+    configure_hidden_console(&mut command);
+    let mut child = command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -228,6 +253,9 @@ fn run_powershell(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
+    let utf8_script = format!(
+        "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); $OutputEncoding = New-Object System.Text.UTF8Encoding($false); {script}"
+    );
     run_command(
         "powershell",
         &[
@@ -235,7 +263,7 @@ fn run_powershell(
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            script,
+            &utf8_script,
         ],
         execution_id,
         on_output,
