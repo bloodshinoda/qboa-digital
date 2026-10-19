@@ -224,6 +224,28 @@ function renderCards() {
   });
 }
 
+function humanizeLogMessage(message) {
+  const labels = {
+    "task-started": "Tarefa iniciada",
+    "task-output": "Etapa",
+    "task-progress": "Progresso",
+    "task-completed": "Tarefa concluída",
+    "task-cancelled": "Tarefa cancelada",
+    "task-error": "Falha na tarefa",
+    "snapshot-started": "Preparando cópia de segurança",
+    "restore-point-phase-started": "Criando ponto de restauração",
+    "restore-point-phase-completed": "Ponto de restauração criado",
+    "restore-point-phase-failed": "Não foi possível criar o ponto de restauração",
+    "registry-operation-failed": "Falha ao limpar o histórico do Registro",
+    "task-executor-failed": "A tarefa não pôde ser concluída"
+  };
+  return String(message ?? "")
+    .replace(/\\[(task-started|task-output|task-progress|task-completed|task-cancelled|task-error|snapshot-started|restore-point-phase-started|restore-point-phase-completed|restore-point-phase-failed|registry-operation-failed|task-executor-failed)\\]/gi,
+      (match, key) => labels[key] || key)
+    .replace(/status=exit code: 0/gi, "resultado: concluído")
+    .replace(/exit code: 0/gi, "concluído");
+}
+
 function appendConsole(message) {
   consoleBuffer = `${consoleBuffer}\n${message}`.trim();
   renderConsole();
@@ -487,7 +509,7 @@ async function refreshHistory() {
       list.appendChild(item);
     });
   } catch (error) {
-    console.error("Unable to read session history", error);
+    console.error("Não foi possível ler o histórico da sessão.", error);
   }
 }
 
