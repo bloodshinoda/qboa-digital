@@ -300,10 +300,26 @@ fn cleanup_windows_update(
 ) -> Result<String, String> {
     run_powershell(
         r#"
-$ErrorActionPreference = 'SilentlyContinue';
-$path = "$env:WINDIR\SoftwareDistribution\Download";
-if (Test-Path $path) { Remove-Item -Path "$path\*.tmp" -Force -ErrorAction SilentlyContinue }
-Write-Output 'Cache temporário do Windows Update processado.';
+$ErrorActionPreference = 'Stop';
+$path = Join-Path $env:WINDIR 'SoftwareDistribution\Download';
+if (-not (Test-Path -LiteralPath $path)) {
+  Write-Output 'Cache de download do Windows Update não existe; nada a limpar.';
+  exit 0;
+}
+$items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop);
+$removed = 0;
+$failed = 0;
+foreach ($item in $items) {
+  try {
+    Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
+    $removed++;
+  } catch {
+    $failed++;
+    Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message);
+  }
+}
+Write-Output ("Windows Update: {0} item(ns) removido(s), {1} falha(s)." -f $removed, $failed);
+if ($failed -gt 0) { exit 2 }
 "#,
         execution_id,
         on_output,
@@ -443,7 +459,7 @@ fn execute_task(
             on_output("[Etapa 2/4] Executando a Limpeza de Disco do Windows (cleanmgr)...");
             let part_2 = run_system_command(
                 "cleanmgr",
-                &["/sagerun:1"],
+                &["/verylowdisk"],
                 execution_id,
                 on_output,
                 is_cancelled,
