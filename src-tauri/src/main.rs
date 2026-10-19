@@ -432,6 +432,7 @@ fn execute_task(
             apply_registry,
         ),
         "limpeza_media" => {
+            on_output("[Etapa 1/4] Limpando temporários, caches e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -439,6 +440,7 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
+            on_output("[Etapa 2/4] Executando a Limpeza de Disco do Windows (cleanmgr)...");
             let part_2 = run_system_command(
                 "cleanmgr",
                 &["/sagerun:1"],
@@ -446,10 +448,12 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
+            on_output("[Etapa 3/4] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            on_output("[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...");
             let part_4 = run_system_command(
                 "dism",
-                &["/Online", "/Cleanup-Image", "/ScanHealth"],
+                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
                 execution_id,
                 on_output,
                 is_cancelled,
@@ -466,6 +470,7 @@ fn execute_task(
             )?;
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            on_output("[Etapa 4/7] Verificando a integridade da imagem do Windows...");
             let part_4 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/ScanHealth"],
@@ -473,9 +478,10 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
+            on_output("[Etapa 5/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
             let part_5 = run_system_command(
                 "dism",
-                &["/Online", "/Cleanup-Image", "/StartComponentCleanup"],
+                &["/Online", "/Cleanup-Image", "/StartComponentCleanup", "/ResetBase"],
                 execution_id,
                 on_output,
                 is_cancelled,
