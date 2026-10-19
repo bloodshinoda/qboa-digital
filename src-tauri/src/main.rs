@@ -12,9 +12,9 @@ use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Command, Stdio};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -98,9 +98,13 @@ fn forward_output<R: Read + Send + 'static>(
             match reader.read_until(b'\n', &mut bytes) {
                 Ok(0) => break,
                 Ok(_) => {
-                    while matches!(bytes.last(), Some(b'\n' | b'\r')) { bytes.pop(); }
+                    while matches!(bytes.last(), Some(b'\n' | b'\r')) {
+                        bytes.pop();
+                    }
                     let line = String::from_utf8_lossy(&bytes).into_owned();
-                    if sender.send(line).is_err() { break; }
+                    if sender.send(line).is_err() {
+                        break;
+                    }
                 }
                 Err(error) => {
                     let _ = sender.send(format!("Falha ao ler saída do processo: {error}"));
