@@ -135,10 +135,55 @@ fn execution_log_path() -> std::path::PathBuf {
     root.join("execution.log")
 }
 
+#[cfg(target_os = "windows")]
+#[repr(C)]
+struct LocalSystemTime {
+    year: u16, month: u16, day_of_week: u16, day: u16,
+    hour: u16, minute: u16, second: u16, milliseconds: u16,
+}
+
+#[cfg(target_os = "windows")]
+fn local_timestamp() -> String {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetLocalTime(time: *mut LocalSystemTime);
+    }
+    let mut now = LocalSystemTime {
+        year: 0, month: 0, day_of_week: 0, day: 0,
+        hour: 0, minute: 0, second: 0, milliseconds: 0,
+    };
+    unsafe { GetLocalTime(&mut now); }
+    format!("{:02}:{:02} {:02}-{:02}-{:04}", now.hour, now.minute, now.day, now.month, now.year)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn local_timestamp() -> String {
+    "hora local indisponível".to_string()
+}
+
+fn humanize_execution_log(message: &str) -> String {
+    if let Some(details) = message.strip_prefix("task-executor-failed error=") {
+        return format!("Executor de tarefas falhou: {details}");
+    }
+    if let Some(details) = message.strip_prefix("registry-operation-failed error=") {
+        return format!("Falha na operação de Registro: {details}");
+    }
+    message.to_string()
+}
+
 fn write_execution_log(execution_id: &str, message: &str) {
     let path = execution_log_path();
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "[{execution_id}] {message}");
+        let mut lines = message.lines();
+        if let Some(first) = lines.next() {
+            let humanized = humanize_execution_log(first);
+            let _ = writeln!(file, "[{execution_id}] [{}] {}", local_timestamp(), humanized);
+            for line in lines {
+                let _ = writeln!(file, "    {line}");
+            }
+        } else {
+            let _ = writeln!(file, "[{execution_id}] [{}]", local_timestamp());
+        }
     }
 }
 
