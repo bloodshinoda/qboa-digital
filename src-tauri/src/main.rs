@@ -243,9 +243,22 @@ fn cleanup_standard(
 ) -> Result<String, String> {
     let output = run_powershell(
         r#"
-$ErrorActionPreference = 'SilentlyContinue';
+$ErrorActionPreference = 'Continue';
+$removed = 0;
+$failed = 0;
 foreach ($path in @($env:TEMP, "$env:WINDIR\Temp")) {
-    if (Test-Path $path) { Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $path) {
+        Write-Output ("Limpando temporários: " + $path);
+        foreach ($item in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue)) {
+            try {
+                Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
+                $removed++;
+            } catch {
+                $failed++;
+                Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message);
+            }
+        }
+    }
 }
 $browserRoots = @(
     "$env:LOCALAPPDATA\Google\Chrome\User Data",
@@ -255,15 +268,33 @@ $browserRoots = @(
     "$env:APPDATA\Opera Software\Opera Stable",
     "$env:APPDATA\Mozilla\Firefox\Profiles"
 )
-$cacheNames = @('Cache', 'Cache2', 'Code Cache', 'GPUCache', 'StartupCache', 'shader-cache', 'Service Worker\CacheStorage')
+$cacheNames = @('Cache', 'Cache2', 'Code Cache', 'GPUCache', 'StartupCache', 'shader-cache', 'CacheStorage')
 foreach ($root in $browserRoots) {
-    if (Test-Path $root) {
-        Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            if ($cacheNames -contains $_.Name -or $_.FullName -match '\\Service Worker\\CacheStorage$') { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $root) {
+        Write-Output ("Procurando caches do navegador: " + $root);
+        $cacheDirs = @(Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -ErrorAction SilentlyContinue |
+            Where-Object { $cacheNames -contains $_.Name -or $_.FullName -match '\\Service Worker\\CacheStorage$' } |
+            Sort-Object { $_.FullName.Length } -Descending);
+        foreach ($dir in $cacheDirs) {
+            if (Test-Path -LiteralPath $dir.FullName) {
+                try {
+                    Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction Stop;
+                    $removed++;
+                } catch {
+                    $failed++;
+                    Write-Output ("Não foi possível remover cache: " + $dir.FullName + " — " + $_.Exception.Message);
+                }
+            }
         }
     }
 }
-Clear-RecycleBin -Force -ErrorAction SilentlyContinue;
+try {
+    Clear-RecycleBin -Force -ErrorAction Stop;
+    Write-Output 'Lixeira esvaziada.';
+} catch {
+    Write-Output ("Lixeira não esvaziada: " + $_.Exception.Message);
+}
+Write-Output ("Limpeza padrão: {0} item(ns)/pasta(s) removido(s), {1} falha(s)." -f $removed, $failed);
 "#,
         execution_id,
         on_output,
