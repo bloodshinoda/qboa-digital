@@ -1197,14 +1197,11 @@ mod tests {
     fn cpu_temperature_sensor_is_reported_separately_from_gpu_and_thermal_zone() {
         let mut backend = FakeBackend::default();
         backend.data.cpu_sensor_temperature_c = Some(62.5);
-        backend.data.cpu_sensor_source =
-            Some("root/LibreHardwareMonitor Sensor".to_string());
+        backend.data.cpu_sensor_source = Some("root/LibreHardwareMonitor Sensor".to_string());
         backend.data.gpu_sensor_temperature_c = Some(71.0);
-        backend.data.gpu_sensor_source =
-            Some("root/OpenHardwareMonitor Sensor".to_string());
+        backend.data.gpu_sensor_source = Some("root/OpenHardwareMonitor Sensor".to_string());
         backend.data.thermal_zone_temperature_c = Some(39.0);
-        backend.data.thermal_zone_source =
-            Some("MSAcpi_ThermalZoneTemperature".to_string());
+        backend.data.thermal_zone_source = Some("MSAcpi_ThermalZoneTemperature".to_string());
 
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
         let temperature = result_for(&report, DiagnosticCategory::Temperatura);
@@ -1217,7 +1214,10 @@ mod tests {
             .evidence
             .iter()
             .any(|line| line.contains("Sensor GPU: 71.0 °C")));
-        assert!(temperature.evidence.iter().any(|line| line.contains("Zona térmica")));
+        assert!(temperature
+            .evidence
+            .iter()
+            .any(|line| line.contains("Zona térmica")));
         assert_eq!(temperature.source.len(), 3);
     }
 
