@@ -138,8 +138,14 @@ fn execution_log_path() -> std::path::PathBuf {
 #[cfg(target_os = "windows")]
 #[repr(C)]
 struct LocalSystemTime {
-    year: u16, month: u16, day_of_week: u16, day: u16,
-    hour: u16, minute: u16, second: u16, milliseconds: u16,
+    year: u16,
+    month: u16,
+    day_of_week: u16,
+    day: u16,
+    hour: u16,
+    minute: u16,
+    second: u16,
+    milliseconds: u16,
 }
 
 #[cfg(target_os = "windows")]
@@ -152,8 +158,13 @@ fn local_timestamp() -> String {
         year: 0, month: 0, day_of_week: 0, day: 0,
         hour: 0, minute: 0, second: 0, milliseconds: 0,
     };
-    unsafe { GetLocalTime(&mut now); }
-    format!("{:02}:{:02} {:02}-{:02}-{:04}", now.hour, now.minute, now.day, now.month, now.year)
+    unsafe {
+        GetLocalTime(&mut now);
+    }
+    format!(
+        "{:02}:{:02} {:02}-{:02}-{:04}",
+        now.hour, now.minute, now.day, now.month, now.year
+    )
 }
 
 #[cfg(not(target_os = "windows"))]
