@@ -397,7 +397,7 @@ fn cleanup_standard(
     apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
 ) -> Result<String, String> {
     let output = run_powershell(
-        r#"
+        r##"
 $ErrorActionPreference = 'Continue';
 $removed = 0;
 $failed = 0;
@@ -454,7 +454,7 @@ try {
     Write-Output ("Lixeira não esvaziada: " + $_.Exception.Message);
 }
 Write-Output ("Limpeza padrão: {0} item(ns)/pasta(s) removido(s), {1} falha(s)." -f $removed, $failed);
-"#,
+"##,
         execution_id,
         on_output,
         is_cancelled,
