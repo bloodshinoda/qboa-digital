@@ -283,8 +283,7 @@ function renderConsole() {
   out.textContent = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
     .filter(Boolean)
     .join("\n");
-  const scrollContainer = out.closest(".console-output, .activity-log, .console-panel") || out.parentElement;
-  if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
+  out.scrollTop = out.scrollHeight;
 }
 
 function stopActivity() {
