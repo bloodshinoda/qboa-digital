@@ -96,14 +96,41 @@ fn decode_process_output(bytes: &[u8]) -> String {
         // DISM e ferramentas antigas podem emitir a página OEM do Windows, não UTF-8.
         #[link(name = "kernel32")]
         unsafe extern "system" {
-            fn MultiByteToWideChar(code_page: u32, flags: u32, input: *const i8, input_len: i32, output: *mut u16, output_len: i32) -> i32;
+            fn MultiByteToWideChar(
+                code_page: u32,
+                flags: u32,
+                input: *const i8,
+                input_len: i32,
+                output: *mut u16,
+                output_len: i32,
+            ) -> i32;
         }
         if !bytes.is_empty() && bytes.len() <= i32::MAX as usize {
-            let required = unsafe { MultiByteToWideChar(1, 0, bytes.as_ptr().cast(), bytes.len() as i32, std::ptr::null_mut(), 0) };
+            let required = unsafe {
+                MultiByteToWideChar(
+                    1,
+                    0,
+                    bytes.as_ptr().cast(),
+                    bytes.len() as i32,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
             if required > 0 {
                 let mut wide = vec![0u16; required as usize];
-                let written = unsafe { MultiByteToWideChar(1, 0, bytes.as_ptr().cast(), bytes.len() as i32, wide.as_mut_ptr(), required) };
-                if written > 0 { return String::from_utf16_lossy(&wide[..written as usize]); }
+                let written = unsafe {
+                    MultiByteToWideChar(
+                        1,
+                        0,
+                        bytes.as_ptr().cast(),
+                        bytes.len() as i32,
+                        wide.as_mut_ptr(),
+                        required,
+                    )
+                };
+                if written > 0 {
+                    return String::from_utf16_lossy(&wide[..written as usize]);
+                }
             }
         }
     }
@@ -131,15 +158,17 @@ fn forward_output<R: Read + Send + 'static>(
                 }
                 Ok(count) => {
                     for byte in &chunk[..count] {
-                        if *byte == b'\\r' || *byte == b'\\n' {
-                            if *byte == b'\\n' && previous_was_cr {
+                        if *byte == b'\r' || *byte == b'\n' {
+                            if *byte == b'\n' && previous_was_cr {
                                 previous_was_cr = false;
                                 continue;
                             }
                             let text = String::from_utf8_lossy(&line).into_owned();
                             line.clear();
-                            if sender.send(text).is_err() { return; }
-                            previous_was_cr = *byte == b'\\r';
+                            if sender.send(text).is_err() {
+                                return;
+                            }
+                            previous_was_cr = *byte == b'\r';
                         } else {
                             line.push(*byte);
                             previous_was_cr = false;
@@ -147,7 +176,7 @@ fn forward_output<R: Read + Send + 'static>(
                     }
                 }
                 Err(error) => {
-                    let _ = sender.send(format!(\"Falha ao ler saída do processo: {error}\"));
+                    let _ = sender.send(format!("Falha ao ler saída do processo: {error}"));
                     break;
                 }
             }
