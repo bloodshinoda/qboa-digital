@@ -2,9 +2,23 @@
 
 ![Qboa Digital](src-tauri/icons/logo.png)
 
-Versão atual: `0.9.0`
+Versão atual: `3.0` (versão do pacote: `3.0.0`)
 
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
+
+## QBoa Digital 3.0
+
+A linha 3.0 é a primeira versão estável do aplicativo moderno. O projeto reúne limpeza e manutenção do Windows, ferramentas de privacidade, diagnóstico e proteções para operações avançadas.
+
+### Destaques desta versão
+
+- Diálogos de confirmação próprios da interface, com cancelamento seguro e suporte à tecla Escape.
+- Diagnóstico informativo de armazenamento, tratando dados parciais ou inconsistentes sem transformar ausência de dados em valores falsos.
+- Leitura opcional de temperatura da CPU quando um provedor compatível, como LibreHardwareMonitor ou OpenHardwareMonitor, está ativo.
+- Presets Express, Normal e Turbo; tarefas avançadas podem exigir confirmação.
+- Proteções por ponto de restauração quando disponível, snapshots e rollback de alterações reversíveis.
+
+O diagnóstico de armazenamento informa capacidade e espaço livre; não substitui SMART nem verificação de integridade do sistema de arquivos. A temperatura depende de um provedor de sensores compatível.
 
 ## Arquitetura
 
@@ -162,7 +176,7 @@ O workflow `.github/workflows/windows-build.yml` compila o aplicativo Windows em
 - `qboa-digital-windows-installer`: instalador NSIS `.exe`
 - `qboa-digital-windows-portable`: ZIP com o `.exe` portátil e DLLs de runtime
 
-Ele é executado automaticamente em pushes para `main` e tags de versão como `v0.9.0`. Também pode ser iniciado manualmente na aba **Actions**, usando **Run workflow**. Depois que o job terminar, baixe o artefato na execução do workflow. Extraia o ZIP portátil inteiro e mantenha o `.exe` junto das DLLs incluídas. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
+O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. Para preparar a primeira release estável, use a tag `v3.0`. A compilação gera o instalador NSIS `.exe` e o pacote portátil `.zip`; quando uma tag `v*` é enviada, o workflow cria automaticamente um **rascunho de release** com os dois arquivos anexados. Basta revisar as notas e publicar o rascunho na página de Releases. Os artefatos temporários da execução também ficam disponíveis no GitHub Actions por 14 dias. Extraia o ZIP portátil inteiro e mantenha o `.exe` junto das DLLs incluídas. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
 
 ## Validação P0 no Windows
 
