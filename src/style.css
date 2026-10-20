@@ -522,8 +522,50 @@ button {
   z-index: 999;
 }
 
-.risk-modal.hidden {
+.risk-modal.hidden,
+.confirmation-modal.hidden {
   display: none;
+}
+
+.confirmation-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.68);
+  z-index: 1000;
+}
+
+.confirmation-dialog {
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  background: #112018;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.45);
+}
+
+.confirmation-head h3 {
+  margin: 0 0 12px;
+  color: #ffd166;
+  font-size: 1.15rem;
+}
+
+.confirmation-dialog p {
+  margin: 0 0 18px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .risk-dialog {
@@ -605,4 +647,46 @@ button {
     grid-template-columns: 1fr;
     padding: 20px;
   }
+}
+
+/* Ações da interface seguem o mesmo padrão visual. */
+button:not(.tab):not(.level) { font-family: var(--font-ui); font-weight: 700; }
+
+
+/* Ações principais usam o mesmo padrão visual em toda a interface. */
+button:not(.tab):not(.level) {
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 7px;
+  background: var(--qboa-red);
+  color: var(--qboa-white);
+  font-family: var(--font-ui);
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+button:not(.tab):not(.level):hover:not(:disabled) {
+  background: #c90008;
+  border-color: rgba(255, 255, 255, 0.55);
+  transform: translateY(-1px);
+}
+button:not(.tab):not(.level):focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+button:not(.tab):not(.level):disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+}
+button.secondary-button,
+button.copy-pix-button {
+  background: transparent;
+}
+button.secondary-button:hover:not(:disabled),
+button.copy-pix-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
 }

@@ -6,6 +6,8 @@ use crate::safety::{FeatureSnapshot, ScheduledTaskSnapshot, ServiceSnapshot};
 use crate::task_registry::{ExecutorType, TaskRegistry};
 use serde::{Deserialize, Serialize};
 use std::fs;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct RegistryKey {
@@ -492,10 +494,7 @@ impl RegistryBackend for PowerShellRegistryBackend {
         }
 
         let encoded = serde_json::to_string(keys).map_err(|error| error.to_string())?;
-        let script = format!(
-            "$ErrorActionPreference='Stop';$specs=ConvertFrom-Json -InputObject '{}';$r=@();foreach($s in $specs){{$b=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($s.hive),[Microsoft.Win32.RegistryView]::Default);$k=$b.OpenSubKey($s.path);$e=$k -and ($k.GetValueNames()-contains $s.value_name);$v=$null;$t=$null;if($e){{$t=$k.GetValueKind($s.value_name).ToString();$v=$k.GetValue($s.value_name,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames);if($t-eq'Binary' -or $t-eq'None'){{$v=[Convert]::ToBase64String($v)}}}};$r+=@{{exists=$e;value_type=$t;value=$v}}}};ConvertTo-Json -InputObject @($r) -Depth 8 -Compress",
-            powershell_literal(&encoded)
-        );
+        let script = r#"$ErrorActionPreference='Stop';$roots=ConvertFrom-Json -InputObject '__JSON__';$r=@();foreach($root in $roots){$b=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root.hive),[Microsoft.Win32.RegistryView]::Default);$queue=New-Object System.Collections.Queue;$queue.Enqueue($root.path);while($queue.Count -gt 0){$p=[string]$queue.Dequeue();$k=$b.OpenSubKey($p);if($k){foreach($n in $k.GetValueNames()){$t=$k.GetValueKind($n).ToString();$v=$k.GetValue($n,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames);if($t-eq'Binary' -or $t-eq'None'){$v=[Convert]::ToBase64String($v)};$r+=[pscustomobject]@{hive=$root.hive;path=$p;value_name=$n;exists=$true;value_type=$t;value=$v}};foreach($n in $k.GetSubKeyNames()){$queue.Enqueue("$p\$n")};$k.Dispose()}}};ConvertTo-Json -InputObject @($r) -Depth 8 -Compress"#.replace("__JSON__", &powershell_literal(&encoded));
         let output = run_powershell_script(&script)?;
         let result: Vec<ReadResult> =
             serde_json::from_str(output.trim_start_matches('\u{feff}'))
@@ -559,10 +558,10 @@ impl RegistryBackend for PowerShellRegistryBackend {
         trees: &[RegistryTree],
     ) -> Result<Vec<RegistrySnapshot>, String> {
         let encoded = serde_json::to_string(trees).map_err(|error| error.to_string())?;
-        let script = format!(
-            "$ErrorActionPreference='Stop';$roots=ConvertFrom-Json -InputObject '{}';$r=@();foreach($root in $roots){{$b=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root.hive),[Microsoft.Win32.RegistryView]::Default);$queue=New-Object System.Collections.Queue;$queue.Enqueue($root.path);while($queue.Count -gt 0){{$p=[string]$queue.Dequeue();$k=$b.OpenSubKey($p);if($k){{foreach($n in $k.GetValueNames()){{$t=$k.GetValueKind($n).ToString();$v=$k.GetValue($n,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames);if($t-eq'Binary' -or $t-eq'None'){{$v=[Convert]::ToBase64String($v)}};$r+=[pscustomobject]@{{hive=$root.hive;path=$p;value_name=$n;exists=$true;value_type=$t;value=$v}}}};foreach($n in $k.GetSubKeyNames()){{$queue.Enqueue(\"$p\\$n\")}};$k.Dispose()}}}};ConvertTo-Json -InputObject @($r) -Depth 8 -Compress",
-            powershell_literal(&encoded)
-        );
+        // Substituição por placeholder evita escapes de aspas e chaves do format! no PowerShell.
+        // A concatenação monta o caminho da subchave sem interpolação de strings ambígua.
+        let template = r#"$ErrorActionPreference='Stop';$roots=ConvertFrom-Json -InputObject '__JSON__';$r=@();foreach($root in $roots){$b=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root.hive),[Microsoft.Win32.RegistryView]::Default);$queue=New-Object System.Collections.Queue;$queue.Enqueue($root.path);while($queue.Count -gt 0){$p=[string]$queue.Dequeue();$k=$b.OpenSubKey($p);if($k){foreach($n in $k.GetValueNames()){$t=$k.GetValueKind($n).ToString();$v=$k.GetValue($n,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames);if($t-eq'Binary' -or $t-eq'None'){$v=[Convert]::ToBase64String($v)};$r+=[pscustomobject]@{hive=$root.hive;path=$p;value_name=$n;exists=$true;value_type=$t;value=$v}};foreach($n in $k.GetSubKeyNames()){$queue.Enqueue([string]$p + [string][char]92 + [string]$n)};$k.Dispose()}}};ConvertTo-Json -InputObject @($r) -Depth 8 -Compress"#;
+        let script = template.replace("__JSON__", &powershell_literal(&encoded));
         let output = run_powershell_script(&script)?;
         let mut result: Vec<RegistrySnapshot> =
             serde_json::from_str(output.trim_start_matches('\u{feff}'))
@@ -604,7 +603,10 @@ fn run_powershell_script(script: &str) -> Result<String, String> {
     let utf8_script = format!(
         "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
     );
-    let output = Command::new("powershell")
+    let mut command = Command::new("powershell");
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000);
+    let output = command
         .args([
             "-NoProfile",
             "-NonInteractive",

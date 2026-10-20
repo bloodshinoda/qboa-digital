@@ -12,7 +12,10 @@ use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::io::{BufRead, BufReader, Read};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -44,7 +47,18 @@ struct EventPayload {
     risk: String,
 }
 
+static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
+
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
+
+static RESTORE_POINT_RESPONSES: std::sync::OnceLock<
+    Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>,
+> = std::sync::OnceLock::new();
+
+fn restore_point_responses() -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>
+{
+    RESTORE_POINT_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
 
 fn safety_state() -> &'static Arc<Mutex<SafetyManager>> {
     SAFETY_STATE.get_or_init(|| Arc::new(Mutex::new(SafetyManager::new())))
@@ -73,17 +87,107 @@ fn emit_event<R: Runtime>(
     let _ = app.emit("qboa-event", payload);
 }
 
+fn decode_process_output(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // DISM e ferramentas antigas podem emitir a página OEM do Windows, não UTF-8.
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn MultiByteToWideChar(
+                code_page: u32,
+                flags: u32,
+                input: *const i8,
+                input_len: i32,
+                output: *mut u16,
+                output_len: i32,
+            ) -> i32;
+        }
+        if !bytes.is_empty() && bytes.len() <= i32::MAX as usize {
+            let required = unsafe {
+                MultiByteToWideChar(
+                    1,
+                    0,
+                    bytes.as_ptr().cast(),
+                    bytes.len() as i32,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
+            if required > 0 {
+                let mut wide = vec![0u16; required as usize];
+                let written = unsafe {
+                    MultiByteToWideChar(
+                        1,
+                        0,
+                        bytes.as_ptr().cast(),
+                        bytes.len() as i32,
+                        wide.as_mut_ptr(),
+                        required,
+                    )
+                };
+                if written > 0 {
+                    return String::from_utf16_lossy(&wide[..written as usize]);
+                }
+            }
+        }
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
 fn forward_output<R: Read + Send + 'static>(
     stream: R,
     sender: mpsc::Sender<String>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
-        for line in BufReader::new(stream).lines() {
-            if let Ok(line) = line {
-                let _ = sender.send(line);
+        // DISM atualiza a barra com carriage return (\\r), sem newline.
+        // Lemos por blocos para emitir cada atualização como uma substituição da linha atual.
+        let mut reader = BufReader::new(stream);
+        let mut chunk = [0u8; 4096];
+        let mut line = Vec::new();
+        let mut previous_was_cr = false;
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => {
+                    if !line.is_empty() {
+                        let text = decode_process_output(&line);
+                        let _ = sender.send(text);
+                    }
+                    break;
+                }
+                Ok(count) => {
+                    for byte in &chunk[..count] {
+                        if *byte == b'\r' || *byte == b'\n' {
+                            if *byte == b'\n' && previous_was_cr {
+                                previous_was_cr = false;
+                                continue;
+                            }
+                            let text = decode_process_output(&line);
+                            line.clear();
+                            if sender.send(text).is_err() {
+                                return;
+                            }
+                            previous_was_cr = *byte == b'\r';
+                        } else {
+                            line.push(*byte);
+                            previous_was_cr = false;
+                        }
+                    }
+                }
+                Err(error) => {
+                    let _ = sender.send(format!("Falha ao ler saída do processo: {error}"));
+                    break;
+                }
             }
         }
     })
+}
+fn configure_hidden_console(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    #[cfg(not(target_os = "windows"))]
+    let _ = command;
 }
 
 fn execution_log_path() -> std::path::PathBuf {
@@ -96,10 +200,77 @@ fn execution_log_path() -> std::path::PathBuf {
     root.join("execution.log")
 }
 
+#[cfg(target_os = "windows")]
+#[repr(C)]
+struct LocalSystemTime {
+    year: u16,
+    month: u16,
+    day_of_week: u16,
+    day: u16,
+    hour: u16,
+    minute: u16,
+    second: u16,
+    milliseconds: u16,
+}
+
+#[cfg(target_os = "windows")]
+fn local_timestamp() -> String {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetLocalTime(time: *mut LocalSystemTime);
+    }
+    let mut now = LocalSystemTime {
+        year: 0,
+        month: 0,
+        day_of_week: 0,
+        day: 0,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        milliseconds: 0,
+    };
+    unsafe {
+        GetLocalTime(&mut now);
+    }
+    format!(
+        "{:02}:{:02} {:02}-{:02}-{:04}",
+        now.hour, now.minute, now.day, now.month, now.year
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn local_timestamp() -> String {
+    "hora local indisponível".to_string()
+}
+
+fn humanize_execution_log(message: &str) -> String {
+    if let Some(details) = message.strip_prefix("task-executor-failed error=") {
+        return format!("Executor de tarefas falhou: {details}");
+    }
+    if let Some(details) = message.strip_prefix("registry-operation-failed error=") {
+        return format!("Falha na operação de Registro: {details}");
+    }
+    message.to_string()
+}
+
 fn write_execution_log(execution_id: &str, message: &str) {
     let path = execution_log_path();
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "[{execution_id}] {message}");
+        let mut lines = message.lines();
+        if let Some(first) = lines.next() {
+            let humanized = humanize_execution_log(first);
+            let _ = writeln!(
+                file,
+                "[{execution_id}] [{}] {}",
+                local_timestamp(),
+                humanized
+            );
+            for line in lines {
+                let _ = writeln!(file, "    {line}");
+            }
+        } else {
+            let _ = writeln!(file, "[{execution_id}] [{}]", local_timestamp());
+        }
     }
 }
 
@@ -110,7 +281,17 @@ fn run_command(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
-    let mut child = Command::new(cmd)
+    let mut command = Command::new(cmd);
+    configure_hidden_console(&mut command);
+    let mut child = command
+        .env(
+            "QBOA_CLEAN_BROWSER_CACHE",
+            if BROWSER_CLEANUP_ENABLED.load(Ordering::Relaxed) {
+                "1"
+            } else {
+                "0"
+            },
+        )
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -219,6 +400,9 @@ fn run_powershell(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
+    let utf8_script = format!(
+        "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); $OutputEncoding = New-Object System.Text.UTF8Encoding($false); {script}"
+    );
     run_command(
         "powershell",
         &[
@@ -226,7 +410,7 @@ fn run_powershell(
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            script,
+            &utf8_script,
         ],
         execution_id,
         on_output,
@@ -242,29 +426,7 @@ fn cleanup_standard(
     apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
 ) -> Result<String, String> {
     let output = run_powershell(
-        r#"
-$ErrorActionPreference = 'SilentlyContinue';
-foreach ($path in @($env:TEMP, "$env:WINDIR\Temp")) {
-    if (Test-Path $path) { Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction SilentlyContinue }
-}
-$browserRoots = @(
-    "$env:LOCALAPPDATA\Google\Chrome\User Data",
-    "$env:LOCALAPPDATA\Microsoft\Edge\User Data",
-    "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data",
-    "$env:LOCALAPPDATA\Vivaldi\User Data",
-    "$env:APPDATA\Opera Software\Opera Stable",
-    "$env:APPDATA\Mozilla\Firefox\Profiles"
-)
-$cacheNames = @('Cache', 'Cache2', 'Code Cache', 'GPUCache', 'StartupCache', 'shader-cache', 'Service Worker\CacheStorage')
-foreach ($root in $browserRoots) {
-    if (Test-Path $root) {
-        Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            if ($cacheNames -contains $_.Name -or $_.FullName -match '\\Service Worker\\CacheStorage$') { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
-        }
-    }
-}
-Clear-RecycleBin -Force -ErrorAction SilentlyContinue;
-"#,
+        include_str!("../scripts/cleanup_standard.ps1"),
         execution_id,
         on_output,
         is_cancelled,
@@ -300,10 +462,26 @@ fn cleanup_windows_update(
 ) -> Result<String, String> {
     run_powershell(
         r#"
-$ErrorActionPreference = 'SilentlyContinue';
-$path = "$env:WINDIR\SoftwareDistribution\Download";
-if (Test-Path $path) { Remove-Item -Path "$path\*.tmp" -Force -ErrorAction SilentlyContinue }
-Write-Output 'Cache temporário do Windows Update processado.';
+$ErrorActionPreference = 'Stop';
+$path = Join-Path $env:WINDIR 'SoftwareDistribution\Download';
+if (-not (Test-Path -LiteralPath $path)) {
+  Write-Output 'Cache de download do Windows Update não existe; nada a limpar.';
+  exit 0;
+}
+$items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop);
+$removed = 0;
+$failed = 0;
+foreach ($item in $items) {
+  try {
+    Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
+    $removed++;
+  } catch {
+    $failed++;
+    Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message);
+  }
+}
+Write-Output ("Windows Update: {0} item(ns) removido(s), {1} falha(s)." -f $removed, $failed);
+if ($failed -gt 0) { exit 2 }
 "#,
         execution_id,
         on_output,
@@ -432,6 +610,7 @@ fn execute_task(
             apply_registry,
         ),
         "limpeza_media" => {
+            on_output("[Etapa 1/4] Limpando temporários, caches e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -439,17 +618,22 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
+            on_output("[Etapa 2/4] Executando a Limpeza de Disco do Windows (cleanmgr)...");
             let part_2 = run_system_command(
                 "cleanmgr",
-                &["/sagerun:1"],
+                &["/verylowdisk"],
                 execution_id,
                 on_output,
                 is_cancelled,
             )?;
+            on_output("[Etapa 3/4] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            on_output(
+                "[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
+            );
             let part_4 = run_system_command(
                 "dism",
-                &["/Online", "/Cleanup-Image", "/ScanHealth"],
+                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
                 execution_id,
                 on_output,
                 is_cancelled,
@@ -466,6 +650,7 @@ fn execute_task(
             )?;
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            on_output("[Etapa 4/7] Verificando a integridade da imagem do Windows...");
             let part_4 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/ScanHealth"],
@@ -473,9 +658,15 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
+            on_output("[Etapa 5/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
             let part_5 = run_system_command(
                 "dism",
-                &["/Online", "/Cleanup-Image", "/StartComponentCleanup"],
+                &[
+                    "/Online",
+                    "/Cleanup-Image",
+                    "/StartComponentCleanup",
+                    "/ResetBase",
+                ],
                 execution_id,
                 on_output,
                 is_cancelled,
@@ -533,6 +724,20 @@ async fn get_tasks() -> Result<Vec<Task>, String> {
 }
 
 #[tauri::command]
+async fn respond_restore_point_failure(execution_id: String, proceed: bool) -> Result<(), String> {
+    let sender = restore_point_responses()
+        .lock()
+        .unwrap()
+        .remove(&execution_id)
+        .ok_or_else(|| {
+            "A confirmação do ponto de restauração expirou ou não está mais pendente.".to_string()
+        })?;
+    sender
+        .send(proceed)
+        .map_err(|_| "Não foi possível enviar a resposta para a tarefa.".to_string())
+}
+
+#[tauri::command]
 async fn run_task(
     app: AppHandle,
     task_id: String,
@@ -542,7 +747,7 @@ async fn run_task(
     let task = registry
         .resolve(&task_id)
         .cloned()
-        .ok_or_else(|| format!("Task desconhecida: {task_id}"))?;
+        .ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
     let execution = start_task(app, task.clone(), shutdown_on_complete);
     let result = task_result(&task, &execution.execution_id);
     Ok(result)
@@ -552,7 +757,7 @@ fn task_result(task: &Task, execution_id: &str) -> TaskResult {
     let task_risk = task_risk_label(task).to_string();
     TaskResult {
         ok: true,
-        output: format!("Task iniciada: {}", task.name),
+        output: format!("Tarefa iniciada: {}", task.name),
         task_id: task.id.clone(),
         execution_id: execution_id.to_string(),
         risk: task_risk,
@@ -656,21 +861,64 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                         &execution_id_for_spawn,
                         &format!("restore-point-phase-failed error={err}"),
                     );
-                    safety_state()
+                    let (sender, receiver) = mpsc::channel();
+                    restore_point_responses()
                         .lock()
                         .unwrap()
-                        .finish_execution(&execution_id_for_spawn, "failed");
+                        .insert(execution_id_for_spawn.clone(), sender);
                     emit_event(
                         &app_for_spawn,
-                        "restore-point-error",
+                        "restore-point-confirmation-required",
                         &task_id_for_spawn,
                         &execution_id_for_spawn,
-                        &err,
+                        &format!(
+                            "Não foi possível criar um ponto de restauração: {err}\nDeseja prosseguir sem ponto de restauração?"
+                        ),
                         false,
                         None,
                         &task_risk_for_spawn,
                     );
-                    return;
+                    let proceed = receiver.recv().unwrap_or(false);
+                    restore_point_responses()
+                        .lock()
+                        .unwrap()
+                        .remove(&execution_id_for_spawn);
+                    if !proceed {
+                        write_execution_log(
+                            &execution_id_for_spawn,
+                            "task-cancelled-by-user-after-restore-point-failure",
+                        );
+                        safety_state()
+                            .lock()
+                            .unwrap()
+                            .finish_execution(&execution_id_for_spawn, "cancelled");
+                        emit_event(
+                            &app_for_spawn,
+                            "task-cancelled",
+                            &task_id_for_spawn,
+                            &execution_id_for_spawn,
+                            "Tarefa cancelada. O ponto de restauração não foi criado.",
+                            false,
+                            None,
+                            &task_risk_for_spawn,
+                        );
+                        return;
+                    }
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        "user-approved-proceeding-without-restore-point",
+                    );
+                    emit_event(
+                        &app_for_spawn,
+                        "task-output",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        "Aviso: prosseguindo sem ponto de restauração; não será possível usar esse ponto para reverter alterações.",
+                        true,
+                        None,
+                        &task_risk_for_spawn,
+                    );
+                    None
                 }
             }
         } else {
@@ -975,6 +1223,63 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
 }
 
 #[tauri::command]
+async fn get_running_browsers() -> Result<Vec<String>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("powershell");
+        configure_hidden_console(&mut command);
+        let output = command
+            .args(["-NoProfile", "-NonInteractive", "-Command",
+                "$names=@('chrome','msedge','brave','vivaldi','opera','firefox'); $found=@(Get-Process -Name $names -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName -Unique); ConvertTo-Json -InputObject @($found) -Compress"])
+            .output()
+            .map_err(|error| format!("Não foi possível verificar os navegadores abertos: {error}"))?;
+        if !output.status.success() {
+            return Err("Não foi possível verificar os navegadores abertos.".to_string());
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let value: serde_json::Value = serde_json::from_str(text.trim())
+            .map_err(|error| format!("Resposta inválida ao verificar navegadores: {error}"))?;
+        let values = value.as_array().cloned().unwrap_or_else(|| vec![value]);
+        return Ok(values
+            .into_iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(Vec::new())
+    }
+}
+
+#[tauri::command]
+async fn prepare_browser_cleanup(close_running: bool) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        if close_running {
+            let mut command = Command::new("powershell");
+            configure_hidden_console(&mut command);
+            let output = command
+                .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+                    "$names=@('chrome','msedge','brave','vivaldi','opera','firefox'); Get-Process -Name $names -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; 'Navegadores encerrados quando estavam em execução.'"])
+                .output()
+                .map_err(|error| format!("Não foi possível fechar os navegadores: {error}"))?;
+            if !output.status.success() {
+                return Err("Não foi possível fechar os navegadores. Feche-os manualmente ou escolha ignorar a limpeza dos navegadores.".to_string());
+            }
+            BROWSER_CLEANUP_ENABLED.store(true, Ordering::Relaxed);
+            return Ok("A limpeza dos caches dos navegadores está habilitada.".to_string());
+        }
+        BROWSER_CLEANUP_ENABLED.store(false, Ordering::Relaxed);
+        return Ok("A limpeza dos caches dos navegadores será ignorada.".to_string());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = close_running;
+        Ok("A limpeza de navegadores só está disponível no Windows.".to_string())
+    }
+}
+
+#[tauri::command]
 async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<String, String> {
     let mut safety = safety_state().lock().unwrap();
     let execution_id = execution_id
@@ -1003,7 +1308,7 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
         .collect();
     let ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
     if tasks.is_empty() {
-        return Err(format!("Preset desconhecido ou vazio: {preset_id}"));
+        return Err(format!("Perfil desconhecido ou vazio: {preset_id}"));
     }
 
     tauri::async_runtime::spawn(async move {
@@ -1143,6 +1448,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_tasks,
             run_task,
+            respond_restore_point_failure,
+            get_running_browsers,
+            prepare_browser_cleanup,
             cancel_task,
             run_preset,
             get_debloat_profile_tasks,

@@ -7,6 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "windows")]
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
 use std::process::Command;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,7 +157,13 @@ impl ExecutionHandle {
 
 impl Default for SafetyManager {
     fn default() -> Self {
-        let root = std::env::temp_dir().join("qboa-digital").join("snapshots");
+        // Snapshots ficam em LocalAppData, fora de %TEMP%: a própria limpeza
+        // de temporários não pode apagar o backup necessário para validar/compensar o Registro.
+        let root = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("Qboa Digital")
+            .join("snapshots");
         let journal_path = default_journal_path();
         let _ = fs::create_dir_all(&root);
 
@@ -176,7 +185,12 @@ impl SafetyManager {
 
     #[cfg(test)]
     pub(crate) fn with_journal_path(path: PathBuf) -> Self {
-        let root = std::env::temp_dir().join("qboa-digital").join("snapshots");
+        let root = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("Qboa Digital")
+            .join("snapshots");
+        let _ = fs::create_dir_all(&root);
         let mut manager = Self {
             backup_root: root,
             changes: Vec::new(),
@@ -277,9 +291,10 @@ impl SafetyManager {
     pub fn create_restore_point(&mut self, reason: &str) -> Result<String, String> {
         #[cfg(target_os = "windows")]
         {
-            let script = format!("Checkpoint-Computer -Description '{}' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop", reason.replace("'", "''"));
+            let script = format!("$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;$OutputEncoding=$utf8;Checkpoint-Computer -Description '{}' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop", reason.replace("'", "''"));
             write_safety_log(&format!("restore-point started reason={reason}"));
             let output = Command::new("powershell")
+                .creation_flags(0x08000000)
                 .args([
                     "-NoProfile",
                     "-NonInteractive",
@@ -632,6 +647,7 @@ fn run_snapshot_script(strategy: &str) -> Result<String, String> {
         "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
     );
     let output = Command::new("powershell")
+        .creation_flags(0x08000000)
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
@@ -689,6 +705,7 @@ fn restore_snapshot(location: &str, task_id: &str) -> Result<String, String> {
         restore
     );
     let output = Command::new("powershell")
+        .creation_flags(0x08000000)
         .args([
             "-NoProfile",
             "-ExecutionPolicy",

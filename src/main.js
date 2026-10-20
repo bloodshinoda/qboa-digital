@@ -5,6 +5,7 @@ let structure = null;
 let activeSection = "limpeza";
 let activeLevel = "normal";
 let pendingTask = null;
+let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
 let consoleBuffer = "";
@@ -14,14 +15,28 @@ let activityTimer = null;
 let serviceProfileState = null;
 let selectedTweakTaskIds = new Set();
 let debloatProfileQueue = null;
+let browserCleanupDecision = null;
+let showAllSessionChanges = false;
 
 const Qboa = {
   async analyze() {
     return invoke("get_tasks");
   },
 
+  async getRunningBrowsers() {
+    return invoke("get_running_browsers");
+  },
+
+  async prepareBrowserCleanup(closeRunning) {
+    return invoke("prepare_browser_cleanup", { closeRunning });
+  },
+
   async runTask(taskId, shutdownOnComplete) {
     return invoke("run_task", { taskId, shutdownOnComplete });
+  },
+
+  async respondRestorePointFailure(executionId, proceed) {
+    return invoke("respond_restore_point_failure", { executionId, proceed });
   },
 
   async runPreset(presetId) {
@@ -219,11 +234,45 @@ function renderCards() {
   });
 }
 
-function appendConsole(message) {
-  consoleBuffer = `${consoleBuffer}\n${message}`.trim();
-  renderConsole();
+function humanizeLogMessage(message) {
+  const labels = {
+    "task-started": "Tarefa iniciada",
+    "task-output": "Etapa",
+    "task-progress": "Progresso",
+    "task-completed": "Tarefa concluída",
+    "task-cancelled": "Tarefa cancelada",
+    "task-error": "Falha na tarefa",
+    "restore-point-created": "Ponto de restauração criado",
+    "restore-point-confirmation-required": "Confirmação necessária para continuar",
+    "snapshot-started": "Preparando cópia de segurança",
+    "restore-point-phase-started": "Criando ponto de restauração",
+    "restore-point-phase-completed": "Ponto de restauração criado",
+    "restore-point-phase-failed": "Não foi possível criar o ponto de restauração",
+    "registry-operation-failed": "Falha ao limpar o histórico do Registro",
+    "task-executor-failed": "A tarefa não pôde ser concluída"
+  };
+  return String(message ?? "")
+    .replace(/\[(task-started|task-output|task-progress|task-completed|task-cancelled|task-error|snapshot-started|restore-point-phase-started|restore-point-phase-completed|restore-point-phase-failed|registry-operation-failed|task-executor-failed)\]/gi,
+      (match, key) => labels[key] || key)
+    .replace(/status=exit code: 0/gi, "resultado: concluído")
+    .replace(/exit code: 0/gi, "concluído");
 }
 
+function appendConsole(message) {
+  const line = String(message ?? "").trim();
+  if (!line) return;
+  const isDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(line);
+  const lines = consoleBuffer.split("\n");
+  const last = lines[lines.length - 1] || "";
+  const lastIsDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(last);
+  if (isDismProgress && lastIsDismProgress) {
+    lines[lines.length - 1] = line;
+    consoleBuffer = lines.join("\n");
+  } else {
+    consoleBuffer = (consoleBuffer + "\n" + line).trim();
+  }
+  renderConsole();
+}
 function writeStatus(text) {
   consoleBuffer = text;
   renderConsole();
@@ -234,6 +283,7 @@ function renderConsole() {
   out.textContent = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
     .filter(Boolean)
     .join("\n");
+  out.scrollTop = out.scrollHeight;
 }
 
 function stopActivity() {
@@ -292,7 +342,71 @@ function closeRiskModal() {
   pendingTask = null;
 }
 
+function askConfirmation(message, title = "Confirmar operação") {
+  const modal = document.getElementById("confirmation-modal");
+  const titleElement = document.getElementById("confirmation-title");
+  const messageElement = document.getElementById("confirmation-message");
+  const confirmButton = document.getElementById("confirmation-confirm");
+
+  if (pendingConfirmationResolver) {
+    pendingConfirmationResolver(false);
+    pendingConfirmationResolver = null;
+  }
+
+  titleElement.textContent = title;
+  messageElement.textContent = message;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  confirmButton.focus();
+
+  return new Promise((resolve) => {
+    pendingConfirmationResolver = resolve;
+  });
+}
+
+function closeConfirmationModal(confirmed = false) {
+  const modal = document.getElementById("confirmation-modal");
+  if (modal.classList.contains("hidden")) return;
+
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  const resolve = pendingConfirmationResolver;
+  pendingConfirmationResolver = null;
+  if (resolve) resolve(confirmed);
+}
+
+async function prepareBrowserCleanupIfNeeded() {
+  if (browserCleanupDecision !== null) return;
+  try {
+    const runningBrowsers = await Qboa.getRunningBrowsers();
+    if (runningBrowsers.length) {
+      const names = [...new Set(runningBrowsers)].map((name) => ({
+        chrome: "Google Chrome", msedge: "Microsoft Edge", brave: "Brave", vivaldi: "Vivaldi", opera: "Opera", firefox: "Mozilla Firefox"
+      }[name.toLowerCase()] || name)).join(", ");
+      const closeRunning = await askConfirmation(
+        `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os caches. Salve seu trabalho antes de continuar. Se recusar, a limpeza dos caches será ignorada.`,
+        "Fechar navegadores abertos?"
+      );
+      await Qboa.prepareBrowserCleanup(closeRunning);
+      browserCleanupDecision = closeRunning;
+      appendConsole(closeRunning
+        ? "Navegadores autorizados para fechamento; a limpeza dos caches será executada."
+        : "Você optou por manter os navegadores abertos; seus caches serão ignorados.");
+    } else {
+      await Qboa.prepareBrowserCleanup(true);
+      browserCleanupDecision = true;
+    }
+  } catch (error) {
+    appendConsole(`Não foi possível preparar a limpeza dos navegadores: ${String(error)}`);
+    await Qboa.prepareBrowserCleanup(false);
+    browserCleanupDecision = false;
+  }
+}
+
 async function executeTask(item, cardEl) {
+  if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id)) {
+    await prepareBrowserCleanupIfNeeded();
+  }
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
   writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
@@ -385,6 +499,28 @@ async function startDebloatProfile() {
   }
 }
 
+function presetDisplayName(level) {
+  return {
+    express: "Rápido",
+    normal: "Equilibrado",
+    turbo: "Completo"
+  }[level] || "Personalizado";
+}
+
+function rollbackStatusLabel(status) {
+  return {
+    Pending: "Pendente",
+    Applied: "Aplicada",
+    RollbackAvailable: "Reversão disponível",
+    RollingBack: "Revertendo",
+    RolledBack: "Revertida",
+    RollbackFailed: "Falha na reversão",
+    RollbackPartial: "Reversão parcial",
+    Unknown: "Desconhecido",
+    Irreversible: "Irreversível"
+  }[status] || status;
+}
+
 function bindLevels() {
   document.querySelectorAll(".level").forEach((btn) => {
     if (btn.dataset.level === activeLevel) btn.classList.add("active");
@@ -408,17 +544,20 @@ function bindLevels() {
       section.items.filter((item) => item.preset && item.preset.includes(activeLevel))
     );
     if (!presetTasks.length) {
-      appendConsole(`Nenhuma tarefa disponível para o preset ${activeLevel}.`);
+      appendConsole(`Nenhuma tarefa disponível para o perfil ${presetDisplayName(activeLevel)}.`);
       return;
     }
 
-    if (activeLevel === "turbo" && !window.confirm("O preset Turbo executará alterações avançadas no Windows. Deseja continuar?")) {
+    if (activeLevel === "turbo" && !(await askConfirmation("O preset Turbo executará alterações avançadas no Windows. Deseja continuar?", "Executar preset Turbo?"))) {
       return;
     }
 
     try {
+      if (presetTasks.some((item) => ["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id))) {
+        await prepareBrowserCleanupIfNeeded();
+      }
       const ids = await Qboa.runPreset(activeLevel);
-      appendConsole(`Preset ${activeLevel} iniciado: ${ids.length} tarefas em sequência.`);
+      appendConsole(`Perfil ${presetDisplayName(activeLevel)} iniciado: ${ids.length} tarefas em sequência.`);
     } catch (error) {
       appendConsole(String(error));
     }
@@ -436,23 +575,54 @@ async function refreshHistory() {
   try {
     const history = await Qboa.getSessionHistory();
     const list = document.getElementById("session-history");
+    if (!list) return;
     list.innerHTML = "";
-
-    if (!history || history.length === 0) {
-      list.innerHTML = "<li>Nenhuma alteração registrada.</li>";
-      return;
-    }
-
-    history.slice(-6).forEach((entry) => {
-      const item = document.createElement("li");
-      item.textContent = `${entry.description} (${entry.rollback_status})`;
-      list.appendChild(item);
+    const heading = list.parentElement?.querySelector("h2, h3, h4, .section-title");
+    if (heading && /Alterações desta sessão/i.test(heading.textContent)) heading.textContent = "Últimas Alterações";
+    const grouped = new Map();
+    (history || []).forEach((entry, index) => {
+      const rawDescription = String(entry.description || "Alteração registrada");
+      const status = rollbackStatusLabel(entry.rollback_status);
+      const irreversible = /irreversível/i.test(rawDescription) || /irreversível/i.test(status);
+      const description = rawDescription.replace(/\s*\(irreversível\)/gi, "").trim();
+      const key = description + "\u0000" + (irreversible ? "Irreversível" : status);
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.count += 1;
+        existing.latestIndex = index;
+      } else {
+        grouped.set(key, { description, status: irreversible ? "Irreversível" : status, irreversible, count: 1, latestIndex: index });
+      }
     });
+    const entries = Array.from(grouped.values()).sort((a, b) => b.latestIndex - a.latestIndex);
+    const visible = showAllSessionChanges ? entries : entries.slice(0, 3);
+    if (!visible.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "Nenhuma alteração registrada.";
+      list.appendChild(empty);
+    } else {
+      visible.forEach((entry) => {
+        const item = document.createElement("li");
+        const irreversible = /irreversível/i.test(entry.description) || /irreversível/i.test(entry.status);
+        item.textContent = entry.description + (irreversible ? " (irreversível)" : "") + (entry.count > 1 ? " (" + entry.count + ")" : "") + (irreversible ? "" : " (" + entry.status + ")");
+        list.appendChild(item);
+      });
+    }
+    let toggle = document.getElementById("session-history-toggle");
+    if (!toggle) {
+      toggle = document.createElement("button");
+      toggle.id = "session-history-toggle";
+      toggle.type = "button";
+      toggle.className = "secondary-button";
+      list.insertAdjacentElement("afterend", toggle);
+      toggle.addEventListener("click", () => { showAllSessionChanges = !showAllSessionChanges; void refreshHistory(); });
+    }
+    toggle.textContent = showAllSessionChanges ? "Mostrar menos" : "Ver tudo";
+    toggle.hidden = entries.length <= 3;
   } catch (error) {
-    console.error("Unable to read session history", error);
+    console.error("Não foi possível ler o histórico da sessão.", error);
   }
 }
-
 function findingCategoryLabel(category) {
   return {
     broken_shortcut: "Atalho quebrado",
@@ -506,7 +676,7 @@ async function refreshCleanupFindings() {
     remove.type = "button";
     remove.textContent = "Excluir";
     remove.addEventListener("click", async () => {
-      if (!finding.id || !window.confirm(`Excluir este achado?\n${finding.path}`)) return;
+      if (!finding.id || !(await askConfirmation(`Excluir este achado?\n${finding.path}`, "Excluir achado?"))) return;
       remove.disabled = true;
       try {
         await Qboa.deleteCleanupFinding(finding.id);
@@ -653,7 +823,9 @@ async function loadServiceProfileState() {
 }
 
 async function registerEvents() {
-  const unlisten = await listen("qboa-event", (event) => {
+  // Não bloqueia o vínculo dos controles da interface esperando o listener Tauri.
+  // Se listen() demorar ou falhar, os botões de confirmação continuam funcionais.
+  void listen("qboa-event", (event) => {
     const payload = event.payload;
     if (payload.event === "task-started") {
       activeTaskId = payload.task_id;
@@ -661,6 +833,33 @@ async function registerEvents() {
       startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
+    if (payload.event === "restore-point-confirmation-required") {
+      void (async () => {
+        const proceed = await askConfirmation(
+          "Não foi possível criar um ponto de restauração. Se você optar por prosseguir, as alterações feitas não poderão ser revertidas. Deseja continuar?",
+          "Ponto de restauração indisponível"
+        );
+        try {
+          await Qboa.respondRestorePointFailure(payload.execution_id, proceed);
+          if (!proceed) {
+            // Atualiza a interface imediatamente após a decisão; o evento terminal
+            // do backend continua sendo responsável pelo histórico e pelo registro final.
+            stopActivity();
+            document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
+            if (activeExecutionId === payload.execution_id) {
+              activeExecutionId = null;
+              if (activeTaskId === payload.task_id) activeTaskId = null;
+            }
+            if (debloatProfileQueue?.currentTaskId === payload.task_id) {
+              stopDebloatProfileQueue("Perfil interrompido porque o ponto de restauração não foi criado.");
+            }
+          }
+        } catch (error) {
+          appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
+        }
+      })();
+    }
+
 
     if (payload.event === "task-output" && payload.message) {
       appendConsole(payload.message);
@@ -691,9 +890,10 @@ async function registerEvents() {
         }
       }
     }
+  }).catch((error) => {
+    console.error("Não foi possível registrar os eventos do Qboa:", error);
+    appendConsole(`Aviso: eventos em tempo real indisponíveis: ${String(error)}`);
   });
-
-  return unlisten;
 }
 
 (async function init() {
@@ -723,15 +923,59 @@ async function registerEvents() {
     closeRiskModal();
   });
 
+  document.getElementById("confirmation-cancel").addEventListener("click", () => {
+    closeConfirmationModal(false);
+  });
+  document.getElementById("confirmation-confirm").addEventListener("click", () => {
+    closeConfirmationModal(true);
+  });
+
+  document.getElementById("confirmation-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeConfirmationModal(false);
+  });
+  document.getElementById("risk-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      if (pendingTask?.profileQueue) {
+        stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
+      }
+      closeRiskModal();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const confirmationModal = document.getElementById("confirmation-modal");
+    const riskModal = document.getElementById("risk-modal");
+    if (!confirmationModal.classList.contains("hidden")) {
+      closeConfirmationModal(false);
+    } else if (!riskModal.classList.contains("hidden")) {
+      if (pendingTask?.profileQueue) {
+        stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
+      }
+      closeRiskModal();
+    }
+  });
+
   document.getElementById("risk-confirm").addEventListener("click", async (event) => {
-    if (!pendingTask) return;
     const confirmButton = event.currentTarget;
+    // Evita iniciar a mesma operação duas vezes por cliques rápidos.
+    if (confirmButton.disabled || !pendingTask) return;
+
     const task = pendingTask;
     confirmButton.disabled = true;
+    // Desvincula a confirmação antes de fechar o modal: a operação passa a
+    // pertencer ao handler, e não a um estado global que outros eventos limpam.
+    pendingTask = null;
     closeRiskModal();
+
     try {
       const started = await executeTask(task.item, task.cardEl);
       if (!started && task.profileQueue) {
+        stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
+      }
+    } catch (error) {
+      appendConsole(`Falha ao iniciar ${task.item.name}: ${String(error)}`);
+      if (task.cardEl) task.cardEl.classList.remove("running");
+      if (task.profileQueue) {
         stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
       }
     } finally {
@@ -801,7 +1045,7 @@ async function registerEvents() {
   document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
     if (!serviceProfileState?.profile?.validated) return;
     const profile = document.getElementById("service-profile-select").value;
-    if (profile === "custom" || !window.confirm("Aplicar este perfil de serviços?")) return;
+    if (profile === "custom" || !(await askConfirmation("Aplicar este perfil de serviços?", "Aplicar perfil de serviços?"))) return;
     try {
       await Qboa.applyServiceProfile(profile);
       appendConsole("Perfil de serviços aplicado.");
@@ -812,7 +1056,7 @@ async function registerEvents() {
 
   document.getElementById("service-profile-defaults-btn").addEventListener("click", async () => {
     if (!serviceProfileState?.profile?.validated) return;
-    if (!window.confirm("Restaurar o padrão do Windows?")) return;
+    if (!(await askConfirmation("Restaurar o padrão do Windows?", "Restaurar serviços do Windows?"))) return;
     try {
       await Qboa.restoreWindowsServiceDefaults();
       appendConsole("Padrão do Windows restaurado.");
@@ -823,7 +1067,7 @@ async function registerEvents() {
 
   document.getElementById("service-profile-undo-btn").addEventListener("click", async () => {
     if (!serviceProfileState?.profile?.validated) return;
-    if (!window.confirm("Desfazer minhas alterações?")) return;
+    if (!(await askConfirmation("Desfazer minhas alterações?", "Desfazer alterações?"))) return;
     try {
       await Qboa.undoServiceProfileChanges();
       appendConsole("Alterações desfeitas.");
