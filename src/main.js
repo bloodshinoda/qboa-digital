@@ -599,7 +599,7 @@ async function refreshHistory() {
       visible.forEach((entry) => {
         const item = document.createElement("li");
         const irreversible = /irreversível/i.test(entry.description) || /irreversível/i.test(entry.status);
-        item.textContent = entry.description + (irreversible ? " (irreversível)" : "") + (entry.count > 1 ? " (" + entry.count + ")" : "") + " (" + entry.status + ")";
+        item.textContent = entry.description + (irreversible ? " (irreversível)" : "") + (entry.count > 1 ? " (" + entry.count + ")" : "") + (irreversible ? "" : " (" + entry.status + ")");
         list.appendChild(item);
       });
     }
