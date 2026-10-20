@@ -581,15 +581,21 @@ async function refreshHistory() {
     const heading = list.parentElement?.querySelector("h2, h3, h4, .section-title");
     if (heading && /Alterações desta sessão/i.test(heading.textContent)) heading.textContent = "Últimas Alterações";
     const grouped = new Map();
-    (history || []).forEach((entry) => {
-      const description = String(entry.description || "Alteração registrada");
+    (history || []).forEach((entry, index) => {
+      const rawDescription = String(entry.description || "Alteração registrada");
       const status = rollbackStatusLabel(entry.rollback_status);
-      const key = description + "\u0000" + status;
+      const irreversible = /irreversível/i.test(rawDescription) || /irreversível/i.test(status);
+      const description = rawDescription.replace(/\s*\(irreversível\)/gi, "").trim();
+      const key = description + "\u0000" + (irreversible ? "Irreversível" : status);
       const existing = grouped.get(key);
-      if (existing) existing.count += 1;
-      else grouped.set(key, { description, status, count: 1 });
+      if (existing) {
+        existing.count += 1;
+        existing.latestIndex = index;
+      } else {
+        grouped.set(key, { description, status: irreversible ? "Irreversível" : status, irreversible, count: 1, latestIndex: index });
+      }
     });
-    const entries = Array.from(grouped.values()).reverse();
+    const entries = Array.from(grouped.values()).sort((a, b) => b.latestIndex - a.latestIndex);
     const visible = showAllSessionChanges ? entries : entries.slice(0, 3);
     if (!visible.length) {
       const empty = document.createElement("li");
