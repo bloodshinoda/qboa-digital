@@ -92,32 +92,46 @@ fn forward_output<R: Read + Send + 'static>(
     sender: mpsc::Sender<String>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
-        // Saídas de ferramentas legadas do Windows podem conter bytes fora de UTF-8.
-        // read_until + conversão lossless evita interromper a captura na primeira linha inválida.
+        // DISM atualiza a barra com carriage return (\\r), sem newline.
+        // Lemos por blocos para emitir cada atualização como uma substituição da linha atual.
         let mut reader = BufReader::new(stream);
-        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let mut line = Vec::new();
+        let mut previous_was_cr = false;
         loop {
-            bytes.clear();
-            match reader.read_until(b'\n', &mut bytes) {
-                Ok(0) => break,
-                Ok(_) => {
-                    while matches!(bytes.last(), Some(b'\n' | b'\r')) {
-                        bytes.pop();
+            match reader.read(&mut chunk) {
+                Ok(0) => {
+                    if !line.is_empty() {
+                        let text = String::from_utf8_lossy(&line).into_owned();
+                        let _ = sender.send(text);
                     }
-                    let line = String::from_utf8_lossy(&bytes).into_owned();
-                    if sender.send(line).is_err() {
-                        break;
+                    break;
+                }
+                Ok(count) => {
+                    for byte in &chunk[..count] {
+                        if *byte == b'\\r' || *byte == b'\\n' {
+                            if *byte == b'\\n' && previous_was_cr {
+                                previous_was_cr = false;
+                                continue;
+                            }
+                            let text = String::from_utf8_lossy(&line).into_owned();
+                            line.clear();
+                            if sender.send(text).is_err() { return; }
+                            previous_was_cr = *byte == b'\\r';
+                        } else {
+                            line.push(*byte);
+                            previous_was_cr = false;
+                        }
                     }
                 }
                 Err(error) => {
-                    let _ = sender.send(format!("Falha ao ler saída do processo: {error}"));
+                    let _ = sender.send(format!(\"Falha ao ler saída do processo: {error}\"));
                     break;
                 }
             }
         }
     })
 }
-
 fn configure_hidden_console(command: &mut Command) {
     #[cfg(target_os = "windows")]
     command.creation_flags(0x08000000); // CREATE_NO_WINDOW
