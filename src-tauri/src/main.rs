@@ -163,7 +163,7 @@ fn forward_output<R: Read + Send + 'static>(
                                 previous_was_cr = false;
                                 continue;
                             }
-                            let text = String::from_utf8_lossy(&line).into_owned();
+                            let text = decode_process_output(&line);
                             line.clear();
                             if sender.send(text).is_err() {
                                 return;
