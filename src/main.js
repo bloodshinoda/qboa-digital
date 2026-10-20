@@ -798,6 +798,19 @@ async function registerEvents() {
         );
         try {
           await Qboa.respondRestorePointFailure(payload.execution_id, proceed);
+          if (!proceed) {
+            // Atualiza a interface imediatamente após a decisão; o evento terminal
+            // do backend continua sendo responsável pelo histórico e pelo registro final.
+            stopActivity();
+            document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
+            if (activeExecutionId === payload.execution_id) {
+              activeExecutionId = null;
+              if (activeTaskId === payload.task_id) activeTaskId = null;
+            }
+            if (debloatProfileQueue?.currentTaskId === payload.task_id) {
+              stopDebloatProfileQueue("Perfil interrompido porque o ponto de restauração não foi criado.");
+            }
+          }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
         }
