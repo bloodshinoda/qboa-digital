@@ -261,15 +261,15 @@ function humanizeLogMessage(message) {
 function appendConsole(message) {
   const line = String(message ?? "").trim();
   if (!line) return;
-  const isDismProgress = /\\[[= >-]*\\s*\\d+(?:[.,]\\d+)?%\\s*\\]?/.test(line);
-  const lines = consoleBuffer.split("\\n");
+  const isDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(line);
+  const lines = consoleBuffer.split("\n");
   const last = lines[lines.length - 1] || "";
-  const lastIsDismProgress = /\\[[= >-]*\\s*\\d+(?:[.,]\\d+)?%\\s*\\]?/.test(last);
+  const lastIsDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(last);
   if (isDismProgress && lastIsDismProgress) {
     lines[lines.length - 1] = line;
-    consoleBuffer = lines.join("\\n");
+    consoleBuffer = lines.join("\n");
   } else {
-    consoleBuffer = (consoleBuffer + "\\n" + line).trim();
+    consoleBuffer = (consoleBuffer + "\n" + line).trim();
   }
   renderConsole();
 }
