@@ -259,10 +259,20 @@ function humanizeLogMessage(message) {
 }
 
 function appendConsole(message) {
-  consoleBuffer = `${consoleBuffer}\n${message}`.trim();
+  const line = String(message ?? "").trim();
+  if (!line) return;
+  const isDismProgress = /\\[[= >-]*\\s*\\d+(?:[.,]\\d+)?%\\s*\\]?/.test(line);
+  const lines = consoleBuffer.split("\\n");
+  const last = lines[lines.length - 1] || "";
+  const lastIsDismProgress = /\\[[= >-]*\\s*\\d+(?:[.,]\\d+)?%\\s*\\]?/.test(last);
+  if (isDismProgress && lastIsDismProgress) {
+    lines[lines.length - 1] = line;
+    consoleBuffer = lines.join("\\n");
+  } else {
+    consoleBuffer = (consoleBuffer + "\\n" + line).trim();
+  }
   renderConsole();
 }
-
 function writeStatus(text) {
   consoleBuffer = text;
   renderConsole();
