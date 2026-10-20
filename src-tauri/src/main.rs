@@ -397,7 +397,7 @@ fn cleanup_standard(
     apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
 ) -> Result<String, String> {
     let output = run_powershell(
-        include_str!("../scripts/cleanup_standard.ps1")
+        include_str!("../scripts/cleanup_standard.ps1"),
         execution_id,
         on_output,
         is_cancelled,
