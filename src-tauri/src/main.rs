@@ -87,6 +87,28 @@ fn emit_event<R: Runtime>(
     let _ = app.emit("qboa-event", payload);
 }
 
+fn decode_process_output(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // DISM e ferramentas antigas podem emitir a página OEM do Windows, não UTF-8.
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn MultiByteToWideChar(code_page: u32, flags: u32, input: *const i8, input_len: i32, output: *mut u16, output_len: i32) -> i32;
+        }
+        if !bytes.is_empty() && bytes.len() <= i32::MAX as usize {
+            let required = unsafe { MultiByteToWideChar(1, 0, bytes.as_ptr().cast(), bytes.len() as i32, std::ptr::null_mut(), 0) };
+            if required > 0 {
+                let mut wide = vec![0u16; required as usize];
+                let written = unsafe { MultiByteToWideChar(1, 0, bytes.as_ptr().cast(), bytes.len() as i32, wide.as_mut_ptr(), required) };
+                if written > 0 { return String::from_utf16_lossy(&wide[..written as usize]); }
+            }
+        }
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
 fn forward_output<R: Read + Send + 'static>(
     stream: R,
     sender: mpsc::Sender<String>,
@@ -102,7 +124,7 @@ fn forward_output<R: Read + Send + 'static>(
             match reader.read(&mut chunk) {
                 Ok(0) => {
                     if !line.is_empty() {
-                        let text = String::from_utf8_lossy(&line).into_owned();
+                        let text = decode_process_output(&line);
                         let _ = sender.send(text);
                     }
                     break;
