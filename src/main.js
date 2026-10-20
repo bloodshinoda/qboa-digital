@@ -16,6 +16,7 @@ let serviceProfileState = null;
 let selectedTweakTaskIds = new Set();
 let debloatProfileQueue = null;
 let browserCleanupDecision = null;
+let showAllSessionChanges = false;
 
 const Qboa = {
   async analyze() {
@@ -272,6 +273,8 @@ function renderConsole() {
   out.textContent = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
     .filter(Boolean)
     .join("\n");
+  const scrollContainer = out.closest(".console-output, .activity-log, .console-panel") || out.parentElement;
+  if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
 }
 
 function stopActivity() {
@@ -793,7 +796,7 @@ async function registerEvents() {
     if (payload.event === "restore-point-confirmation-required") {
       void (async () => {
         const proceed = await askConfirmation(
-          `${payload.message || "Não foi possível criar um ponto de restauração."}\n\nSe prosseguir, a tarefa será executada sem essa proteção. Deseja continuar?`,
+          "Não foi possível criar um ponto de restauração. Se você optar por prosseguir, as alterações feitas não poderão ser revertidas. Deseja continuar?",
           "Ponto de restauração indisponível"
         );
         try {
