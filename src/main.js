@@ -566,23 +566,48 @@ async function refreshHistory() {
   try {
     const history = await Qboa.getSessionHistory();
     const list = document.getElementById("session-history");
+    if (!list) return;
     list.innerHTML = "";
-
-    if (!history || history.length === 0) {
-      list.innerHTML = "<li>Nenhuma alteração registrada.</li>";
-      return;
-    }
-
-    history.slice(-6).forEach((entry) => {
-      const item = document.createElement("li");
-      item.textContent = `${entry.description} (${rollbackStatusLabel(entry.rollback_status)})`;
-      list.appendChild(item);
+    const heading = list.parentElement?.querySelector("h2, h3, h4, .section-title");
+    if (heading && /Alterações desta sessão/i.test(heading.textContent)) heading.textContent = "Últimas Alterações";
+    const grouped = new Map();
+    (history || []).forEach((entry) => {
+      const description = String(entry.description || "Alteração registrada");
+      const status = rollbackStatusLabel(entry.rollback_status);
+      const key = description + "\u0000" + status;
+      const existing = grouped.get(key);
+      if (existing) existing.count += 1;
+      else grouped.set(key, { description, status, count: 1 });
     });
+    const entries = Array.from(grouped.values()).reverse();
+    const visible = showAllSessionChanges ? entries : entries.slice(0, 3);
+    if (!visible.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "Nenhuma alteração registrada.";
+      list.appendChild(empty);
+    } else {
+      visible.forEach((entry) => {
+        const item = document.createElement("li");
+        const irreversible = /irreversível/i.test(entry.description) || /irreversível/i.test(entry.status);
+        item.textContent = entry.description + (irreversible ? " (irreversível)" : "") + (entry.count > 1 ? " (" + entry.count + ")" : "") + " (" + entry.status + ")";
+        list.appendChild(item);
+      });
+    }
+    let toggle = document.getElementById("session-history-toggle");
+    if (!toggle) {
+      toggle = document.createElement("button");
+      toggle.id = "session-history-toggle";
+      toggle.type = "button";
+      toggle.className = "secondary-button";
+      list.insertAdjacentElement("afterend", toggle);
+      toggle.addEventListener("click", () => { showAllSessionChanges = !showAllSessionChanges; void refreshHistory(); });
+    }
+    toggle.textContent = showAllSessionChanges ? "Mostrar menos" : "Ver tudo";
+    toggle.hidden = entries.length <= 3;
   } catch (error) {
     console.error("Não foi possível ler o histórico da sessão.", error);
   }
 }
-
 function findingCategoryLabel(category) {
   return {
     broken_shortcut: "Atalho quebrado",
