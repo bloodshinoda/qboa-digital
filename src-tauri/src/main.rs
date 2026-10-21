@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod capability_inventory;
+mod service_manager;
 mod cleanup_findings;
 mod diagnostics;
 mod registry_executor;
@@ -1419,6 +1420,16 @@ struct ServiceProfileState {
 }
 
 #[tauri::command]
+async fn list_windows_services() -> Result<Vec<service_manager::ServiceEntry>, String> {
+    service_manager::list_services()
+}
+
+#[tauri::command]
+async fn manage_windows_service(name: String, action: String, start_type: Option<String>) -> Result<String, String> {
+    service_manager::manage_service(&name, &action, start_type.as_deref())
+}
+
+#[tauri::command]
 async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
@@ -1503,6 +1514,8 @@ fn main() {
             get_cleanup_findings,
             run_diagnostic_check,
             get_capability_inventory,
+            list_windows_services,
+            manage_windows_service,
             delete_cleanup_finding,
             get_service_profile_state,
             preview_service_profile,
