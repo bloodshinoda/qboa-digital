@@ -862,7 +862,7 @@ function renderServiceProfilePreview(preview) {
   document.getElementById("service-profile-preview-status").textContent = preview.message;
   document.getElementById("service-profile-apply-btn").disabled =
     !serviceProfileState?.system?.supported ||
-    !serviceProfileState?.profile?.validated ||
+    !(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled) ||
     !preview.applicable;
 
   preview.services.forEach((service) => {
@@ -974,12 +974,15 @@ async function loadServiceProfileState() {
     details.textContent = `${system.os} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
     status.textContent = profile.validated
       ? "Perfil validado disponível."
-      : profile.services?.length
-        ? "Catálogo candidato disponível para prévia; aplicação bloqueada até validação."
-        : "Nenhum perfil validado. Aplicação indisponível.";
-    document.getElementById("service-profile-apply-btn").disabled = !profile.validated;
+      : profile.heuristic_apply_enabled
+        ? "Perfil histórico com aplicação heurística restrita; confira a prévia. Restaurar padrões continua bloqueado."
+        : profile.services?.length
+          ? "Catálogo candidato disponível para prévia; aplicação bloqueada até validação."
+          : "Nenhum perfil validado. Aplicação indisponível.";
+    const canApplyProfile = profile.validated || profile.heuristic_apply_enabled;
+    document.getElementById("service-profile-apply-btn").disabled = !canApplyProfile;
     document.getElementById("service-profile-defaults-btn").disabled = !profile.defaults_validated;
-    document.getElementById("service-profile-undo-btn").disabled = !profile.validated;
+    document.getElementById("service-profile-undo-btn").disabled = !canApplyProfile;
   } catch (error) {
     serviceProfileState = null;
     status.textContent = "Não foi possível consultar os serviços do Windows.";
@@ -1225,7 +1228,7 @@ async function registerEvents() {
   });
 
   document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
-    if (!serviceProfileState?.profile?.validated) return;
+    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
     const profile = document.getElementById("service-profile-select").value;
     const aggressive = profile === "aggressive";
     const message = aggressive
@@ -1253,7 +1256,7 @@ async function registerEvents() {
   });
 
   document.getElementById("service-profile-undo-btn").addEventListener("click", async () => {
-    if (!serviceProfileState?.profile?.validated) return;
+    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
     if (!(await askConfirmation("Desfazer minhas alterações?", "Desfazer alterações?"))) return;
     try {
       await Qboa.undoServiceProfileChanges();
