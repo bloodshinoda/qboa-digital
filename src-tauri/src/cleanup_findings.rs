@@ -1023,6 +1023,36 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_profile_applies_only_findings_allowed_by_profile() {
+        let mut backend = FakeBackend {
+            shortcuts: vec![ShortcutObservation {
+                path: PathBuf::from(r"C:\Users\test\Desktop\broken.lnk"),
+                state: ShortcutState::BrokenTarget,
+            }],
+            associations: vec![AssociationObservation {
+                extension: ".pdf".to_string(),
+                source: AssociationSource::MachineClasses,
+                prog_id: "Missing.Pdf".to_string(),
+                state: AssociationState::MissingClass,
+            }],
+            uninstall_entries: vec![UninstallObservation {
+                hive: "LocalMachine".to_string(),
+                key_path: r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Example".to_string(),
+                display_name: "Example".to_string(),
+                evidence_paths: vec![PathBuf::from(r"C:\Program Files\Example\app.exe")],
+            }],
+            ..FakeBackend::default()
+        };
+
+        let report = cleanup_profile(&mut backend, "complete").unwrap();
+        assert_eq!(report.files_removed, 1);
+        assert_eq!(report.registry_entries_removed, 1);
+        assert_eq!(report.failures, 0);
+        assert_eq!(backend.deleted.len(), 2);
+        assert!(!backend.deleted.iter().any(|action| matches!(action, FindingAction::DeleteUninstallEntry { .. })));
+    }
+
+    #[test]
     fn uncommon_extensions_are_not_classified() {
         let mut backend = FakeBackend {
             associations: vec![AssociationObservation {
