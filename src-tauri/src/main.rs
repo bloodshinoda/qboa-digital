@@ -444,7 +444,7 @@ fn cleanup_standard(
     execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
-    apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
+    apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
 ) -> Result<String, String> {
     let output = run_powershell(
         include_str!("../scripts/cleanup_standard.ps1"),
@@ -452,10 +452,14 @@ fn cleanup_standard(
         on_output,
         is_cancelled,
     )?;
-    apply_registry(task_id)?;
+    let registry_keys_removed = apply_registry(task_id)?;
     let summary = "Limpeza padrão concluída: temporários, caches, MRUs e lixeira.";
+    let registry_metrics = format!(
+        "QBOA_METRICS files=0 bytes=0 registry={registry_keys_removed}"
+    );
     on_output(summary);
-    Ok(format!("{output}\n{summary}"))
+    on_output(&registry_metrics);
+    Ok(format!("{output}\n{summary}\n{registry_metrics}"))
 }
 
 fn cleanup_heavy_temp(
@@ -688,6 +692,37 @@ fn findings_summary(report: &cleanup_findings::CleanupExecutionReport) -> String
         report.bytes_freed,
         report.registry_entries_removed
     )
+}
+
+fn count_mru_registry_keys(snapshot_location: &str) -> u64 {
+    let Ok(contents) = std::fs::read(snapshot_location) else {
+        return 0;
+    };
+    let Ok(snapshot) = serde_json::from_slice::<serde_json::Value>(&contents) else {
+        return 0;
+    };
+    let Some(entries) = snapshot.get("registry").and_then(serde_json::Value::as_array) else {
+        return 0;
+    };
+    let roots = [
+        r"software\microsoft\windows\currentversion\explorer\recentdocs",
+        r"software\microsoft\windows\currentversion\explorer\runmru",
+        r"software\microsoft\windows\currentversion\explorer\typedpaths",
+    ];
+    let mut paths = std::collections::HashSet::new();
+    for entry in entries {
+        let hive = entry.get("hive").and_then(serde_json::Value::as_str).unwrap_or("");
+        let path = entry.get("path").and_then(serde_json::Value::as_str).unwrap_or("");
+        let normalized = path.to_ascii_lowercase();
+        if hive.eq_ignore_ascii_case("CurrentUser")
+            && roots.iter().any(|root| {
+                normalized == *root || normalized.starts_with(&format!("{root}\\"))
+            })
+        {
+            paths.insert(normalized);
+        }
+    }
+    paths.len() as u64
 }
 
 fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64) {
@@ -1112,7 +1147,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         let mut registry_change = None;
         let mut apply_registry = |registry_task_id: &str| {
             if task_for_spawn.executor != task_registry::ExecutorType::Registry {
-                return Ok(());
+                return Ok(0);
             }
             match apply_registry_task(
                 registry_task_id,
@@ -1121,7 +1156,12 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             ) {
                 Ok(change) => {
                     registry_change = Some(change);
-                    Ok(())
+                    let count = if matches!(registry_task_id, "limpeza_leve" | "limpeza_media" | "limpeza_pesada") {
+                        count_mru_registry_keys(snapshot_location.as_deref().unwrap_or_default())
+                    } else {
+                        0
+                    };
+                    Ok(count)
                 }
                 Err(error) => {
                     write_execution_log(
