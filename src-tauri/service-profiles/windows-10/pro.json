@@ -1985,5 +1985,6 @@
         "aggressive"
       ]
     }
-  ]
+  ],
+  "heuristic_apply_enabled": true
 }
