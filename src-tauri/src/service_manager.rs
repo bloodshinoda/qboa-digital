@@ -10,6 +10,10 @@ const PROTECTED_SERVICES: &[&str] = &[
     "LSM",
     "WinDefend",
     "wuauserv",
+    "Dhcp",
+    "BITS",
+    "CryptSvc",
+    "TrustedInstaller",
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
