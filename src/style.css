@@ -809,3 +809,44 @@ button.copy-pix-button:hover:not(:disabled) {
   .service-inventory-panel { padding: 14px; }
   .service-inventory-table { min-width: 740px; }
 }
+
+/* Janela modal do inventário de serviços: mantém o painel de perfil compacto. */
+.service-profile-heading,
+.service-inventory-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.service-profile-heading h2 { margin: 0; }
+.service-inventory-modal-actions { justify-content: flex-end; }
+.service-inventory-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, .72);
+  backdrop-filter: blur(4px);
+}
+.service-inventory-modal.hidden { display: none; }
+.service-inventory-modal .service-inventory-panel {
+  width: min(1400px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  margin: 0;
+  padding: 22px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .55);
+}
+.service-inventory-modal .service-inventory-table-wrap {
+  max-height: calc(90vh - 260px);
+}
+@media (max-width: 720px) {
+  .service-profile-heading { align-items: stretch; flex-direction: column; }
+  .service-inventory-modal-actions { align-items: stretch; }
+  .service-inventory-modal { padding: 8px; }
+  .service-inventory-modal .service-inventory-panel { padding: 12px; }
+  .service-inventory-modal .service-inventory-table-wrap { max-height: calc(90vh - 300px); }
+}
