@@ -135,7 +135,6 @@ pub(crate) fn product_profiles() -> Vec<ProductProfile> {
         ProductProfile::Safe,
         ProductProfile::Refined,
         ProductProfile::Aggressive,
-        ProductProfile::Custom,
     ]
 }
 
