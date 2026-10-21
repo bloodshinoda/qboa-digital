@@ -1015,7 +1015,7 @@ mod tests {
     #[test]
     fn historical_windows10_catalog_allows_only_heuristic_compatible_changes() {
         let detected = system(WindowsVersion::Windows10, WindowsEdition::Home);
-        let catalog = profile_files()
+        let mut catalog = profile_files()
             .unwrap()
             .into_iter()
             .find(|profile| {
