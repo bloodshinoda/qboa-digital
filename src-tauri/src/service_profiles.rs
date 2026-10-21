@@ -354,14 +354,25 @@ pub(crate) fn preview(
     items.sort_by(|a, b| a.service.cmp(&b.service));
     ignored.sort();
     ignored.dedup();
+    let has_changes = items.iter().any(|item| {
+        item.incompatible.is_none()
+            && item.proposed.as_deref().is_some_and(|target| {
+                !item.current.eq_ignore_ascii_case(target)
+            })
+    });
     let applicable = reasons.is_empty()
         && profile.validated
+        && has_changes
         && selected != ProductProfile::Custom
         && APPLYABLE_PROFILES.contains(&selected);
     let message = if !reasons.is_empty() {
         reasons.sort_unstable();
         reasons.dedup();
         reasons.join(" ")
+    } else if !has_changes && !profile.validated {
+        "Nenhuma alteração compatível detectada. Catálogo histórico ainda bloqueado até validação em Windows real.".to_string()
+    } else if !has_changes {
+        "Nenhuma alteração compatível para aplicar neste sistema.".to_string()
     } else if !profile.validated {
         "Prévia heurística baseada no Black Viper. Aplicação bloqueada até validação em Windows real.".to_string()
     } else if applicable {
@@ -403,9 +414,17 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     let names: Vec<String> = preview
         .services
         .iter()
-        .filter(|item| item.proposed.is_some() && item.incompatible.is_none())
+        .filter(|item| {
+            item.incompatible.is_none()
+                && item.proposed.as_deref().is_some_and(|target| {
+                    !item.current.eq_ignore_ascii_case(target)
+                })
+        })
         .map(|item| item.service.clone())
         .collect();
+    if names.is_empty() {
+        return Err("Nenhuma alteração compatível para aplicar neste sistema.".to_string());
+    }
     let snapshot_services = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &snapshot_services)?;
     backend.save_snapshot(&ServiceSnapshot {
@@ -414,11 +433,12 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
         edition: system.edition,
         services: snapshot_services,
     })?;
-    for item in preview
-        .services
-        .iter()
-        .filter(|item| item.proposed.is_some() && item.incompatible.is_none())
-    {
+    for item in preview.services.iter().filter(|item| {
+        item.incompatible.is_none()
+            && item.proposed.as_deref().is_some_and(|target| {
+                !item.current.eq_ignore_ascii_case(target)
+            })
+    }) {
         backend.set_start_type(&item.service, item.proposed.as_deref().unwrap_or_default())?;
     }
     Ok(())
