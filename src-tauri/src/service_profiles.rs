@@ -533,6 +533,11 @@ $buildNumber = 0
 $version = if ($buildNumber -ge 22000) { 'Windows11' } else { 'Windows10' }
 $displayVersion = [string]$key.GetValue('DisplayVersion', '')
 if (-not $displayVersion) { $displayVersion = [string]$key.GetValue('ReleaseId', '') }
+$batteryDevices = @(Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue)
+$chassisTypes = @(Get-CimInstance Win32_SystemEnclosure -ErrorAction SilentlyContinue | ForEach-Object { $_.Chassis } | ForEach-Object { $_ })
+$mobileChassisTypes = @(8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32)
+$isMobileChassis = @($chassisTypes | Where-Object { $mobileChassisTypes -contains [int]$_ }).Count -gt 0
+$formFactor = if ($batteryDevices.Count -gt 0 -or $isMobileChassis) { 'Notebook' } elseif ($chassisTypes.Count -gt 0) { 'Desktop' } else { 'Unknown' }
 $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-Object {
     $serviceKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\$($_.ServiceName)")
     if ($serviceKey) {
@@ -546,7 +551,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
         $serviceKey.Dispose()
     }
 }
-[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; services=@($services) } | ConvertTo-Json -Depth 5 -Compress
+[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; form_factor=$formFactor; services=@($services) } | ConvertTo-Json -Depth 5 -Compress
 "#;
         let data: WindowsSystemData = run_powershell_json(script)?;
         let os = match data.version.as_str() {
@@ -562,7 +567,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             edition,
             edition_id: data.edition_id,
             supported,
-            form_factor: None,
+            form_factor: match data.form_factor.as_str() {\n                "Desktop" => Some(FormFactor::Desktop),\n                "Notebook" => Some(FormFactor::Notebook),\n                _ => None,\n            },
             services: data.services,
         })
     }
@@ -629,6 +634,7 @@ struct WindowsSystemData {
     display_version: String,
     build: String,
     edition_id: String,
+    form_factor: String,
     services: Vec<InstalledService>,
 }
 
