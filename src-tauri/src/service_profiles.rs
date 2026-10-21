@@ -235,7 +235,9 @@ pub(crate) fn preview(
         profile
             .services
             .iter()
-            .filter(|rule| rule.profiles.contains(&selected) && rule_applies_to_system(rule, system))
+            .filter(|rule| {
+                rule.profiles.contains(&selected) && rule_applies_to_system(rule, system)
+            })
             .map(|rule| (rule.name.to_ascii_lowercase(), rule))
             .collect()
     };
