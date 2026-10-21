@@ -473,10 +473,10 @@ foreach ($p in $paths) {
       try {
         if ($item.PSIsContainer) { $files = @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue) }
         else { $files = @($item) }
-        $removedFiles += $files.Count
         $size = ($files | Measure-Object -Property Length -Sum).Sum
-        if ($size) { $freedBytes += [long]$size }
         Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
+        $removedFiles += $files.Count
+        if ($size) { $freedBytes += [long]$size }
         $removed++
       } catch { $failed++ ; Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message) }
     }
@@ -512,10 +512,10 @@ foreach ($item in $items) {
   try {
     $tree = @($item) + @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue);
     $files = @($tree | Where-Object { -not $_.PSIsContainer });
-    $removedFiles += $files.Count;
     $size = ($files | Measure-Object -Property Length -Sum).Sum;
-    if ($size) { $freedBytes += [long]$size; }
     Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
+    $removedFiles += $files.Count;
+    if ($size) { $freedBytes += [long]$size; }
     $removed++;
   } catch {
     $failed++;
