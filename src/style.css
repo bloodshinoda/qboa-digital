@@ -539,7 +539,7 @@ button {
   justify-content: center;
   padding: 12px;
   background: rgba(0, 0, 0, 0.68);
-  z-index: 1000;
+  z-index: 1200;
 }
 
 .confirmation-dialog {
