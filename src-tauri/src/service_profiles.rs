@@ -389,9 +389,10 @@ pub(crate) fn preview(
     ignored.dedup();
     let has_changes = items.iter().any(|item| {
         item.incompatible.is_none()
-            && item.proposed.as_deref().is_some_and(|target| {
-                !item.current.eq_ignore_ascii_case(target)
-            })
+            && item
+                .proposed
+                .as_deref()
+                .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
     });
     let applicable = reasons.is_empty()
         && (profile.validated || profile.heuristic_apply_enabled)
@@ -451,9 +452,10 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
         .iter()
         .filter(|item| {
             item.incompatible.is_none()
-                && item.proposed.as_deref().is_some_and(|target| {
-                    !item.current.eq_ignore_ascii_case(target)
-                })
+                && item
+                    .proposed
+                    .as_deref()
+                    .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
         })
         .map(|item| item.service.clone())
         .collect();
@@ -470,9 +472,10 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     })?;
     for item in preview.services.iter().filter(|item| {
         item.incompatible.is_none()
-            && item.proposed.as_deref().is_some_and(|target| {
-                !item.current.eq_ignore_ascii_case(target)
-            })
+            && item
+                .proposed
+                .as_deref()
+                .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
     }) {
         backend.set_start_type(&item.service, item.proposed.as_deref().unwrap_or_default())?;
     }
