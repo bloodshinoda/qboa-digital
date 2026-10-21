@@ -1069,7 +1069,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         let task_id_for_output = task_id_for_spawn.clone();
         let execution_id_for_output = execution_id_for_spawn.clone();
         let task_risk_for_output = task_risk_for_spawn.clone();
-        let mut on_output = move |line: &str| {
+        let mut streamed_output = String::new();
+        let mut on_output = |line: &str| {
+            streamed_output.push_str(line);
+            streamed_output.push('\n');
             emit_event(
                 &app_for_output,
                 "task-output",
@@ -1121,6 +1124,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             &mut apply_registry,
         );
         drop(apply_registry);
+        drop(on_output);
         match execution {
             Ok(output) => {
                 let (files_removed, bytes_freed, registry_entries_removed) = parse_cleanup_metrics(&output);
@@ -1232,9 +1236,31 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 }
             }
             Err(err) => {
+                let (files_removed, bytes_freed, registry_entries_removed) = parse_cleanup_metrics(&streamed_output);
+                let elapsed = execution_started.elapsed();
+                let elapsed_seconds = elapsed.as_secs();
+                let elapsed_label = if elapsed_seconds >= 60 {
+                    format!("{} min {} s", elapsed_seconds / 60, elapsed_seconds % 60)
+                } else {
+                    format!("{:.1} s", elapsed.as_secs_f64())
+                };
+                let summary = format!(
+                    "Resumo parcial da execução — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo até a interrupção/falha: {elapsed_label}.",
+                    bytes_freed as f64 / 1_000_000_000.0
+                );
+                emit_event(
+                    &app_for_spawn,
+                    "task-output",
+                    &task_id_for_spawn,
+                    &execution_id_for_spawn,
+                    &summary,
+                    true,
+                    None,
+                    &task_risk_for_spawn,
+                );
                 write_execution_log(
                     &execution_id_for_spawn,
-                    &format!("task-executor-failed error={err}"),
+                    &format!("task-executor-failed error={err}; {summary}"),
                 );
                 let cancelled = safety_state()
                     .lock()
