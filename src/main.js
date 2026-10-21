@@ -136,7 +136,7 @@ function renderTabs() {
 
   const serviceTab = document.createElement("button");
   serviceTab.className = "tab" + (activeSection === "servicos" ? " active" : "");
-  serviceTab.textContent = "Serviços";
+  serviceTab.textContent = "🛠️ Serviços";
   serviceTab.addEventListener("click", async () => {
     activeSection = "servicos";
     renderTabs();
@@ -148,7 +148,7 @@ function renderTabs() {
 
   const capabilityTab = document.createElement("button");
   capabilityTab.className = "tab" + (activeSection === "capacidades" ? " active" : "");
-  capabilityTab.textContent = "Capacidades";
+  capabilityTab.textContent = "🧩 Capacidades";
   capabilityTab.addEventListener("click", () => {
     activeSection = "capacidades";
     renderTabs();
@@ -160,7 +160,7 @@ function renderTabs() {
 
   const contributionTab = document.createElement("button");
   contributionTab.className = "tab" + (activeSection === "contribuir" ? " active" : "");
-  contributionTab.textContent = "♡ Contribuir";
+  contributionTab.textContent = "🤝 Contribuir";
   contributionTab.addEventListener("click", () => {
     activeSection = "contribuir";
     renderTabs();
@@ -179,7 +179,7 @@ function renderCards() {
   const capabilityPanel = document.getElementById("capability-inventory-panel");
   const serviceInventoryPanel = document.getElementById("service-inventory-panel");
   serviceInventoryPanel.hidden = activeSection !== "servicos";
-  profileControls.hidden = activeSection !== "desengordurar";
+  profileControls.hidden = activeSection !== "limpeza";
   serviceProfilePanel.hidden = activeSection !== "servicos";
   capabilityPanel.hidden = activeSection !== "capacidades";
   dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
@@ -237,7 +237,7 @@ function renderCards() {
       card.appendChild(risk);
     }
     if (
-      activeSection === "desengordurar" &&
+      activeSection === "limpeza" && item.id.startsWith("desengordurar_") &&
       document.getElementById("debloat-profile-select").value === "personalizado"
     ) {
       const selection = document.createElement("label");
@@ -420,13 +420,17 @@ function renderCapabilityInventory(report) {
   list.replaceChildren();
   warnings.replaceChildren();
   const summary = report.system || {};
+  const deviceTypeLabels = { desktop: "Desktop", mobile: "Notebook / dispositivo móvel", virtual_machine: "Máquina virtual", unknown: "Desconhecido" };
+  const confidenceLabels = { high: "alta", medium: "média", low: "baixa" };
   const systemLines = [
     [summary.os_name, summary.os_version ? `versão ${summary.os_version}` : null, summary.os_build ? `build ${summary.os_build}` : null].filter(Boolean).join(" · "),
     [summary.manufacturer, summary.model].filter(Boolean).join(" "),
-    summary.architecture ? `Arquitetura: ${summary.architecture}` : null
+    summary.architecture ? `Arquitetura: ${summary.architecture}` : null,
+    `Tipo de equipamento: ${deviceTypeLabels[summary.device_type] || deviceTypeLabels.unknown} (confiança ${confidenceLabels[summary.device_confidence] || "baixa"})`
   ].filter(Boolean);
   systemLines.forEach((line) => { const p = document.createElement("p"); p.textContent = line; system.appendChild(p); });
-  (report.capabilities || []).forEach((capability) => {
+  (summary.device_evidence || []).forEach((evidence) => { const p = document.createElement("p"); p.className = "device-evidence"; p.textContent = `Evidência: ${evidence}`; system.appendChild(p); });
+  (report.capabilities || []).filter((capability) => !(summary.device_type === "desktop" && summary.device_confidence === "high" && capability.id === "battery")).forEach((capability) => {
     const article = document.createElement("article");
     article.className = "capability-card";
     const heading = document.createElement("div");
@@ -436,7 +440,6 @@ function renderCapabilityInventory(report) {
     badge.textContent = capabilityStatusLabels[capability.status] || capability.status;
     heading.append(title, badge);
     const description = document.createElement("p"); description.textContent = capability.summary;
-    const confidenceLabels = { high: "alta", medium: "média", low: "baixa" };
     const confidence = document.createElement("small"); confidence.textContent = `Confiança: ${confidenceLabels[capability.confidence] || "não informada"} · Fonte: ${(capability.sources || []).join(", ") || "não informada"}`;
     article.append(heading, description, confidence);
     if ((capability.details || []).length) {
@@ -648,7 +651,7 @@ async function executeTask(item, cardEl) {
 
 async function runTask(item, cardEl) {
   if (debloatProfileQueue) {
-    appendConsole("Aguarde a conclusão do perfil de Desengordurar.");
+    appendConsole("Aguarde a conclusão do perfil de limpeza avançada.");
     return;
   }
   if (requiresConfirmation(item)) {
@@ -704,7 +707,7 @@ async function startDebloatProfile() {
   status.textContent = "Preparando perfil...";
   try {
     const ids = await Qboa.getDebloatProfileTasks(profile, selectedIds);
-    const debloatItems = structure.sections.find((section) => section.id === "desengordurar").items;
+    const debloatItems = structure.sections.flatMap((section) => section.items).filter((item) => item.id.startsWith("desengordurar_"));
     const items = ids.map((id) => debloatItems.find((item) => item.id === id));
     if (items.some((item) => !item)) throw new Error("O catálogo retornou uma tarefa desconhecida.");
     debloatProfileQueue = { items, currentTaskId: null };
@@ -781,7 +784,7 @@ function bindLevels() {
   });
 
   document.getElementById("debloat-profile-select").addEventListener("change", () => {
-    if (activeSection === "desengordurar") renderCards();
+    if (activeSection === "limpeza") renderCards();
   });
   document.getElementById("debloat-profile-run-btn").addEventListener("click", () => {
     void startDebloatProfile();
