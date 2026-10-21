@@ -649,12 +649,15 @@ function findingProfileLabels(profiles) {
 
 async function refreshCleanupFindings() {
   const list = document.getElementById("cleanup-findings");
+  const status = document.getElementById("cleanup-findings-status");
   list.replaceChildren();
+  status.textContent = "Verificando atalhos, associações de arquivos e entradas de programas instalados. Isso pode levar alguns instantes...";
   const findings = await Qboa.getCleanupFindings();
   if (!findings.length) {
     const empty = document.createElement("li");
     empty.textContent = "Nenhum problema encontrado.";
     list.appendChild(empty);
+    status.textContent = "Verificação concluída: nenhum problema encontrado.";
     return;
   }
 
@@ -691,6 +694,7 @@ async function refreshCleanupFindings() {
     item.append(details, remove);
     list.appendChild(item);
   });
+  status.textContent = \`Verificação concluída: \${findings.length} problema(s) encontrado(s).\`;
 }
 
 function renderServiceProfilePreview(preview) {
@@ -1005,6 +1009,7 @@ async function registerEvents() {
       await refreshCleanupFindings();
       appendConsole("Verificação concluída.");
     } catch (error) {
+      document.getElementById("cleanup-findings-status").textContent = \`Falha na verificação: \${String(error)}\`;
       appendConsole(String(error));
     } finally {
       button.disabled = false;
