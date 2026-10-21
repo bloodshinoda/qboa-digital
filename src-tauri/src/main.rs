@@ -5,9 +5,9 @@ mod diagnostics;
 mod registry_executor;
 mod safety;
 mod service_profiles;
+mod system_compat;
 mod task_registry;
 mod tweak_profiles;
-mod system_compat;
 
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -419,7 +419,6 @@ fn run_powershell(
     )
 }
 
-
 fn report_system_compatibility(on_output: &mut dyn FnMut(&str)) -> bool {
     match system_compat::detect() {
         Ok(assessment) => {
@@ -741,7 +740,7 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )
-        },
+        }
         "diagnostico_sfc" => {
             run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)
         }
