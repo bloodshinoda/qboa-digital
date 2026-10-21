@@ -967,7 +967,9 @@ async function loadServiceProfileState() {
       controls.forEach((control) => { control.disabled = true; });
       return;
     }
-    const formFactor = system.form_factor ? ` · ${system.form_factor}` : "";
+    const formFactor = system.form_factor
+      ? ` · ${system.form_factor}`
+      : " · formato do equipamento não identificado; regras específicas de hardware serão ignoradas";
     details.textContent = `${system.os} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
     status.textContent = profile.validated
       ? "Perfil validado disponível."
