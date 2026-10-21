@@ -782,7 +782,7 @@ fn format_cleanup_summary(
         "chaves/entradas de Registro excluídas"
     };
     format!(
-        "Resumo da execução:\n- {files} arquivos removidos\n- {registry} {registry_label}\n- {:.1} MB liberados (estimativa)\n- Tempo de execução: {elapsed_label}\n\n- Total de erros durante execução: {failures}",
+        "\n\n=================\nRESUMO DA EXECUÇÃO\n=================\n\n- {files} arquivos removidos\n- {registry} {registry_label}\n- {:.1} MB liberados (estimativa)\n- Tempo de execução: {elapsed_label}\n\n- Total de erros durante execução: {failures}",
         bytes as f64 / 1_000_000.0
     )
 }
