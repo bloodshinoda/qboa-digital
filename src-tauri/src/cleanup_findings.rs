@@ -634,14 +634,18 @@ fn delete_association(
         .into_iter()
         .find(|item| {
             item.extension.eq_ignore_ascii_case(extension)
-                && item.source == *source
+                && &item.source == source
                 && item.prog_id.eq_ignore_ascii_case(prog_id)
         })
         .ok_or_else(|| "A associação mudou desde a detecção.".to_string())?;
     match current.state {
         AssociationState::MissingClass => {}
-        AssociationState::Executable(path) if !verifier.path_exists(&path)? => {}
-        AssociationState::Executable(_) | AssociationState::Uncertain => {
+        AssociationState::Executable(path) => {
+            if verifier.path_exists(&path)? {
+                return Err("A associação não está mais comprovadamente inválida.".to_string());
+            }
+        }
+        AssociationState::Uncertain => {
             return Err("A associação não está mais comprovadamente inválida.".to_string());
         }
     }
