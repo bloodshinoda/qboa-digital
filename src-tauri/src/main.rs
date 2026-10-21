@@ -731,8 +731,10 @@ fn execute_task(
             )?;
             on_output("[Etapa 3/4] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            on_output("[Etapa 4/5] Removendo atalhos quebrados e associações inválidas confirmadas...");
+            let findings = apply_cleanup_findings("complete", on_output);
             on_output(
-                "[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
+                "[Etapa 5/5] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
             );
             let part_4 = run_system_command(
                 "dism",
@@ -741,7 +743,7 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            Ok(format!("{part_1}\n{part_2}\n{part_3}\n{part_4}"))
+            Ok(format!("{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}", findings_summary(&findings)))
         }
         "limpeza_pesada" => {
             let conservative_repair = report_system_compatibility(on_output);
@@ -757,7 +759,9 @@ fn execute_task(
             )?;
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 4/7] Verificando a integridade da imagem do Windows...");
+            on_output("[Etapa 4/8] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
+            let findings = apply_cleanup_findings("deep", on_output);
+            on_output("[Etapa 5/8] Verificando a integridade da imagem do Windows...");
             let part_4 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/ScanHealth"],
@@ -766,10 +770,10 @@ fn execute_task(
                 is_cancelled,
             )?;
             let part_5 = if conservative_repair {
-                on_output("[Etapa 5/7] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
+                on_output("[Etapa 6/8] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
                 "DISM /ResetBase ignorado por política conservadora.".to_string()
             } else {
-                on_output("[Etapa 5/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
+                on_output("[Etapa 6/8] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
                 run_system_command(
                     "dism",
                     &[
@@ -783,7 +787,7 @@ fn execute_task(
                     is_cancelled,
                 )?
             };
-            on_output("[Etapa 6/7] Reparando a imagem do Windows com DISM RestoreHealth...");
+            on_output("[Etapa 7/8] Reparando a imagem do Windows com DISM RestoreHealth...");
             let part_6 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/RestoreHealth"],
@@ -791,11 +795,11 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            on_output("[Etapa 7/7] Verificando arquivos protegidos com SFC...");
+            on_output("[Etapa 8/8] Verificando arquivos protegidos com SFC...");
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
-                "{part_1}\n{part_2}\n{part_3}\n{part_4}\n{part_5}\n{part_6}\n{part_7}"
+                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}", findings_summary(&findings)
             ))
         }
         "desengordurar_telemetria" => {
