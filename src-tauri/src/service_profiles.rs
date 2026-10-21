@@ -468,13 +468,17 @@ fn classify_form_factor(
     const DESKTOP_CHASSIS: &[u16] = &[3, 4, 5, 6, 7, 15, 16, 23, 24];
 
     let mobile_evidence = matches!(pc_system_type, Some(2 | 8))
-        || chassis_types.iter().any(|kind| MOBILE_CHASSIS.contains(kind));
+        || chassis_types
+            .iter()
+            .any(|kind| MOBILE_CHASSIS.contains(kind));
     if mobile_evidence {
         return Some(FormFactor::Notebook);
     }
 
     let desktop_evidence = matches!(pc_system_type, Some(1 | 3))
-        || chassis_types.iter().any(|kind| DESKTOP_CHASSIS.contains(kind));
+        || chassis_types
+            .iter()
+            .any(|kind| DESKTOP_CHASSIS.contains(kind));
     if desktop_evidence && !has_battery {
         return Some(FormFactor::Desktop);
     }
@@ -613,7 +617,11 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             edition,
             edition_id: data.edition_id,
             supported,
-            form_factor: classify_form_factor(data.pc_system_type, &data.chassis_types, data.has_battery),
+            form_factor: classify_form_factor(
+                data.pc_system_type,
+                &data.chassis_types,
+                data.has_battery,
+            ),
             battery_present: Some(data.has_battery),
             services: data.services,
         })
