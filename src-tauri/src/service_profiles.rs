@@ -459,13 +459,28 @@ fn rule_applies_to_system(rule: &ServiceRule, system: &DetectedSystem) -> bool {
     true
 }
 
-fn parse_form_factor(value: &str) -> Option<FormFactor> {
-    match value {
-        "Desktop" => Some(FormFactor::Desktop),
-        "Notebook" => Some(FormFactor::Notebook),
-        "Any" => Some(FormFactor::Any),
-        _ => None,
+fn classify_form_factor(
+    pc_system_type: Option<u16>,
+    chassis_types: &[u16],
+    has_battery: bool,
+) -> Option<FormFactor> {
+    const MOBILE_CHASSIS: &[u16] = &[8, 9, 10, 11, 14, 30, 31, 32];
+    const DESKTOP_CHASSIS: &[u16] = &[3, 4, 5, 6, 7, 15, 16, 23, 24];
+
+    let mobile_evidence = matches!(pc_system_type, Some(2 | 8))
+        || chassis_types.iter().any(|kind| MOBILE_CHASSIS.contains(kind));
+    if mobile_evidence {
+        return Some(FormFactor::Notebook);
     }
+
+    let desktop_evidence = matches!(pc_system_type, Some(1 | 3))
+        || chassis_types.iter().any(|kind| DESKTOP_CHASSIS.contains(kind));
+    if desktop_evidence && !has_battery {
+        return Some(FormFactor::Desktop);
+    }
+
+    // Sinais conflitantes ou insuficientes não devem disparar regras específicas de hardware.
+    None
 }
 
 fn edition_label(edition: &WindowsEdition) -> &'static str {
@@ -566,10 +581,9 @@ $version = if ($buildNumber -ge 22000) { 'Windows11' } else { 'Windows10' }
 $displayVersion = [string]$key.GetValue('DisplayVersion', '')
 if (-not $displayVersion) { $displayVersion = [string]$key.GetValue('ReleaseId', '') }
 $batteryDevices = @(Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue)
-$chassisTypes = @(Get-CimInstance Win32_SystemEnclosure -ErrorAction SilentlyContinue | ForEach-Object { $_.Chassis } | ForEach-Object { $_ })
-$mobileChassisTypes = @(8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32)
-$isMobileChassis = @($chassisTypes | Where-Object { $mobileChassisTypes -contains [int]$_ }).Count -gt 0
-$formFactor = if ($batteryDevices.Count -gt 0 -or $isMobileChassis) { 'Notebook' } elseif ($chassisTypes.Count -gt 0) { 'Desktop' } else { 'Unknown' }
+$computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+$pcSystemType = if ($computerSystem -and $null -ne $computerSystem.PCSystemType) { [int]$computerSystem.PCSystemType } else { $null }
+$chassisTypes = @(Get-CimInstance Win32_SystemEnclosure -ErrorAction SilentlyContinue | ForEach-Object { $_.Chassis } | ForEach-Object { [int]$_ })
 $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-Object {
     $serviceKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\$($_.ServiceName)")
     if ($serviceKey) {
@@ -583,7 +597,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
         $serviceKey.Dispose()
     }
 }
-[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; form_factor=$formFactor; has_battery=($batteryDevices.Count -gt 0); services=@($services) } | ConvertTo-Json -Depth 5 -Compress
+[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; pc_system_type=$pcSystemType; chassis_types=@($chassisTypes); has_battery=($batteryDevices.Count -gt 0); services=@($services) } | ConvertTo-Json -Depth 5 -Compress
 "#;
         let data: WindowsSystemData = run_powershell_json(script)?;
         let os = match data.version.as_str() {
@@ -599,7 +613,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             edition,
             edition_id: data.edition_id,
             supported,
-            form_factor: parse_form_factor(&data.form_factor),
+            form_factor: classify_form_factor(data.pc_system_type, &data.chassis_types, data.has_battery),
             battery_present: Some(data.has_battery),
             services: data.services,
         })
@@ -667,7 +681,8 @@ struct WindowsSystemData {
     display_version: String,
     build: String,
     edition_id: String,
-    form_factor: String,
+    pc_system_type: Option<u16>,
+    chassis_types: Vec<u16>,
     has_battery: bool,
     services: Vec<InstalledService>,
 }
@@ -894,9 +909,10 @@ mod tests {
 
     #[test]
     fn hardware_form_factor_detection_rejects_unknown_values() {
-        assert_eq!(parse_form_factor("Desktop"), Some(FormFactor::Desktop));
-        assert_eq!(parse_form_factor("Notebook"), Some(FormFactor::Notebook));
-        assert_eq!(parse_form_factor("Unknown"), None);
+        assert_eq!(classify_form_factor(Some(1), &[3], false), Some(FormFactor::Desktop));
+        assert_eq!(classify_form_factor(Some(2), &[9], true), Some(FormFactor::Notebook));
+        assert_eq!(classify_form_factor(Some(1), &[3], true), None);
+        assert_eq!(classify_form_factor(None, &[], false), None);
     }
 
     #[test]
