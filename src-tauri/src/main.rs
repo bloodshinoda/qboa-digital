@@ -1,11 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod capability_inventory;
-mod service_manager;
 mod cleanup_findings;
 mod diagnostics;
 mod registry_executor;
 mod safety;
+mod service_manager;
 mod service_profiles;
 mod system_compat;
 mod task_registry;
