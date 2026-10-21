@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod cleanup_findings;
+mod capability_inventory;
 mod diagnostics;
 mod registry_executor;
 mod safety;
@@ -1400,6 +1401,11 @@ async fn run_diagnostic_check(
 }
 
 #[tauri::command]
+async fn get_capability_inventory() -> Result<capability_inventory::CapabilityInventory, String> {
+    capability_inventory::collect()
+}
+
+#[tauri::command]
 async fn delete_cleanup_finding(finding_id: String, confirmed: bool) -> Result<(), String> {
     let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
     cleanup_findings::delete_by_id(&mut backend, &finding_id, confirmed)
@@ -1496,6 +1502,7 @@ fn main() {
             get_session_history,
             get_cleanup_findings,
             run_diagnostic_check,
+            get_capability_inventory,
             delete_cleanup_finding,
             get_service_profile_state,
             preview_service_profile,
