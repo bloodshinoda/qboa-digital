@@ -16,12 +16,38 @@ const PROFILE_JSON: [&str; 10] = [
     include_str!("../service-profiles/windows-11/education.json"),
 ];
 const PROTECTED_SERVICES: &[&str] = &[
-    "wuauserv", "WinDefend", "Dhcp", "RpcSs", "PlugPlay", "DcomLaunch", "EventLog",
-    "SamSs", "LSM", "BITS", "CryptSvc", "TrustedInstaller", "RpcEptMapper", "BFE",
-    "MpsSvc", "Power", "Schedule", "Winmgmt", "gpsvc", "BrokerInfrastructure",
-    "ProfSvc", "UserManager", "nsi", "LanmanWorkstation", "AudioSrv",
-    "AudioEndpointBuilder", "Dnscache", "NlaSvc", "KeyIso", "CoreMessagingRegistrar",
-    "SgrmBroker", "SystemEventsBroker",
+    "wuauserv",
+    "WinDefend",
+    "Dhcp",
+    "RpcSs",
+    "PlugPlay",
+    "DcomLaunch",
+    "EventLog",
+    "SamSs",
+    "LSM",
+    "BITS",
+    "CryptSvc",
+    "TrustedInstaller",
+    "RpcEptMapper",
+    "BFE",
+    "MpsSvc",
+    "Power",
+    "Schedule",
+    "Winmgmt",
+    "gpsvc",
+    "BrokerInfrastructure",
+    "ProfSvc",
+    "UserManager",
+    "nsi",
+    "LanmanWorkstation",
+    "AudioSrv",
+    "AudioEndpointBuilder",
+    "Dnscache",
+    "NlaSvc",
+    "KeyIso",
+    "CoreMessagingRegistrar",
+    "SgrmBroker",
+    "SystemEventsBroker",
 ];
 const APPLYABLE_PROFILES: &[ProductProfile] = &[
     ProductProfile::Safe,
@@ -234,7 +260,11 @@ pub(crate) fn preview(
     }
 
     if selected == ProductProfile::Recommended {
-        let names = system.services.iter().map(|service| service.name.clone()).collect();
+        let names = system
+            .services
+            .iter()
+            .map(|service| service.name.clone())
+            .collect();
         return ServicePreview {
             profile: selected,
             applicable: false,
@@ -994,7 +1024,9 @@ mod tests {
         let catalog = profile_files()
             .unwrap()
             .into_iter()
-            .find(|profile| profile.os == WindowsVersion::Windows10 && profile.edition == WindowsEdition::Home)
+            .find(|profile| {
+                profile.os == WindowsVersion::Windows10 && profile.edition == WindowsEdition::Home
+            })
             .unwrap();
 
         assert!(!catalog.validated);
@@ -1012,7 +1044,10 @@ mod tests {
         let preview = preview(&detected, &catalog, ProductProfile::Safe);
         assert!(!preview.applicable);
         assert!(preview.message.contains("Aplicação bloqueada"));
-        assert!(preview.services.iter().any(|service| service.proposed.is_some()));
+        assert!(preview
+            .services
+            .iter()
+            .any(|service| service.proposed.is_some()));
     }
 
     #[test]
@@ -1028,11 +1063,19 @@ mod tests {
         });
         let detected = system(WindowsVersion::Windows10, WindowsEdition::Home);
         let preview = preview(&detected, &catalog, ProductProfile::Safe);
-        let service = preview.services.iter().find(|item| item.service == "ExampleSvc").unwrap();
+        let service = preview
+            .services
+            .iter()
+            .find(|item| item.service == "ExampleSvc")
+            .unwrap();
 
         assert!(service.proposed.is_none());
         assert!(service.ignored);
-        assert!(service.incompatible.as_deref().unwrap().contains("baseline histórico"));
+        assert!(service
+            .incompatible
+            .as_deref()
+            .unwrap()
+            .contains("baseline histórico"));
     }
 
     #[test]
