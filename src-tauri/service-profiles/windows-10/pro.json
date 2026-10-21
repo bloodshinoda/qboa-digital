@@ -3,5 +3,4356 @@
   "edition": "pro",
   "form_factor": "any",
   "validated": false,
-  "services": []
+  "defaults_validated": false,
+  "source": "BlackViper Win10 configurations via WinServiceConfigurator (historical; baseline from Windows 10 April 2018 Update)",
+  "services": [
+    {
+      "name": "AxInstSV",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "AxInstSV",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "AxInstSV",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "AJRouter",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "AJRouter",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "AJRouter",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "AppReadiness",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "AppReadiness",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "AppReadiness",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "AppIDSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "AppIDSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "AppIDSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Appinfo",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Appinfo",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Appinfo",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "ALG",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "ALG",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "ALG",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "AppMgmt",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "AppMgmt",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "AppMgmt",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "AppXSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "AppXSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "AppXSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "AssignedAccessManagerSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "AssignedAccessManagerSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "AssignedAccessManagerSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "tzautoupdate",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "tzautoupdate",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "tzautoupdate",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "BthAvctpSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "BthAvctpSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "BthAvctpSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "BDESVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "BDESVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "BDESVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "wbengine",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "wbengine",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "wbengine",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "BTAGService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "BTAGService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "BTAGService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "bthserv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "bthserv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "bthserv",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "PeerDistSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PeerDistSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PeerDistSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "camsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "camsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "camsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "CertPropSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "CertPropSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "CertPropSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "ClipSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "ClipSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "ClipSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "EventSystem",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "EventSystem",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "EventSystem",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "COMSysApp",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "COMSysApp",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "COMSysApp",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Browser",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Browser",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Browser",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DiagTrack",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DiagTrack",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DiagTrack",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "VaultSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "VaultSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "VaultSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DsSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DsSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DsSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DusmSvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DusmSvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DusmSvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DeviceAssociationService",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DeviceAssociationService",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DeviceAssociationService",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DeviceInstall",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DeviceInstall",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DeviceInstall",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DmEnrollmentSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DmEnrollmentSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DmEnrollmentSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DsmSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DsmSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DsmSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DevQueryBroker",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DevQueryBroker",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DevQueryBroker",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "diagsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "diagsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "diagsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "DPS",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "DPS",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "DPS",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WdiServiceHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WdiServiceHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WdiServiceHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WdiSystemHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WdiSystemHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WdiSystemHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "TrkWks",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "TrkWks",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "TrkWks",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "MSDTC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "MSDTC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "MSDTC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "embeddedmode",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "embeddedmode",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "embeddedmode",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "EFS",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "EFS",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "EFS",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "EntAppSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "EntAppSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "EntAppSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "EapHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "EapHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "EapHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Fax",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Fax",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Fax",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "fhsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "fhsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "fhsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "fdPHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "fdPHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "fdPHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "FDResPub",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "FDResPub",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "FDResPub",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "lfsvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "lfsvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "lfsvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "GraphicsPerfSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "GraphicsPerfSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "GraphicsPerfSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "hns",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "hns",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "hns",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "hidserv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "hidserv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "hidserv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "HvHost",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "HvHost",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "HvHost",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmickvpexchange",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmickvpexchange",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmickvpexchange",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmicguestinterface",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmicguestinterface",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmicguestinterface",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmicshutdown",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmicshutdown",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmicshutdown",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmicheartbeat",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmicheartbeat",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmicheartbeat",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmcompute",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmcompute",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmcompute",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmicvmsession",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmicvmsession",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmicvmsession",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmicrdv",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmicrdv",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmicrdv",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmictimesync",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmictimesync",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmictimesync",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vmicvss",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vmicvss",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vmicvss",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "IKEEXT",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "IKEEXT",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "IKEEXT",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SharedAccess",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SharedAccess",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SharedAccess",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "iphlpsvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "iphlpsvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "iphlpsvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "IpxlatCfgSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "IpxlatCfgSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "IpxlatCfgSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "PolicyAgent",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PolicyAgent",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PolicyAgent",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "KtmRm",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "KtmRm",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "KtmRm",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "lltdsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "lltdsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "lltdsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "wlpasvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "wlpasvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "wlpasvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "diagnosticshub.standardcollector.service",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "diagnosticshub.standardcollector.service",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "diagnosticshub.standardcollector.service",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "wlidsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "wlidsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "wlidsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "AppVClient",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "AppVClient",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "AppVClient",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WdNisSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WdNisSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WdNisSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "MSiSCSI",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "MSiSCSI",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "MSiSCSI",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "NgcSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "NgcSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "NgcSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "NgcCtnrSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "NgcCtnrSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "NgcCtnrSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "swprv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "swprv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "swprv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "smphost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "smphost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "smphost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "InstallService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "InstallService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "InstallService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SmsRouter",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SmsRouter",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SmsRouter",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "NaturalAuthentication",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "NaturalAuthentication",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "NaturalAuthentication",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "NetTcpPortSharing",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "NetTcpPortSharing",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "NetTcpPortSharing",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Netlogon",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Netlogon",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Netlogon",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "NcdAutoSetup",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "NcdAutoSetup",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "NcdAutoSetup",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "NcbService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "NcbService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "NcbService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Netman",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Netman",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Netman",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "NcaSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "NcaSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "NcaSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "netprofm",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "netprofm",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "netprofm",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "NetSetupSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "NetSetupSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "NetSetupSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "CscService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "CscService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "CscService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "ssh-agent",
+      "start_type": "manual",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "ssh-agent",
+      "start_type": "manual",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "ssh-agent",
+      "start_type": "manual",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "defragsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "defragsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "defragsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WpcMonSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WpcMonSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WpcMonSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SEMgrSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SEMgrSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SEMgrSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "PNRPsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PNRPsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PNRPsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "p2psvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "p2psvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "p2psvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "p2pimsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "p2pimsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "p2pimsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "PerfHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PerfHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PerfHost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "pla",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "pla",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "pla",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "PhoneSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PhoneSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PhoneSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "PNRPAutoReg",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PNRPAutoReg",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PNRPAutoReg",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WPDBusEnum",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WPDBusEnum",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WPDBusEnum",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Spooler",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Spooler",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Spooler",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "PrintNotify",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PrintNotify",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PrintNotify",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "wercplsupport",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "wercplsupport",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "wercplsupport",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "PcaSvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PcaSvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PcaSvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "QWAVE",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "QWAVE",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "QWAVE",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "RmSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "RmSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "RmSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "RasAuto",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "RasAuto",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "RasAuto",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "RasMan",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "RasMan",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "RasMan",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SessionEnv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SessionEnv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SessionEnv",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "TermService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "TermService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "TermService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "UmRdpService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "UmRdpService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "UmRdpService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "RpcLocator",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "RpcLocator",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "RpcLocator",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "RemoteRegistry",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "RemoteRegistry",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "RemoteRegistry",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "RetailDemo",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "RetailDemo",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "RetailDemo",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "RemoteAccess",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "RemoteAccess",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "RemoteAccess",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "seclogon",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "seclogon",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "seclogon",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SstpSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SstpSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SstpSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SensorDataService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SensorDataService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "SensorDataService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "SensrSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SensrSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "SensrSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "SensorService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SensorService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "SensorService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "LanmanServer",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "LanmanServer",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "LanmanServer",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "shpamsvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "shpamsvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "shpamsvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "ShellHWDetection",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "ShellHWDetection",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "ShellHWDetection",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SCardSvr",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SCardSvr",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SCardSvr",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "ScDeviceEnum",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "ScDeviceEnum",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "ScDeviceEnum",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SCPolicySvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SCPolicySvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SCPolicySvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SNMPTRAP",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SNMPTRAP",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SNMPTRAP",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SharedRealitySvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SharedRealitySvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SharedRealitySvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "svsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "svsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "svsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SSDPSRV",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SSDPSRV",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SSDPSRV",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "StateRepository",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "StateRepository",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "StateRepository",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WiaRpc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WiaRpc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WiaRpc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "StorSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "StorSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "StorSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "TieringEngineService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "TieringEngineService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "TieringEngineService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SysMain",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SysMain",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SysMain",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SENS",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SENS",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SENS",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "lmhosts",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "lmhosts",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "lmhosts",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "TapiSrv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "TapiSrv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "TapiSrv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Themes",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Themes",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Themes",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "TabletInputService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "TabletInputService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "TabletInputService",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "upnphost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "upnphost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "upnphost",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "UevAgentService",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "UevAgentService",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "UevAgentService",
+      "start_type": "disabled",
+      "windows_default_start_type": "disabled",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "vds",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "vds",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "vds",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "VSS",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "VSS",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "VSS",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WalletService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WalletService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WalletService",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WarpJITSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WarpJITSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WarpJITSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "TokenBroker",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "TokenBroker",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "TokenBroker",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WebClient",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WebClient",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WebClient",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "SDRSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SDRSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SDRSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WbioSrvc",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WbioSrvc",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WbioSrvc",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "FrameServer",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "FrameServer",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "FrameServer",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "wcncsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "wcncsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "wcncsvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "Wcmsvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Wcmsvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Wcmsvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Sense",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Sense",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Sense",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WEPHOSTSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WEPHOSTSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WEPHOSTSVC",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WerSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WerSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WerSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "Wecsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "Wecsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "Wecsvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "FontCache",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "FontCache",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "FontCache",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "wisvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "wisvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "wisvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "msiserver",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "msiserver",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "msiserver",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "LicenseManager",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "LicenseManager",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "LicenseManager",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WMPNetworkSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WMPNetworkSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WMPNetworkSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "icssvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "icssvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "icssvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "spectrum",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "spectrum",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "spectrum",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WpnService",
+      "start_type": "automatic",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WpnService",
+      "start_type": "automatic",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WpnService",
+      "start_type": "automatic",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "PushToInstall",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "PushToInstall",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "PushToInstall",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WinRM",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WinRM",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WinRM",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "SecurityHealthService",
+      "start_type": "automatic",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "SecurityHealthService",
+      "start_type": "automatic",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "SecurityHealthService",
+      "start_type": "automatic",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "W32Time",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "W32Time",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "W32Time",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WaaSMedicSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WaaSMedicSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WaaSMedicSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WinHttpAutoProxySvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WinHttpAutoProxySvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WinHttpAutoProxySvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "dot3svc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "dot3svc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "dot3svc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WlanSvc",
+      "start_type": "automatic",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WlanSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "refined"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "WlanSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "automatic",
+      "profiles": [
+        "aggressive"
+      ],
+      "form_factor": "desktop",
+      "requires_no_battery": true
+    },
+    {
+      "name": "wmiApSrv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "wmiApSrv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "wmiApSrv",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "workfolderssvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "workfolderssvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "workfolderssvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "WwanSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "WwanSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "WwanSvc",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "XboxGipSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "XboxGipSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "XboxGipSvc",
+      "start_type": "manual",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "XblAuthManager",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "XblAuthManager",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "XblAuthManager",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    },
+    {
+      "name": "XblGameSave",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "safe"
+      ]
+    },
+    {
+      "name": "XblGameSave",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "refined"
+      ]
+    },
+    {
+      "name": "XblGameSave",
+      "start_type": "disabled",
+      "windows_default_start_type": "manual",
+      "profiles": [
+        "aggressive"
+      ]
+    }
+  ]
 }
