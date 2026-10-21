@@ -890,6 +890,30 @@ mod tests {
     }
 
     #[test]
+    fn desktop_battery_rules_are_skipped_when_hardware_is_not_confirmed() {
+        let rule = ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: None,
+            profiles: vec![ProductProfile::Refined],
+            form_factor: Some(FormFactor::Desktop),
+            requires_no_battery: true,
+        };
+        let mut desktop = system(WindowsVersion::Windows11, WindowsEdition::Pro);
+        desktop.battery_present = Some(false);
+        assert!(rule_applies_to_system(&rule, &desktop));
+
+        let mut notebook = system(WindowsVersion::Windows11, WindowsEdition::Pro);
+        notebook.form_factor = Some(FormFactor::Notebook);
+        notebook.battery_present = Some(true);
+        assert!(!rule_applies_to_system(&rule, &notebook));
+
+        let mut unknown = system(WindowsVersion::Windows11, WindowsEdition::Pro);
+        unknown.battery_present = None;
+        assert!(!rule_applies_to_system(&rule, &unknown));
+    }
+
+    #[test]
     fn profile_for_another_windows_version_or_edition_is_inapplicable() {
         let detected = system(WindowsVersion::Windows11, WindowsEdition::Pro);
         let mut wrong_version = profile(WindowsVersion::Windows10, WindowsEdition::Pro);
