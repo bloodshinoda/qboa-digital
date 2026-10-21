@@ -111,6 +111,8 @@ pub(crate) struct ServiceProfileFile {
     pub validated: bool,
     #[serde(default)]
     pub defaults_validated: bool,
+    #[serde(default)]
+    pub heuristic_apply_enabled: bool,
     pub services: Vec<ServiceRule>,
 }
 
@@ -199,6 +201,7 @@ pub(crate) fn system_profile(system: &DetectedSystem) -> Result<ServiceProfileFi
             form_factor: FormFactor::Any,
             validated: false,
             defaults_validated: false,
+            heuristic_apply_enabled: false,
             services: Vec::new(),
         }),
         None => Err("Não há perfil para este Windows.".to_string()),
@@ -391,7 +394,7 @@ pub(crate) fn preview(
             })
     });
     let applicable = reasons.is_empty()
-        && profile.validated
+        && (profile.validated || profile.heuristic_apply_enabled)
         && has_changes
         && selected != ProductProfile::Custom
         && APPLYABLE_PROFILES.contains(&selected);
@@ -403,6 +406,8 @@ pub(crate) fn preview(
         "Nenhuma alteração compatível detectada. Catálogo histórico ainda bloqueado até validação em Windows real.".to_string()
     } else if !has_changes {
         "Nenhuma alteração compatível para aplicar neste sistema.".to_string()
+    } else if !profile.validated && profile.heuristic_apply_enabled {
+        "Perfil heurístico baseado no Black Viper: só serão aplicadas regras cujo estado atual coincide com o baseline histórico; regras de hardware incerto serão ignoradas.".to_string()
     } else if !profile.validated {
         "Prévia heurística baseada no Black Viper. Aplicação bloqueada até validação em Windows real.".to_string()
     } else if applicable {
@@ -555,8 +560,8 @@ pub(crate) fn undo_last_application<B: ServiceProfileBackend>(
 }
 
 fn ensure_profile_has_validated_services(profile: &ServiceProfileFile) -> Result<(), String> {
-    if !profile.validated || profile.services.is_empty() {
-        return Err("Perfil ainda não validado.".to_string());
+    if (!profile.validated && !profile.heuristic_apply_enabled) || profile.services.is_empty() {
+        return Err("Perfil ainda não validado para aplicação.".to_string());
     }
     Ok(())
 }
@@ -970,6 +975,7 @@ mod tests {
             form_factor: FormFactor::Any,
             validated: false,
             defaults_validated: false,
+            heuristic_apply_enabled: false,
             services: Vec::new(),
         }
     }
@@ -1031,6 +1037,7 @@ mod tests {
 
         assert!(!catalog.validated);
         assert!(!catalog.defaults_validated);
+        assert!(catalog.heuristic_apply_enabled);
         assert!(!catalog.services.is_empty());
         catalog.services.push(ServiceRule {
             name: "ExampleSvc".to_string(),
@@ -1042,8 +1049,8 @@ mod tests {
         });
 
         let preview = preview(&detected, &catalog, ProductProfile::Safe);
-        assert!(!preview.applicable);
-        assert!(preview.message.contains("Aplicação bloqueada"));
+        assert!(preview.applicable);
+        assert!(preview.message.contains("Perfil heurístico baseado no Black Viper"));
         assert!(preview
             .services
             .iter()
