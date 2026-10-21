@@ -718,6 +718,7 @@ button.copy-pix-button:hover:not(:disabled) {
 .capability-card details ul { padding-left: 18px; overflow-wrap: anywhere; }
 .capability-state { flex-shrink: 0; padding: 4px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; font-size: .68rem; }
 .state-unknown, .state-not_detected, .state-registered_not_present { opacity: .78; }
+.state-detected { border-color: #4ade80; color: #4ade80; background: rgba(74, 222, 128, 0.12); }
 .state-disabled { border-color: #ffd166; color: #ffd166; }
 .capability-warnings { color: #ffd166; font-size: .8rem; }
 @media (max-width: 720px) { .capability-heading { flex-direction: column; } .capability-list { grid-template-columns: 1fr; } }
