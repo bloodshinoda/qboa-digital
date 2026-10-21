@@ -975,7 +975,9 @@ async function loadServiceProfileState() {
     status.textContent = profile.validated
       ? "Perfil validado disponível."
       : "Nenhum perfil validado. Aplicação indisponível.";
-    controls.forEach((control) => { control.disabled = !profile.validated; });
+    document.getElementById("service-profile-apply-btn").disabled = !profile.validated;
+    document.getElementById("service-profile-defaults-btn").disabled = !profile.defaults_validated;
+    document.getElementById("service-profile-undo-btn").disabled = !profile.validated;
   } catch (error) {
     serviceProfileState = null;
     status.textContent = "Não foi possível consultar os serviços do Windows.";
@@ -1238,7 +1240,7 @@ async function registerEvents() {
   });
 
   document.getElementById("service-profile-defaults-btn").addEventListener("click", async () => {
-    if (!serviceProfileState?.profile?.validated) return;
+    if (!serviceProfileState?.profile?.defaults_validated) return;
     if (!(await askConfirmation("Restaurar o padrão do Windows?", "Restaurar serviços do Windows?"))) return;
     try {
       await Qboa.restoreWindowsServiceDefaults();
