@@ -2,21 +2,39 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum CapabilityStatus { Detected, Disabled, RegisteredNotPresent, NotDetected, Unknown, NotApplicable }
+pub(crate) enum CapabilityStatus {
+    Detected,
+    Disabled,
+    RegisteredNotPresent,
+    NotDetected,
+    Unknown,
+    NotApplicable,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct Capability {
-    pub id: String, pub label: String, pub status: CapabilityStatus, pub confidence: String,
-    pub summary: String, pub sources: Vec<String>, pub details: Vec<String>,
+    pub id: String,
+    pub label: String,
+    pub status: CapabilityStatus,
+    pub confidence: String,
+    pub summary: String,
+    pub sources: Vec<String>,
+    pub details: Vec<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct SystemSummary {
-    pub os_name: Option<String>, pub os_version: Option<String>, pub os_build: Option<String>,
-    pub architecture: Option<String>, pub manufacturer: Option<String>, pub model: Option<String>,
+    pub os_name: Option<String>,
+    pub os_version: Option<String>,
+    pub os_build: Option<String>,
+    pub architecture: Option<String>,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct CapabilityInventory {
-    pub system: SystemSummary, pub capabilities: Vec<Capability>, pub warnings: Vec<String>,
+    pub system: SystemSummary,
+    pub capabilities: Vec<Capability>,
+    pub warnings: Vec<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -65,19 +83,40 @@ try{$cs=Get-CimInstance Win32_ComputerSystem -ErrorAction Stop;$sys.manufacturer
 ConvertTo-Json -InputObject ([pscustomobject]@{system=$sys;capabilities=@($caps);warnings=@($warnings)}) -Depth 8 -Compress
 "#;
     let mut command = Command::new("powershell.exe");
-    command.creation_flags(0x08000000).args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SCRIPT]);
-    let output = command.output().map_err(|e| format!("Não foi possível iniciar a coleta de capacidades do Windows: {e}"))?;
+    command.creation_flags(0x08000000).args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        SCRIPT,
+    ]);
+    let output = command
+        .output()
+        .map_err(|e| format!("Não foi possível iniciar a coleta de capacidades do Windows: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {"A coleta de capacidades do Windows falhou.".into()} else {format!("A coleta de capacidades do Windows falhou: {stderr}")});
+        return Err(if stderr.is_empty() {
+            "A coleta de capacidades do Windows falhou.".into()
+        } else {
+            format!("A coleta de capacidades do Windows falhou: {stderr}")
+        });
     }
-    let stdout = String::from_utf8(output.stdout).map_err(|e| format!("Resposta do inventário não é UTF-8 válido: {e}"))?;
-    serde_json::from_str(stdout.trim()).map_err(|e| format!("Não foi possível interpretar o inventário: {e}"))
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| format!("Resposta do inventário não é UTF-8 válido: {e}"))?;
+    serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Não foi possível interpretar o inventário: {e}"))
 }
 
 pub(crate) fn collect() -> Result<CapabilityInventory, String> {
-    #[cfg(target_os = "windows")] { collect_windows() }
-    #[cfg(not(target_os = "windows"))] { Err("O inventário de capacidades só está disponível no Windows.".into()) }
+    #[cfg(target_os = "windows")]
+    {
+        collect_windows()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("O inventário de capacidades só está disponível no Windows.".into())
+    }
 }
 
 #[cfg(test)]
@@ -85,14 +124,39 @@ mod tests {
     use super::*;
     #[test]
     fn status_serialization_is_stable() {
-        assert_eq!(serde_json::to_string(&CapabilityStatus::RegisteredNotPresent).unwrap(), "\"registered_not_present\"");
-        assert_eq!(serde_json::to_string(&CapabilityStatus::NotApplicable).unwrap(), "\"not_applicable\"");
+        assert_eq!(
+            serde_json::to_string(&CapabilityStatus::RegisteredNotPresent).unwrap(),
+            "\"registered_not_present\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CapabilityStatus::NotApplicable).unwrap(),
+            "\"not_applicable\""
+        );
     }
     #[test]
     fn inventory_shape_serializes_conservatively() {
-        let report=CapabilityInventory{system:SystemSummary{os_name:Some("Windows".into()),os_version:Some("10.0".into()),os_build:Some("22631".into()),architecture:Some("AMD64".into()),manufacturer:None,model:None},capabilities:vec![Capability{id:"bluetooth".into(),label:"Bluetooth".into(),status:CapabilityStatus::NotDetected,confidence:"low".into(),summary:"Nenhum dispositivo enumerado.".into(),sources:vec!["Get-PnpDevice".into()],details:vec![]}],warnings:vec![]};
-        let json=serde_json::to_value(report).unwrap();
-        assert_eq!(json["capabilities"][0]["status"],"not_detected");
-        assert_eq!(json["capabilities"][0]["confidence"],"low");
+        let report = CapabilityInventory {
+            system: SystemSummary {
+                os_name: Some("Windows".into()),
+                os_version: Some("10.0".into()),
+                os_build: Some("22631".into()),
+                architecture: Some("AMD64".into()),
+                manufacturer: None,
+                model: None,
+            },
+            capabilities: vec![Capability {
+                id: "bluetooth".into(),
+                label: "Bluetooth".into(),
+                status: CapabilityStatus::NotDetected,
+                confidence: "low".into(),
+                summary: "Nenhum dispositivo enumerado.".into(),
+                sources: vec!["Get-PnpDevice".into()],
+                details: vec![],
+            }],
+            warnings: vec![],
+        };
+        let json = serde_json::to_value(report).unwrap();
+        assert_eq!(json["capabilities"][0]["status"], "not_detected");
+        assert_eq!(json["capabilities"][0]["confidence"], "low");
     }
 }
