@@ -145,6 +145,7 @@ pub(crate) struct CleanupExecutionReport {
     pub registry_entries_removed: u64,
     pub bytes_freed: u64,
     pub failures: u64,
+    pub failure_details: Vec<String>,
 }
 
 pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
@@ -179,7 +180,12 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
                     report.registry_entries_removed += 1;
                 }
             },
-            Err(_) => report.failures += 1,
+            Err(error) => {
+                report.failures += 1;
+                report
+                    .failure_details
+                    .push(format!("{}: {error}", candidate.finding.path));
+            },
         }
     }
     Ok(report)
