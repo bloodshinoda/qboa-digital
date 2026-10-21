@@ -694,7 +694,7 @@ async function refreshCleanupFindings() {
     item.append(details, remove);
     list.appendChild(item);
   });
-  status.textContent = \`Verificação concluída: \${findings.length} problema(s) encontrado(s).\`;
+  status.textContent = `Verificação concluída: ${findings.length} problema(s) encontrado(s).`;
 }
 
 function renderServiceProfilePreview(preview) {
@@ -1009,7 +1009,7 @@ async function registerEvents() {
       await refreshCleanupFindings();
       appendConsole("Verificação concluída.");
     } catch (error) {
-      document.getElementById("cleanup-findings-status").textContent = \`Falha na verificação: \${String(error)}\`;
+      document.getElementById("cleanup-findings-status").textContent = `Falha na verificação: ${String(error)}`;
       appendConsole(String(error));
     } finally {
       button.disabled = false;
