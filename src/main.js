@@ -719,6 +719,7 @@ async function startDebloatProfile() {
     const items = ids.map((id) => debloatItems.find((item) => item.id === id));
     if (items.some((item) => !item)) throw new Error("O catálogo retornou uma tarefa desconhecida.");
     debloatProfileQueue = { items, currentTaskId: null };
+    syncExecutionControls();
     status.textContent = "Executando tarefas do perfil.";
     await runNextDebloatProfileTask();
   } catch (error) {
