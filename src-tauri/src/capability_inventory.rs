@@ -29,6 +29,9 @@ pub(crate) struct SystemSummary {
     pub architecture: Option<String>,
     pub manufacturer: Option<String>,
     pub model: Option<String>,
+    pub device_type: Option<String>,
+    pub device_confidence: Option<String>,
+    pub device_evidence: Vec<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct CapabilityInventory {
@@ -77,9 +80,32 @@ $caps.Add([pscustomobject]@{id='hypervisor_active';label='Hipervisor ativo';stat
 try{$cs=Get-CimInstance Win32_ComputerSystem -ErrorAction Stop;$i=$caps[$caps.Count-1];if($null -ne $cs.HypervisorPresent){$i.status=if($cs.HypervisorPresent){'detected'}else{'not_detected'};$i.confidence='high';$i.summary=if($cs.HypervisorPresent){'O Windows informa hipervisor ativo.'}else{'O Windows não informa hipervisor ativo.'}}}catch{$caps[$caps.Count-1].summary='Consulta do hipervisor indisponível.'}
 $features=@(@('hyper_v','Hyper-V','Microsoft-Hyper-V-All'),@('wsl','Subsistema do Windows para Linux (WSL)','Microsoft-Windows-Subsystem-Linux'),@('virtual_machine_platform','Plataforma de Máquina Virtual','VirtualMachinePlatform'),@('sandbox','Windows Sandbox','Containers-DisposableClientVM'))
 foreach($f in $features){$caps.Add([pscustomobject]@{id=$f[0];label=$f[1];status='unknown';confidence='low';summary='Consulta pendente.';sources=@('Get-WindowsOptionalFeature -Online');details=@()});$i=$caps[$caps.Count-1];try{$x=Get-WindowsOptionalFeature -Online -FeatureName $f[2] -ErrorAction Stop;$i.status=if($x.State -eq 'Enabled'){'detected'}elseif($x.State -eq 'Disabled'){'disabled'}else{'not_applicable'};$i.confidence='high';$i.summary="Estado do recurso $($f[2]): $($x.State).";$i.details=@("FeatureName=$($f[2])","State=$($x.State)")}catch{$i.summary="Não foi possível consultar o recurso $($f[2]).";$i.details=@($_.Exception.Message)}}
-$sys=[pscustomobject]@{os_name=$null;os_version=$null;os_build=$null;architecture=$env:PROCESSOR_ARCHITECTURE;manufacturer=$null;model=$null}
+$sys=[pscustomobject]@{os_name=$null;os_version=$null;os_build=$null;architecture=$env:PROCESSOR_ARCHITECTURE;manufacturer=$null;model=$null;device_type='unknown';device_confidence='low';device_evidence=@()}
 try{$os=Get-CimInstance Win32_OperatingSystem -ErrorAction Stop;$sys.os_name=$os.Caption;$sys.os_version=$os.Version;$sys.os_build=$os.BuildNumber}catch{$warnings.Add('Versão do Windows indisponível.')}
-try{$cs=Get-CimInstance Win32_ComputerSystem -ErrorAction Stop;$sys.manufacturer=$cs.Manufacturer;$sys.model=$cs.Model}catch{$warnings.Add('Fabricante/modelo indisponível.')}
+try{
+ $cs=Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+ $sys.manufacturer=$cs.Manufacturer;$sys.model=$cs.Model
+ $evidence=[System.Collections.Generic.List[string]]::new()
+ $pcType=[int]$cs.PCSystemType
+ $desktopTypes=@(3,4,5,6,7,13,15,16,23,24)
+ $mobileTypes=@(8,9,10,11,14,30,31,32)
+ if($desktopTypes -contains $pcType){$sys.device_type='desktop';$sys.device_confidence='high';$evidence.Add("Win32_ComputerSystem.PCSystemType=$pcType")}
+ elseif($mobileTypes -contains $pcType){$sys.device_type='mobile';$sys.device_confidence='high';$evidence.Add("Win32_ComputerSystem.PCSystemType=$pcType")}
+ $modelText=("$($cs.Manufacturer) $($cs.Model)")
+ if($modelText -match '(?i)VMware|VirtualBox|Virtual Machine|KVM|QEMU|Hyper-V|Virtual Platform'){
+   $sys.device_type='virtual_machine';$sys.device_confidence='high';$evidence.Add("Fabricante/modelo indica máquina virtual: $modelText")
+ } else {
+   try{
+     $chassis=@(Get-CimInstance Win32_SystemEnclosure -ErrorAction Stop | ForEach-Object {$_.ChassisTypes} | Where-Object {$_ -ne $null})
+     if($sys.device_type -eq 'unknown' -and @($chassis | Where-Object {$desktopTypes -contains [int]$_}).Count -gt 0){$sys.device_type='desktop';$sys.device_confidence='medium';$evidence.Add("Win32_SystemEnclosure.ChassisTypes=$($chassis -join ',')")}
+     elseif($sys.device_type -eq 'unknown' -and @($chassis | Where-Object {$mobileTypes -contains [int]$_}).Count -gt 0){$sys.device_type='mobile';$sys.device_confidence='medium';$evidence.Add("Win32_SystemEnclosure.ChassisTypes=$($chassis -join ',')")}
+   }catch{$warnings.Add('Tipo de chassi indisponível.')}
+   if($sys.device_type -eq 'unknown'){
+     try{$battery=@(Get-CimInstance Win32_Battery -ErrorAction Stop);if($battery.Count -gt 0){$sys.device_type='mobile';$sys.device_confidence='medium';$evidence.Add('Bateria reportada por Win32_Battery; tipo de equipamento inferido como móvel.')}}catch{$warnings.Add('Consulta auxiliar de bateria indisponível para classificação do equipamento.')}
+   }
+ }
+ $sys.device_evidence=@($evidence)
+}catch{$warnings.Add('Fabricante/modelo e classificação do equipamento indisponíveis.')}
 ConvertTo-Json -InputObject ([pscustomobject]@{system=$sys;capabilities=@($caps);warnings=@($warnings)}) -Depth 8 -Compress
 "#;
     let mut command = Command::new("powershell.exe");
@@ -143,6 +169,9 @@ mod tests {
                 architecture: Some("AMD64".into()),
                 manufacturer: None,
                 model: None,
+                device_type: Some("unknown".into()),
+                device_confidence: Some("low".into()),
+                device_evidence: vec![],
             },
             capabilities: vec![Capability {
                 id: "bluetooth".into(),
