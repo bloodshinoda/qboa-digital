@@ -637,6 +637,62 @@ fn apply_registry_task(
     ))
 }
 
+
+#[cfg(target_os = "windows")]
+fn apply_cleanup_findings(
+    profile: &str,
+    on_output: &mut dyn FnMut(&str),
+) -> cleanup_findings::CleanupExecutionReport {
+    let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
+    match cleanup_findings::cleanup_profile(&mut backend, profile) {
+        Ok(report) => {
+            on_output(&format!(
+                "Varredura integrada ({profile}): {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).",
+                report.files_removed, report.registry_entries_removed, report.failures
+            ));
+            on_output(&format!(
+                "QBOA_METRICS files={} bytes={} registry={}",
+                report.files_removed, report.bytes_freed, report.registry_entries_removed
+            ));
+            report
+        }
+        Err(error) => {
+            on_output(&format!("A varredura integrada não pôde ser concluída: {error}. A limpeza principal continuará."));
+            cleanup_findings::CleanupExecutionReport { failures: 1, ..Default::default() }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_cleanup_findings(
+    _profile: &str,
+    _on_output: &mut dyn FnMut(&str),
+) -> cleanup_findings::CleanupExecutionReport {
+    cleanup_findings::CleanupExecutionReport::default()
+}
+
+fn findings_summary(report: &cleanup_findings::CleanupExecutionReport) -> String {
+    format!("Varredura integrada: {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).", report.files_removed, report.registry_entries_removed, report.failures)
+}
+
+fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64) {
+    let mut files = 0u64;
+    let mut bytes = 0u64;
+    let mut registry = 0u64;
+    for line in output.lines().filter(|line| line.contains("QBOA_METRICS")) {
+        for field in line.split_whitespace() {
+            if let Some(value) = field.strip_prefix("files=") {
+                files = files.saturating_add(value.parse().unwrap_or(0));
+            } else if let Some(value) = field.strip_prefix("bytes=") {
+                bytes = bytes.saturating_add(value.parse().unwrap_or(0));
+            } else if let Some(value) = field.strip_prefix("registry=") {
+                registry = registry.saturating_add(value.parse().unwrap_or(0));
+            }
+        }
+    }
+    (files, bytes, registry)
+}
+
 fn execute_task(
     task: &Task,
     execution_id: &str,
