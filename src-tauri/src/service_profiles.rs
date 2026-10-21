@@ -1053,7 +1053,9 @@ mod tests {
 
         let preview = preview(&detected, &catalog, ProductProfile::Safe);
         assert!(preview.applicable);
-        assert!(preview.message.contains("Perfil heurístico baseado no Black Viper"));
+        assert!(preview
+            .message
+            .contains("Perfil heurístico baseado no Black Viper"));
         assert!(preview
             .services
             .iter()
