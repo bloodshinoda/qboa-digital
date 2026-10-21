@@ -739,7 +739,9 @@ fn execute_task(
             )?;
             on_output("[Etapa 3/4] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 4/5] Removendo atalhos quebrados e associações inválidas confirmadas...");
+            on_output(
+                "[Etapa 4/5] Removendo atalhos quebrados e associações inválidas confirmadas...",
+            );
             let findings = apply_cleanup_findings("complete", on_output);
             on_output(
                 "[Etapa 5/5] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
@@ -751,7 +753,10 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            Ok(format!("{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}", findings_summary(&findings)))
+            Ok(format!(
+                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}",
+                findings_summary(&findings)
+            ))
         }
         "limpeza_pesada" => {
             let conservative_repair = report_system_compatibility(on_output);
@@ -807,7 +812,8 @@ fn execute_task(
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
-                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}", findings_summary(&findings)
+                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}",
+                findings_summary(&findings)
             ))
         }
         "desengordurar_telemetria" => {
@@ -1127,7 +1133,8 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         drop(on_output);
         match execution {
             Ok(output) => {
-                let (files_removed, bytes_freed, registry_entries_removed) = parse_cleanup_metrics(&output);
+                let (files_removed, bytes_freed, registry_entries_removed) =
+                    parse_cleanup_metrics(&output);
                 let elapsed = execution_started.elapsed();
                 let elapsed_seconds = elapsed.as_secs();
                 let elapsed_label = if elapsed_seconds >= 60 {
@@ -1140,7 +1147,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                     bytes_freed as f64 / 1_000_000_000.0
                 );
                 let output = format!("{output}\n\n{summary}");
-                write_execution_log(&execution_id_for_spawn, &format!("task-executor-completed {summary}"));
+                write_execution_log(
+                    &execution_id_for_spawn,
+                    &format!("task-executor-completed {summary}"),
+                );
                 let journal_result = if let Some(change) = registry_change.take() {
                     safety_state()
                         .lock()
@@ -1236,7 +1246,8 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 }
             }
             Err(err) => {
-                let (files_removed, bytes_freed, registry_entries_removed) = parse_cleanup_metrics(&streamed_output);
+                let (files_removed, bytes_freed, registry_entries_removed) =
+                    parse_cleanup_metrics(&streamed_output);
                 let elapsed = execution_started.elapsed();
                 let elapsed_seconds = elapsed.as_secs();
                 let elapsed_label = if elapsed_seconds >= 60 {
