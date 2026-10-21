@@ -61,9 +61,10 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
 ConvertTo-Json -InputObject $services -Depth 4 -Compress
 "#;
         let output = run_powershell(script)?;
-        let raw: Vec<RawService> =
-            serde_json::from_str(output.trim_start_matches('\u{feff}').trim())
-                .map_err(|error| format!("Não foi possível interpretar a lista de serviços: {error}"))?;
+        let raw: Vec<RawService> = serde_json::from_str(
+            output.trim_start_matches('\u{feff}').trim(),
+        )
+        .map_err(|error| format!("Não foi possível interpretar a lista de serviços: {error}"))?;
         Ok(raw
             .into_iter()
             .map(|service| {
@@ -159,11 +160,7 @@ Write-Output ("Serviço {0}: {1}" -f $svc.Name, $svc.Status)
 "#
             ),
             "set_start_type" => {
-                let start = match start_type
-                    .unwrap_or_default()
-                    .to_ascii_lowercase()
-                    .as_str()
-                {
+                let start = match start_type.unwrap_or_default().to_ascii_lowercase().as_str() {
                     "automatic" => "Automatic",
                     "manual" => "Manual",
                     "disabled" => "Disabled",
