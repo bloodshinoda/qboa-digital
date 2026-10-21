@@ -72,7 +72,7 @@
   </main>
 
   <section class="service-profile-panel" id="service-profile-panel" hidden>
-    <h2>Alterar perfil de serviços do Windows</h2>
+    <div class="service-profile-heading"><h2>Alterar perfil de serviços do Windows</h2><button id="open-service-inventory" type="button" class="secondary-button">🧾 Serviços instalados</button></div>
     <p id="service-profile-status">Nenhum perfil validado. Aplicação indisponível.</p>
     <p id="service-system-details"></p>
     <label for="service-profile-select">Perfil de produto</label>
@@ -94,13 +94,14 @@
     <ul id="service-profile-ignored" class="service-profile-preview"></ul>
   </section>
 
-  <section class="service-inventory-panel" id="service-inventory-panel" hidden>
+  <div class="service-inventory-modal hidden" id="service-inventory-modal" aria-hidden="true">
+  <section class="service-inventory-panel" id="service-inventory-panel" role="dialog" aria-modal="true" aria-labelledby="service-inventory-title">
     <div class="service-inventory-heading">
       <div>
-        <h2>Serviços instalados</h2>
+        <h2 id="service-inventory-title">Serviços instalados</h2>
         <p>Consulte o estado e gerencie serviços individualmente. Serviços críticos ficam protegidos.</p>
       </div>
-      <button id="service-inventory-refresh" type="button" class="secondary-button">Atualizar lista</button>
+      <div class="service-inventory-modal-actions"><button id="service-inventory-refresh" type="button" class="secondary-button">Atualizar lista</button><button id="close-service-inventory" type="button" class="secondary-button">✕ Fechar</button></div>
     </div>
     <label for="service-inventory-filter">Filtrar por nome</label>
     <input id="service-inventory-filter" type="search" placeholder="Nome ou serviço..." autocomplete="off">
@@ -112,6 +113,7 @@
       </table>
     </div>
   </section>
+</div>
 
   <section class="capability-inventory-panel" id="capability-inventory-panel" hidden>
     <div class="capability-heading">
