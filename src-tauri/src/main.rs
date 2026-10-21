@@ -454,9 +454,8 @@ fn cleanup_standard(
     )?;
     let registry_keys_removed = apply_registry(task_id)?;
     let summary = "Limpeza padrão concluída: temporários, caches, MRUs e lixeira.";
-    let registry_metrics = format!(
-        "QBOA_METRICS files=0 bytes=0 registry={registry_keys_removed}"
-    );
+    let registry_metrics =
+        format!("QBOA_METRICS files=0 bytes=0 registry={registry_keys_removed}");
     on_output(summary);
     on_output(&registry_metrics);
     Ok(format!("{output}\n{summary}\n{registry_metrics}"))
@@ -748,7 +747,7 @@ fn execute_task(
     execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
-    apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
+    apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
 ) -> Result<String, String> {
     match task.id.as_str() {
         "limpeza_leve" => cleanup_standard(
@@ -1156,7 +1155,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             ) {
                 Ok(change) => {
                     registry_change = Some(change);
-                    let count = if matches!(registry_task_id, "limpeza_leve" | "limpeza_media" | "limpeza_pesada") {
+                    let count = if matches!(
+                        registry_task_id,
+                        "limpeza_leve" | "limpeza_media" | "limpeza_pesada"
+                    ) {
                         count_mru_registry_keys(snapshot_location.as_deref().unwrap_or_default())
                     } else {
                         0
