@@ -1135,8 +1135,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                     "Resumo da execução — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo de execução: {elapsed_label}.",
                     bytes_freed as f64 / 1_000_000_000.0
                 );
-                on_output(&summary);
-                let output = format!("{output}\\n\\n{summary}");
+                let output = format!("{output}\n\n{summary}");
                 write_execution_log(&execution_id_for_spawn, &format!("task-executor-completed {summary}"));
                 let journal_result = if let Some(change) = registry_change.take() {
                     safety_state()
