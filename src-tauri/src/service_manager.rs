@@ -54,13 +54,14 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     default { 'unknown' }
   }
   $binaryPath = $null
-  if ([string]$_.PathName -match '^"([^"]+\\.exe)"') {
+  if ([string]$_.PathName -match '^"([^"]+\.exe)"') {
     $binaryPath = $Matches[1]
-  } elseif ([string]$_.PathName -match '^(.+?\\.exe)(?:\\s|$)') {
+  } elseif ([string]$_.PathName -match '^(.+?\.exe)(?:\s|$)') {
     $binaryPath = $Matches[1].Trim('"')
   }
+  if ($binaryPath) { $binaryPath = [Environment]::ExpandEnvironmentVariables($binaryPath) }
   if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
-    $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$($_.Name)\\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
+    $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
     if ($serviceDll) { $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll) }
   }
   $isMicrosoft = $false
