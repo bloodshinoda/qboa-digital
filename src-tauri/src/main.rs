@@ -1414,7 +1414,6 @@ struct ServiceProfileState {
 }
 
 #[tauri::command]
-#[tauri::command]
 async fn list_windows_services() -> Result<Vec<service_manager::ServiceEntry>, String> {
     service_manager::list_services()
 }
@@ -1424,6 +1423,7 @@ async fn manage_windows_service(name: String, action: String, start_type: Option
     service_manager::manage_service(&name, &action, start_type.as_deref())
 }
 
+#[tauri::command]
 async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
