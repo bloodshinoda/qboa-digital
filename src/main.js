@@ -286,11 +286,16 @@ async function loadWindowsServices() {
 function renderWindowsServices() {
   const body = document.getElementById("service-inventory-rows");
   const filter = document.getElementById("service-inventory-filter").value.trim().toLocaleLowerCase();
+  const hideMicrosoft = document.getElementById("service-inventory-hide-microsoft").checked;
   body.replaceChildren();
   const filtered = windowsServices.filter((service) =>
-    service.name.toLocaleLowerCase().includes(filter) ||
-    service.display_name.toLocaleLowerCase().includes(filter)
+    (!hideMicrosoft || !service.is_microsoft) &&
+    (service.name.toLocaleLowerCase().includes(filter) ||
+     service.display_name.toLocaleLowerCase().includes(filter))
   );
+  document.getElementById("service-inventory-status").textContent =
+    `${filtered.length} de ${windowsServices.length} serviço(s) exibido(s).` +
+    (hideMicrosoft ? " Serviços Microsoft ocultos." : "");
   filtered.forEach((service) => {
     const row = document.createElement("tr");
     const nameCell = document.createElement("td");
@@ -1249,6 +1254,8 @@ async function registerEvents() {
     serviceInventoryModal.classList.add("hidden");
     serviceInventoryModal.setAttribute("aria-hidden", "true");
   };
+  document.getElementById("service-inventory-filter").addEventListener("input", renderWindowsServices);
+  document.getElementById("service-inventory-hide-microsoft").addEventListener("change", renderWindowsServices);
   document.getElementById("open-service-inventory").addEventListener("click", () => {
     serviceInventoryModal.classList.remove("hidden");
     serviceInventoryModal.setAttribute("aria-hidden", "false");
