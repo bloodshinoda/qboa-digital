@@ -263,11 +263,6 @@ pub(crate) fn preview(
     }
 
     if selected == ProductProfile::Recommended {
-        let names = system
-            .services
-            .iter()
-            .map(|service| service.name.clone())
-            .collect();
         return ServicePreview {
             profile: selected,
             applicable: false,
@@ -277,18 +272,8 @@ pub(crate) fn preview(
             } else {
                 "Padrão é apenas referência. A baseline desta versão ainda não foi validada e não será aplicada.".to_string()
             },
-            services: system
-                .services
-                .iter()
-                .map(|service| ServicePreviewItem {
-                    service: service.name.clone(),
-                    current: service.start_type.clone(),
-                    proposed: None,
-                    incompatible: None,
-                    ignored: true,
-                })
-                .collect(),
-            ignored: names,
+            services: Vec::new(),
+            ignored: Vec::new(),
         };
     }
 
