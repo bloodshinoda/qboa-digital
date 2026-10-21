@@ -964,6 +964,14 @@ mod tests {
         assert!(!catalog.validated);
         assert!(!catalog.defaults_validated);
         assert!(!catalog.services.is_empty());
+        catalog.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: Some("Automatic".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
 
         let preview = preview(&detected, &catalog, ProductProfile::Safe);
         assert!(!preview.applicable);
