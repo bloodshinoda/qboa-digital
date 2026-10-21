@@ -690,3 +690,87 @@ button.secondary-button:hover:not(:disabled),
 button.copy-pix-button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
 }
+
+
+/* Milestone 3.1 — inventário e gestão individual de serviços */
+.service-inventory-panel {
+  margin: 20px auto;
+  width: min(1200px, calc(100% - 32px));
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: var(--qboa-panel, #171a1d);
+}
+.service-inventory-panel[hidden] { display: none; }
+.service-inventory-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.service-inventory-heading h2 { margin-top: 0; }
+.service-inventory-heading p { margin-bottom: 0; color: var(--qboa-muted, #b8bdc2); }
+#service-inventory-filter {
+  display: block;
+  width: min(460px, 100%);
+  margin-top: 6px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255,255,255,.25);
+  border-radius: 7px;
+  background: #101214;
+  color: #f4f4f4;
+}
+#service-inventory-status { color: var(--qboa-muted, #b8bdc2); }
+.service-inventory-table-wrap { overflow: auto; max-height: 620px; }
+.service-inventory-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .88rem;
+}
+.service-inventory-table th,
+.service-inventory-table td {
+  padding: 10px 9px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  text-align: left;
+  vertical-align: middle;
+}
+.service-inventory-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #202428;
+}
+.service-inventory-table td:first-child { min-width: 210px; }
+.service-inventory-table td:first-child strong,
+.service-inventory-table td:first-child small { display: block; }
+.service-inventory-table td:first-child small { margin-top: 3px; opacity: .7; }
+.service-inventory-table select {
+  max-width: 145px;
+  padding: 7px;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 6px;
+  background: #101214;
+  color: #f4f4f4;
+}
+.service-inventory-table .service-action-button {
+  min-height: 30px;
+  margin: 2px;
+  padding: 5px 8px;
+  font-size: .75rem;
+}
+.service-protected-label {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 190, 80, .14);
+  color: #ffd18a;
+  font-size: .7rem;
+  font-weight: 700;
+}
+@media (max-width: 720px) {
+  .service-inventory-heading { flex-direction: column; }
+  .service-inventory-panel { padding: 14px; }
+  .service-inventory-table { min-width: 740px; }
+}

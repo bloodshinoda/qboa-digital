@@ -5,6 +5,7 @@ mod diagnostics;
 mod registry_executor;
 mod safety;
 mod service_profiles;
+mod service_manager;
 mod system_compat;
 mod task_registry;
 mod tweak_profiles;
@@ -1413,6 +1414,16 @@ struct ServiceProfileState {
 }
 
 #[tauri::command]
+async fn list_windows_services() -> Result<Vec<service_manager::ServiceEntry>, String> {
+    service_manager::list_services()
+}
+
+#[tauri::command]
+async fn manage_windows_service(name: String, action: String, start_type: Option<String>) -> Result<String, String> {
+    service_manager::manage_service(&name, &action, start_type.as_deref())
+}
+
+#[tauri::command]
 async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
@@ -1498,6 +1509,8 @@ fn main() {
             run_diagnostic_check,
             delete_cleanup_finding,
             get_service_profile_state,
+            list_windows_services,
+            manage_windows_service,
             preview_service_profile,
             apply_service_profile,
             restore_windows_service_defaults,
