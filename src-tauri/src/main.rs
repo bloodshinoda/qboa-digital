@@ -7,6 +7,7 @@ mod safety;
 mod service_profiles;
 mod task_registry;
 mod tweak_profiles;
+mod system_compat;
 
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -418,6 +419,25 @@ fn run_powershell(
     )
 }
 
+
+fn report_system_compatibility(on_output: &mut dyn FnMut(&str)) -> bool {
+    match system_compat::detect() {
+        Ok(assessment) => {
+            on_output(&format!("[Compatibilidade] {}", assessment.summary));
+            for indicator in &assessment.indicators {
+                on_output(&format!("[Compatibilidade] {indicator}"));
+            }
+            assessment.use_conservative_repair
+        }
+        Err(error) => {
+            on_output(&format!(
+                "[Compatibilidade] Não foi possível classificar o ambiente; mantendo o fluxo padrão. Detalhe: {error}"
+            ));
+            false
+        }
+    }
+}
+
 fn cleanup_standard(
     task_id: &str,
     execution_id: &str,
@@ -610,6 +630,10 @@ fn execute_task(
             apply_registry,
         ),
         "limpeza_media" => {
+            let conservative_repair = report_system_compatibility(on_output);
+            if conservative_repair {
+                on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa manterá o DISM padrão, sem inventar uma origem de reparo.");
+            }
             on_output("[Etapa 1/4] Limpando temporários, caches e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
@@ -641,6 +665,10 @@ fn execute_task(
             Ok(format!("{part_1}\n{part_2}\n{part_3}\n{part_4}"))
         }
         "limpeza_pesada" => {
+            let conservative_repair = report_system_compatibility(on_output);
+            if conservative_repair {
+                on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa preservará a base de componentes e não executará /ResetBase, pois isso impede a desinstalação de atualizações instaladas.");
+            }
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -658,19 +686,25 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            on_output("[Etapa 5/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
-            let part_5 = run_system_command(
-                "dism",
-                &[
-                    "/Online",
-                    "/Cleanup-Image",
-                    "/StartComponentCleanup",
-                    "/ResetBase",
-                ],
-                execution_id,
-                on_output,
-                is_cancelled,
-            )?;
+            let part_5 = if conservative_repair {
+                on_output("[Etapa 5/6] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
+                "DISM /ResetBase ignorado por política conservadora.".to_string()
+            } else {
+                on_output("[Etapa 5/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
+                run_system_command(
+                    "dism",
+                    &[
+                        "/Online",
+                        "/Cleanup-Image",
+                        "/StartComponentCleanup",
+                        "/ResetBase",
+                    ],
+                    execution_id,
+                    on_output,
+                    is_cancelled,
+                )?
+            };
+            on_output("[Etapa 6/7] Reparando a imagem do Windows com DISM RestoreHealth...");
             let part_6 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/RestoreHealth"],
@@ -678,6 +712,7 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
+            on_output("[Etapa 7/7] Verificando arquivos protegidos com SFC...");
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
@@ -697,13 +732,16 @@ fn execute_task(
             on_output,
             is_cancelled,
         ),
-        "diagnostico_dism_restore" => run_system_command(
-            "dism",
-            &["/Online", "/Cleanup-Image", "/RestoreHealth"],
-            execution_id,
-            on_output,
-            is_cancelled,
-        ),
+        "diagnostico_dism_restore" => {
+            report_system_compatibility(on_output);
+            run_system_command(
+                "dism",
+                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
+                execution_id,
+                on_output,
+                is_cancelled,
+            )
+        },
         "diagnostico_sfc" => {
             run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)
         }
