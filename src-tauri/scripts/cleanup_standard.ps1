@@ -19,9 +19,9 @@ foreach ($path in @($env:TEMP, "$env:WINDIR\Temp")) {
         foreach ($item in @(Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue)) {
             try {
                 $stats = Get-QboaTreeStats $item.FullName
+                Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
                 $removedFiles += $stats.Files
                 $freedBytes += $stats.Bytes
-                Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
                 $removed++;
             } catch {
                 $failed++;
@@ -50,9 +50,9 @@ foreach ($root in $browserRoots) {
             if (Test-Path -LiteralPath $dir.FullName) {
                 try {
                     $stats = Get-QboaTreeStats $dir.FullName
+                    Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction Stop;
                     $removedFiles += $stats.Files
                     $freedBytes += $stats.Bytes
-                    Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction Stop;
                     $removed++;
                 } catch {
                     $failed++;
