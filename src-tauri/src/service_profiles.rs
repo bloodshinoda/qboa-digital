@@ -15,9 +15,15 @@ const PROFILE_JSON: [&str; 10] = [
     include_str!("../service-profiles/windows-11/enterprise.json"),
     include_str!("../service-profiles/windows-11/education.json"),
 ];
-const PROTECTED_SERVICES: &[&str] = &["wuauserv", "WinDefend", "Dhcp", "RpcSs", "PlugPlay"];
+const PROTECTED_SERVICES: &[&str] = &[
+    "wuauserv", "WinDefend", "Dhcp", "RpcSs", "PlugPlay", "DcomLaunch", "EventLog",
+    "SamSs", "LSM", "BITS", "CryptSvc", "TrustedInstaller", "RpcEptMapper", "BFE",
+    "MpsSvc", "Power", "Schedule", "Winmgmt", "gpsvc", "BrokerInfrastructure",
+    "ProfSvc", "UserManager", "nsi", "LanmanWorkstation", "AudioSrv",
+    "AudioEndpointBuilder", "Dnscache", "NlaSvc", "KeyIso", "CoreMessagingRegistrar",
+    "SgrmBroker", "SystemEventsBroker",
+];
 const APPLYABLE_PROFILES: &[ProductProfile] = &[
-    ProductProfile::Recommended,
     ProductProfile::Safe,
     ProductProfile::Refined,
     ProductProfile::Aggressive,
@@ -77,6 +83,8 @@ pub(crate) struct ServiceProfileFile {
     pub edition: WindowsEdition,
     pub form_factor: FormFactor,
     pub validated: bool,
+    #[serde(default)]
+    pub defaults_validated: bool,
     pub services: Vec<ServiceRule>,
 }
 
@@ -164,6 +172,7 @@ pub(crate) fn system_profile(system: &DetectedSystem) -> Result<ServiceProfileFi
             edition: WindowsEdition::Unknown,
             form_factor: FormFactor::Any,
             validated: false,
+            defaults_validated: false,
             services: Vec::new(),
         }),
         None => Err("Não há perfil para este Windows.".to_string()),
@@ -194,7 +203,7 @@ pub(crate) fn preview(
     profile: &ServiceProfileFile,
     selected: ProductProfile,
 ) -> ServicePreview {
-    if !system.supported || !profile.validated || profile.services.is_empty() {
+    if !system.supported || profile.services.is_empty() {
         let services = system
             .services
             .iter()
@@ -212,19 +221,37 @@ pub(crate) fn preview(
                 system.edition_id
             )
         } else {
-            format!(
-                "Edição {} detectada ({}). Perfil ainda não validado; nada será alterado.",
-                edition_label(&system.edition),
-                system.edition_id
-            )
+            "Catálogo de serviços ainda não disponível para esta edição.".to_string()
         };
         return ServicePreview {
             profile: selected,
             applicable: false,
-            validated: false,
+            validated: profile.validated,
             message,
             services,
             ignored: Vec::new(),
+        };
+    }
+
+    if selected == ProductProfile::Recommended {
+        let names = system.services.iter().map(|service| service.name.clone()).collect();
+        return ServicePreview {
+            profile: selected,
+            applicable: false,
+            validated: profile.validated,
+            message: if profile.defaults_validated {
+                "Padrão é uma referência; use Restaurar padrão do Windows para aplicar a baseline validada.".to_string()
+            } else {
+                "Padrão é apenas referência. A baseline desta versão ainda não foi validada e não será aplicada.".to_string()
+            },
+            services: system.services.iter().map(|service| ServicePreviewItem {
+                service: service.name.clone(),
+                current: service.start_type.clone(),
+                proposed: None,
+                incompatible: None,
+                ignored: true,
+            }).collect(),
+            ignored: names,
         };
     }
 
@@ -261,6 +288,26 @@ pub(crate) fn preview(
             });
             continue;
         };
+
+        // Heurística conservadora para builds diferentes: se o estado atual não
+        // coincide com a baseline histórica do catálogo, não presumimos que a
+        // regra continue válida nesta versão ou que o serviço não tenha sido
+        // personalizado pelo usuário.
+        if let Some(baseline) = rule.windows_default_start_type.as_deref() {
+            if !service.start_type.eq_ignore_ascii_case(baseline) {
+                let reason = "Estado atual diverge do baseline histórico; regra ignorada por segurança.".to_string();
+                ignored.push(service.name.clone());
+                items.push(ServicePreviewItem {
+                    service: service.name.clone(),
+                    current: service.start_type.clone(),
+                    proposed: None,
+                    incompatible: Some(reason),
+                    ignored: true,
+                });
+                continue;
+            }
+        }
+
         let incompatibility = if protected_disable(&rule.name, &rule.start_type) {
             Some("Serviço protegido não pode ser desativado.")
         } else if !valid_start_type(&service.start_type) {
@@ -276,39 +323,41 @@ pub(crate) fn preview(
         items.push(ServicePreviewItem {
             service: service.name.clone(),
             current: service.start_type.clone(),
-            proposed: Some(rule.start_type.clone()),
+            proposed: if incompatibility.is_none() { Some(rule.start_type.clone()) } else { None },
             incompatible: incompatibility.map(str::to_string),
-            ignored: false,
+            ignored: incompatibility.is_some(),
         });
     }
     for rule in rules.values() {
         if !installed.contains(&rule.name.to_ascii_lowercase()) {
             let reason = "Serviço não instalado.";
-            reasons.push(reason);
             items.push(ServicePreviewItem {
                 service: rule.name.clone(),
                 current: "não instalado".to_string(),
-                proposed: Some(rule.start_type.clone()),
+                proposed: None,
                 incompatible: Some(reason.to_string()),
-                ignored: false,
+                ignored: true,
             });
+            ignored.push(rule.name.clone());
         }
     }
     items.sort_by(|a, b| a.service.cmp(&b.service));
     ignored.sort();
+    ignored.dedup();
     let applicable = reasons.is_empty()
+        && profile.validated
         && selected != ProductProfile::Custom
         && APPLYABLE_PROFILES.contains(&selected);
-    let message = if reasons.is_empty() {
-        if applicable {
-            "Prévia pronta.".to_string()
-        } else {
-            "Perfil personalizado não aplica lista.".to_string()
-        }
-    } else {
+    let message = if !reasons.is_empty() {
         reasons.sort_unstable();
         reasons.dedup();
         reasons.join(" ")
+    } else if !profile.validated {
+        "Prévia heurística baseada no Black Viper. Aplicação bloqueada até validação em Windows real.".to_string()
+    } else if applicable {
+        "Prévia pronta.".to_string()
+    } else {
+        "Perfil personalizado não aplica lista.".to_string()
     };
     ServicePreview {
         profile: selected,
@@ -370,6 +419,9 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
     profile: &ServiceProfileFile,
 ) -> Result<(), String> {
     ensure_profile_has_validated_services(profile)?;
+    if !profile.defaults_validated {
+        return Err("A baseline de padrões do Windows ainda não foi validada para esta versão.".to_string());
+    }
     let system = backend.detect_system()?;
     if !profile_incompatibilities(&system, profile).is_empty() {
         return Err("Perfil não corresponde ao Windows detectado.".to_string());
@@ -525,9 +577,6 @@ fn profile_incompatibilities(
     }
     if system.edition != profile.edition {
         reasons.push("Edição do Windows incompatível.");
-    }
-    if !profile.validated {
-        reasons.push("Perfil ainda não validado.");
     }
     if profile.form_factor != FormFactor::Any {
         match &system.form_factor {
