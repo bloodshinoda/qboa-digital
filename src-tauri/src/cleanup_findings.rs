@@ -185,7 +185,7 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
                 report
                     .failure_details
                     .push(format!("{}: {error}", candidate.finding.path));
-            },
+            }
         }
     }
     Ok(report)
