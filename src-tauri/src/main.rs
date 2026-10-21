@@ -466,9 +466,25 @@ fn cleanup_heavy_temp(
     run_powershell(
         r#"
 $paths = @("$env:TEMP", "$env:WINDIR\Temp", "$env:WINDIR\Minidump", "$env:WINDIR\LiveKernelReports");
-foreach ($p in $paths) { if (Test-Path $p) { Get-ChildItem $p -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; } }
-Clear-RecycleBin -Force -ErrorAction SilentlyContinue;
-Write-Output 'Limpeza pesada concluída.';
+$removed = 0; $removedFiles = 0; [long]$freedBytes = 0; $failed = 0;
+foreach ($p in $paths) {
+  if (Test-Path -LiteralPath $p) {
+    foreach ($item in @(Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue)) {
+      try {
+        if ($item.PSIsContainer) { $files = @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue) }
+        else { $files = @($item) }
+        $removedFiles += $files.Count
+        $size = ($files | Measure-Object -Property Length -Sum).Sum
+        if ($size) { $freedBytes += [long]$size }
+        Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
+        $removed++
+      } catch { $failed++ ; Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message) }
+    }
+  }
+}
+try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+Write-Output ("Limpeza pesada: {0} item(ns)/pasta(s) removido(s), {1} falha(s)." -f $removed, $failed)
+Write-Output ("QBOA_METRICS files={0} bytes={1} registry=0" -f $removedFiles, $freedBytes)
 "#,
         execution_id,
         on_output,
