@@ -38,9 +38,15 @@ pub(crate) fn assess(
     .to_lowercase();
 
     let mut indicators = Vec::new();
-    if ["revios", "atlasos", "tiny11", "ghost spectre", "ghostspectre"]
-        .iter()
-        .any(|marker| identity.contains(marker))
+    if [
+        "revios",
+        "atlasos",
+        "tiny11",
+        "ghost spectre",
+        "ghostspectre",
+    ]
+    .iter()
+    .any(|marker| identity.contains(marker))
     {
         indicators.push(format!(
             "Identificação do Windows contém um nome de distribuição modificada: {}",
@@ -154,7 +160,14 @@ mod tests {
 
     #[test]
     fn recognizes_revi_os_in_windows_identity() {
-        let result = assess(Some("ReviOS 10"), None, Some("Professional"), None, &[], &[]);
+        let result = assess(
+            Some("ReviOS 10"),
+            None,
+            Some("Professional"),
+            None,
+            &[],
+            &[],
+        );
         assert!(result.use_conservative_repair);
         assert!(result.summary.contains("conservadora"));
     }
