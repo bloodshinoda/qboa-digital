@@ -700,7 +700,10 @@ fn count_mru_registry_keys(snapshot_location: &str) -> u64 {
     let Ok(snapshot) = serde_json::from_slice::<serde_json::Value>(&contents) else {
         return 0;
     };
-    let Some(entries) = snapshot.get("registry").and_then(serde_json::Value::as_array) else {
+    let Some(entries) = snapshot
+        .get("registry")
+        .and_then(serde_json::Value::as_array)
+    else {
         return 0;
     };
     let roots = [
@@ -710,13 +713,19 @@ fn count_mru_registry_keys(snapshot_location: &str) -> u64 {
     ];
     let mut paths = std::collections::HashSet::new();
     for entry in entries {
-        let hive = entry.get("hive").and_then(serde_json::Value::as_str).unwrap_or("");
-        let path = entry.get("path").and_then(serde_json::Value::as_str).unwrap_or("");
+        let hive = entry
+            .get("hive")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let path = entry
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         let normalized = path.to_ascii_lowercase();
         if hive.eq_ignore_ascii_case("CurrentUser")
-            && roots.iter().any(|root| {
-                normalized == *root || normalized.starts_with(&format!("{root}\\"))
-            })
+            && roots
+                .iter()
+                .any(|root| normalized == *root || normalized.starts_with(&format!("{root}\\")))
         {
             paths.insert(normalized);
         }
