@@ -94,6 +94,20 @@
     <ul id="service-profile-ignored" class="service-profile-preview"></ul>
   </section>
 
+  <section class="capability-inventory-panel" id="capability-inventory-panel" hidden>
+    <div class="capability-heading">
+      <div>
+        <h2>Inventário de capacidades</h2>
+        <p>Coleta somente de leitura. Um recurso não detectado não significa necessariamente que o hardware esteja ausente.</p>
+      </div>
+      <button id="capability-refresh-btn" type="button">Atualizar inventário</button>
+    </div>
+    <p id="capability-status" aria-live="polite">O inventário ainda não foi coletado nesta sessão.</p>
+    <div id="capability-system" class="capability-system"></div>
+    <div id="capability-list" class="capability-list"></div>
+    <ul id="capability-warnings" class="capability-warnings"></ul>
+  </section>
+
   <section class="console" id="console">
     <div class="console-title">Registro de atividades</div>
     <pre id="console-output"></pre>
