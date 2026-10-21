@@ -154,7 +154,12 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
     let detected = detect_actions(backend)?;
     let mut report = CleanupExecutionReport::default();
     for candidate in detected {
-        if !candidate.finding.profiles.iter().any(|value| value == profile) {
+        if !candidate
+            .finding
+            .profiles
+            .iter()
+            .any(|value| value == profile)
+        {
             continue;
         }
         let file_size = match &candidate.action {
@@ -1040,7 +1045,8 @@ mod tests {
             }],
             uninstall_entries: vec![UninstallObservation {
                 hive: "LocalMachine".to_string(),
-                key_path: r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Example".to_string(),
+                key_path: r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Example"
+                    .to_string(),
                 display_name: "Example".to_string(),
                 evidence_paths: vec![PathBuf::from(r"C:\Program Files\Example\app.exe")],
             }],
