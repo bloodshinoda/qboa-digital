@@ -567,7 +567,11 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             edition,
             edition_id: data.edition_id,
             supported,
-            form_factor: match data.form_factor.as_str() {\n                "Desktop" => Some(FormFactor::Desktop),\n                "Notebook" => Some(FormFactor::Notebook),\n                _ => None,\n            },
+            form_factor: match data.form_factor.as_str() {
+                "Desktop" => Some(FormFactor::Desktop),
+                "Notebook" => Some(FormFactor::Notebook),
+                _ => None,
+            },
             services: data.services,
         })
     }
