@@ -909,8 +909,14 @@ mod tests {
 
     #[test]
     fn hardware_form_factor_detection_rejects_unknown_values() {
-        assert_eq!(classify_form_factor(Some(1), &[3], false), Some(FormFactor::Desktop));
-        assert_eq!(classify_form_factor(Some(2), &[9], true), Some(FormFactor::Notebook));
+        assert_eq!(
+            classify_form_factor(Some(1), &[3], false),
+            Some(FormFactor::Desktop)
+        );
+        assert_eq!(
+            classify_form_factor(Some(2), &[9], true),
+            Some(FormFactor::Notebook)
+        );
         assert_eq!(classify_form_factor(Some(1), &[3], true), None);
         assert_eq!(classify_form_factor(None, &[], false), None);
     }
