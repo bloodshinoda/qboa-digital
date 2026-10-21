@@ -17,7 +17,7 @@ Mapeamento dos quatro controles do QBoa:
 
 A configuração padrão de referência é histórica (Windows 10 April 2018 Update). Ela **não** é tratada como baseline confiável para restaurar padrões em versões modernas. O QBoa compara o tipo de inicialização atual com o baseline histórico e omite regras divergentes; isso é uma heurística conservadora, não uma prova de equivalência entre builds.
 
-Os catálogos permanecem com aplicação bloqueada até validação prática. Os arquivos de Windows 11 não herdam automaticamente as regras do Windows 10: a fonte contém uma lista padrão do Windows 11, mas não fornece perfis Safe/Tweaked equivalentes atuais. Regras condicionais a desktop exigem evidência de hardware inequívoca e ausência de bateria; se a detecção for inconclusiva, essas regras são omitidas.
+Os catálogos de Windows 10 Home/Pro permitem aplicação heurística limitada, mas permanecem marcados como não validados. Só são elegíveis regras cujo tipo de inicialização atual coincide com o baseline histórico; isso pode omitir muitos serviços em builds modernas. A restauração de padrões continua bloqueada até existir baseline validada para a versão detectada. Os arquivos de Windows 11 não herdam automaticamente as regras do Windows 10: a fonte contém uma lista padrão do Windows 11, mas não fornece perfis Safe/Tweaked equivalentes atuais, então a aplicação fica bloqueada nessas edições. Regras condicionais a desktop exigem evidência de hardware inequívoca e ausência de bateria; se a detecção for inconclusiva, essas regras são omitidas.
 
 ## Aviso de licença da fonte
 
