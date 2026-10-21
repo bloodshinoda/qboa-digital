@@ -91,7 +91,7 @@ foreach ($path in @((Join-Path $env:ProgramData 'ReviOS'), (Join-Path $env:WINDI
 $disabled = @()
 foreach ($name in @('wuauserv', 'BITS', 'cryptsvc', 'TrustedInstaller')) {
   $service = Get-CimInstance Win32_Service -Filter ("Name='" + $name + "'")
-  if ($service -and ($service.StartMode -eq 'Disabled' -or $service.State -eq 'Stopped' -and $name -in @('wuauserv','BITS'))) {
+  if ($service -and ($service.StartMode -eq 'Disabled')) {
     $disabled += ($name + ' (' + $service.StartMode + ', ' + $service.State + ')')
   }
 }
@@ -106,7 +106,14 @@ foreach ($name in @('wuauserv', 'BITS', 'cryptsvc', 'TrustedInstaller')) {
 "#;
 
     let mut command = Command::new("powershell");
-    command.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]);
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ]);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
