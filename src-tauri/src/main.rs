@@ -637,7 +637,6 @@ fn apply_registry_task(
     ))
 }
 
-
 #[cfg(target_os = "windows")]
 fn apply_cleanup_findings(
     profile: &str,
@@ -726,7 +725,7 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa manterá o DISM padrão, sem inventar uma origem de reparo.");
             }
-            on_output("[Etapa 1/4] Limpando temporários, caches e lixeira...");
+            on_output("[Etapa 1/5] Limpando temporários, caches e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -734,7 +733,7 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output("[Etapa 2/4] Executando a Limpeza de Disco do Windows (cleanmgr)...");
+            on_output("[Etapa 2/5] Executando a Limpeza de Disco do Windows (cleanmgr)...");
             let part_2 = run_system_command(
                 "cleanmgr",
                 &["/verylowdisk"],
@@ -742,7 +741,7 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            on_output("[Etapa 3/4] Processando o cache temporário do Windows Update...");
+            on_output("[Etapa 3/5] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output(
                 "[Etapa 4/5] Removendo atalhos quebrados e associações inválidas confirmadas...",
@@ -768,6 +767,7 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa preservará a base de componentes e não executará /ResetBase, pois isso impede a desinstalação de atualizações instaladas.");
             }
+            on_output("[Etapa 1/8] Limpando temporários, caches e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -775,7 +775,9 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
+            on_output("[Etapa 2/8] Limpando diretórios temporários avançados e relatórios de falha...");
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
+            on_output("[Etapa 3/8] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output("[Etapa 4/8] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
             let findings = apply_cleanup_findings("deep", on_output);
