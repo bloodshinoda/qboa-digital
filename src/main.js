@@ -1203,10 +1203,15 @@ async function registerEvents() {
   document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
     if (!serviceProfileState?.profile?.validated) return;
     const profile = document.getElementById("service-profile-select").value;
-    if (profile === "custom" || !(await askConfirmation("Aplicar este perfil de serviços?", "Aplicar perfil de serviços?"))) return;
+    const aggressive = profile === "aggressive";
+    const message = aggressive
+      ? "O preset Agressivo pode restringir funcionalidades opcionais do Windows. Confira a prévia, confirme que os recursos afetados não são necessários e mantenha um meio de recuperação disponível. Deseja continuar?"
+      : "O QBoa aplicará somente as alterações exibidas na prévia e registrará os tipos de inicialização anteriores para permitir a reversão. Deseja continuar?";
+    const title = aggressive ? "Aplicar preset Agressivo?" : "Aplicar preset de serviços?";
+    if (!(await askConfirmation(message, title))) return;
     try {
       await Qboa.applyServiceProfile(profile);
-      appendConsole("Perfil de serviços aplicado.");
+      appendConsole("Preset de serviços aplicado.");
     } catch (error) {
       appendConsole(String(error));
     }
