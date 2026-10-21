@@ -16,7 +16,7 @@
       <button class="level" data-level="express">Rápido</button>
       <button class="level" data-level="normal" aria-pressed="true">Equilibrado</button>
       <button class="level" data-level="turbo">Completo</button>
-      <button id="preset-run-btn" class="preset-button">Executar perfil</button>
+      <button id="preset-run-btn" class="preset-button">Executar limpeza</button>
     </div>
   </header>
 
@@ -32,7 +32,7 @@
       <option value="agressivo">Agressivo</option>
       <option value="personalizado">Personalizado</option>
     </select>
-    <button id="debloat-profile-run-btn" type="button">Executar perfil de limpeza</button>
+    <button id="debloat-profile-run-btn" type="button">Executar perfil avançado</button>
     <span id="debloat-profile-status" aria-live="polite"></span>
   </section>
 
@@ -139,7 +139,7 @@
       <input id="shutdown-on-complete" type="checkbox" />
       <span>Desligar ao concluir</span>
     </label>
-    <button id="cancel-task-btn" class="secondary-button">Cancelar tarefa</button>
+    <button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Cancelar tarefa</button>
   </div>
 
   <div id="risk-modal" class="risk-modal hidden" aria-hidden="true">
