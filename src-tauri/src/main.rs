@@ -687,7 +687,7 @@ fn execute_task(
                 is_cancelled,
             )?;
             let part_5 = if conservative_repair {
-                on_output("[Etapa 5/6] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
+                on_output("[Etapa 5/7] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
                 "DISM /ResetBase ignorado por política conservadora.".to_string()
             } else {
                 on_output("[Etapa 5/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
