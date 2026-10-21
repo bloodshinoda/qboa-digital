@@ -139,6 +139,44 @@ pub(crate) fn delete_by_id<B: CleanupFindingBackend>(
     backend.delete(&detected.action)
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CleanupExecutionReport {
+    pub files_removed: u64,
+    pub registry_entries_removed: u64,
+    pub bytes_freed: u64,
+    pub failures: u64,
+}
+
+pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
+    backend: &mut B,
+    profile: &str,
+) -> Result<CleanupExecutionReport, String> {
+    let detected = detect_actions(backend)?;
+    let mut report = CleanupExecutionReport::default();
+    for candidate in detected {
+        if !candidate.finding.profiles.iter().any(|value| value == profile) {
+            continue;
+        }
+        let file_size = match &candidate.action {
+            FindingAction::DeleteShortcut(path) => std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0),
+            _ => 0,
+        };
+        match backend.delete(&candidate.action) {
+            Ok(()) => match candidate.action {
+                FindingAction::DeleteShortcut(_) => {
+                    report.files_removed += 1;
+                    report.bytes_freed = report.bytes_freed.saturating_add(file_size);
+                }
+                FindingAction::DeleteAssociation { .. } | FindingAction::DeleteUninstallEntry { .. } => {
+                    report.registry_entries_removed += 1;
+                }
+            },
+            Err(_) => report.failures += 1,
+        }
+    }
+    Ok(report)
+}
+
 fn detect_actions<B: CleanupFindingBackend>(
     backend: &mut B,
 ) -> Result<Vec<DetectedFinding>, String> {
