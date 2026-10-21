@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 const ASSOCIATION_EXTENSIONS: &[&str] = &[
     ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".zip", ".7z", ".rar",
@@ -651,15 +653,19 @@ fn run_powershell(script: &str) -> Result<String, String> {
             .flat_map(u16::to_le_bytes)
             .collect::<Vec<_>>(),
     );
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-EncodedCommand",
-            &encoded_script,
-        ])
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        &encoded_script,
+    ]);
+    // A verificação inspeciona atalhos e pode iniciar o PowerShell repetidamente.
+    // Impede que cada processo abra uma janela visível sobre a interface do QBoa.
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = command
         .output()
         .map_err(|error| format!("Não foi possível iniciar a verificação: {error}"))?;
     if !output.status.success() {
