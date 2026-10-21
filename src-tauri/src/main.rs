@@ -1425,7 +1425,11 @@ async fn list_windows_services() -> Result<Vec<service_manager::ServiceEntry>, S
 }
 
 #[tauri::command]
-async fn manage_windows_service(name: String, action: String, start_type: Option<String>) -> Result<String, String> {
+async fn manage_windows_service(
+    name: String,
+    action: String,
+    start_type: Option<String>,
+) -> Result<String, String> {
     service_manager::manage_service(&name, &action, start_type.as_deref())
 }
 
