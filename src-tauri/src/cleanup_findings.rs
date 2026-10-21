@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
 
 const ASSOCIATION_EXTENSIONS: &[&str] = &[
     ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".zip", ".7z", ".rar",
