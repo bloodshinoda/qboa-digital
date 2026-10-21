@@ -19,7 +19,8 @@ const PROTECTED_SERVICES: &[&str] = &["wuauserv", "WinDefend", "Dhcp", "RpcSs", 
 const APPLYABLE_PROFILES: &[ProductProfile] = &[
     ProductProfile::Recommended,
     ProductProfile::Safe,
-    ProductProfile::Tweaked,
+    ProductProfile::Refined,
+    ProductProfile::Aggressive,
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -53,7 +54,8 @@ pub(crate) enum FormFactor {
 pub(crate) enum ProductProfile {
     Recommended,
     Safe,
-    Tweaked,
+    Refined,
+    Aggressive,
     Custom,
 }
 
@@ -131,7 +133,8 @@ pub(crate) fn product_profiles() -> Vec<ProductProfile> {
     vec![
         ProductProfile::Recommended,
         ProductProfile::Safe,
-        ProductProfile::Tweaked,
+        ProductProfile::Refined,
+        ProductProfile::Aggressive,
         ProductProfile::Custom,
     ]
 }
