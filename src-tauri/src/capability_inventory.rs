@@ -24,6 +24,8 @@ fn collect_windows() -> Result<CapabilityInventory, String> {
     use std::{os::windows::process::CommandExt, process::Command};
     const SCRIPT: &str = r#"
 $ErrorActionPreference='Stop'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = [Console]::OutputEncoding
 $warnings=[System.Collections.Generic.List[string]]::new()
 $caps=[System.Collections.Generic.List[object]]::new()
 $all=@();$present=@();$pnpOk=$false
