@@ -272,8 +272,8 @@ async function loadWindowsServices() {
   status.textContent = "Consultando serviços do Windows...";
   try {
     windowsServices = await Qboa.listWindowsServices();
-    renderWindowsServices();
     status.textContent = `${windowsServices.length} serviço(s) encontrado(s). Serviços protegidos não podem ser parados, reiniciados ou desativados.`;
+    renderWindowsServices();
   } catch (error) {
     windowsServices = [];
     renderWindowsServices();
