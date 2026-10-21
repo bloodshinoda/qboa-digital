@@ -657,8 +657,13 @@ fn apply_cleanup_findings(
             report
         }
         Err(error) => {
-            on_output(&format!("A varredura integrada não pôde ser concluída: {error}. A limpeza principal continuará."));
-            cleanup_findings::CleanupExecutionReport { failures: 1, ..Default::default() }
+            on_output(&format!(
+                "A varredura integrada não pôde ser concluída: {error}. A limpeza principal continuará."
+            ));
+            cleanup_findings::CleanupExecutionReport {
+                failures: 1,
+                ..Default::default()
+            }
         }
     }
 }
