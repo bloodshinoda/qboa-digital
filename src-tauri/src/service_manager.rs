@@ -138,7 +138,7 @@ $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_name
 $svc=Get-Service -Name $name -ErrorAction Stop
 Start-Service -InputObject $svc -ErrorAction Stop
 $svc.Refresh()
-Write-Output ("Serviço {0}: {1}" -f $svc.Name, $svc.Status)
+Write-Output ("Serviço {{0}}: {{1}}" -f $svc.Name, $svc.Status)
 "#
             ),
             "stop" => format!(
@@ -148,7 +148,7 @@ $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_name
 $svc=Get-Service -Name $name -ErrorAction Stop
 Stop-Service -InputObject $svc -ErrorAction Stop
 $svc.Refresh()
-Write-Output ("Serviço {0}: {1}" -f $svc.Name, $svc.Status)
+Write-Output ("Serviço {{0}}: {{1}}" -f $svc.Name, $svc.Status)
 "#
             ),
             "restart" => format!(
@@ -158,7 +158,7 @@ $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_name
 $svc=Get-Service -Name $name -ErrorAction Stop
 Restart-Service -InputObject $svc -ErrorAction Stop
 $svc.Refresh()
-Write-Output ("Serviço {0}: {1}" -f $svc.Name, $svc.Status)
+Write-Output ("Serviço {{0}}: {{1}}" -f $svc.Name, $svc.Status)
 "#
             ),
             "set_start_type" => {
@@ -174,7 +174,7 @@ $ErrorActionPreference='Stop'
 $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_name}'))
 $svc=Get-Service -Name $name -ErrorAction Stop
 Set-Service -InputObject $svc -StartupType {start} -ErrorAction Stop
-Write-Output ("Inicialização de {0} alterada para {1}" -f $svc.Name, '{start}')
+Write-Output ("Inicialização de {{0}} alterada para {{1}}" -f $svc.Name, '{start}')
 "#
                 )
             }
