@@ -690,3 +690,34 @@ button.secondary-button:hover:not(:disabled),
 button.copy-pix-button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
 }
+
+
+.capability-inventory-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0 24px 16px;
+  padding: 16px;
+  background: var(--qboa-panel);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px;
+}
+.capability-inventory-panel[hidden] { display: none; }
+.capability-heading, .capability-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.capability-heading h2 { margin: 0 0 6px; }
+.capability-heading p, .capability-card p { margin: 4px 0 10px; line-height: 1.45; }
+.capability-system { margin: 12px 0; padding: 10px 12px; border-radius: 8px; background: var(--qboa-panel-strong); }
+.capability-system p { margin: 3px 0; font-size: .85rem; }
+.capability-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.capability-card { min-width: 0; padding: 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; background: var(--qboa-panel); }
+.capability-card h3 { margin: 0; font-size: .95rem; }
+.capability-card p { font-size: .82rem; overflow-wrap: anywhere; }
+.capability-card small { display: block; opacity: .78; font-size: .72rem; overflow-wrap: anywhere; }
+.capability-card details { margin-top: 10px; font-size: .78rem; }
+.capability-card summary { cursor: pointer; }
+.capability-card details ul { padding-left: 18px; overflow-wrap: anywhere; }
+.capability-state { flex-shrink: 0; padding: 4px 7px; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; font-size: .68rem; }
+.state-unknown, .state-not_detected, .state-registered_not_present { opacity: .78; }
+.state-disabled { border-color: #ffd166; color: #ffd166; }
+.capability-warnings { color: #ffd166; font-size: .8rem; }
+@media (max-width: 720px) { .capability-heading { flex-direction: column; } .capability-list { grid-template-columns: 1fr; } }
