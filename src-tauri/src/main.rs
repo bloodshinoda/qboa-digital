@@ -672,7 +672,15 @@ fn apply_cleanup_findings(
 }
 
 fn findings_summary(report: &cleanup_findings::CleanupExecutionReport) -> String {
-    format!("Varredura integrada: {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).", report.files_removed, report.registry_entries_removed, report.failures)
+    format!(
+        "Varredura integrada: {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).\nQBOA_METRICS files={} bytes={} registry={}",
+        report.files_removed,
+        report.registry_entries_removed,
+        report.failures,
+        report.files_removed,
+        report.bytes_freed,
+        report.registry_entries_removed
+    )
 }
 
 fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64) {
@@ -1485,12 +1493,6 @@ async fn get_session_history() -> Result<Vec<safety::ChangeRecord>, String> {
 }
 
 #[tauri::command]
-async fn get_cleanup_findings() -> Result<Vec<cleanup_findings::CleanupFinding>, String> {
-    let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
-    cleanup_findings::detect(&mut backend)
-}
-
-#[tauri::command]
 async fn run_diagnostic_check(
     mode: diagnostics::DiagnosticMode,
 ) -> Result<diagnostics::DiagnosticReport, String> {
@@ -1501,12 +1503,6 @@ async fn run_diagnostic_check(
 #[tauri::command]
 async fn get_capability_inventory() -> Result<capability_inventory::CapabilityInventory, String> {
     capability_inventory::collect()
-}
-
-#[tauri::command]
-async fn delete_cleanup_finding(finding_id: String, confirmed: bool) -> Result<(), String> {
-    let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
-    cleanup_findings::delete_by_id(&mut backend, &finding_id, confirmed)
 }
 
 #[derive(Clone, Serialize)]
@@ -1612,12 +1608,10 @@ fn main() {
             create_restore_point,
             rollback_session,
             get_session_history,
-            get_cleanup_findings,
             run_diagnostic_check,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
-            delete_cleanup_finding,
             get_service_profile_state,
             preview_service_profile,
             apply_service_profile,
