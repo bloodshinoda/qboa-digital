@@ -65,6 +65,10 @@ pub(crate) struct ServiceRule {
     pub start_type: String,
     pub windows_default_start_type: Option<String>,
     pub profiles: Vec<ProductProfile>,
+    #[serde(default)]
+    pub form_factor: Option<FormFactor>,
+    #[serde(default)]
+    pub requires_no_battery: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -91,6 +95,7 @@ pub(crate) struct DetectedSystem {
     pub edition_id: String,
     pub supported: bool,
     pub form_factor: Option<FormFactor>,
+    pub battery_present: Option<bool>,
     pub services: Vec<InstalledService>,
 }
 
@@ -230,7 +235,7 @@ pub(crate) fn preview(
         profile
             .services
             .iter()
-            .filter(|rule| rule.profiles.contains(&selected))
+            .filter(|rule| rule.profiles.contains(&selected) && rule_applies_to_system(rule, system))
             .map(|rule| (rule.name.to_ascii_lowercase(), rule))
             .collect()
     };
@@ -319,14 +324,16 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     selected: ProductProfile,
 ) -> Result<(), String> {
     ensure_profile_has_validated_services(profile)?;
+    let system = backend.detect_system()?;
     if selected != ProductProfile::Custom
         && profile.services.iter().any(|rule| {
-            rule.profiles.contains(&selected) && protected_disable(&rule.name, &rule.start_type)
+            rule.profiles.contains(&selected)
+                && rule_applies_to_system(rule, &system)
+                && protected_disable(&rule.name, &rule.start_type)
         })
     {
         return Err("Perfil solicita desativar um serviço protegido.".to_string());
     }
-    let system = backend.detect_system()?;
     let preview = preview(&system, profile, selected);
     if !preview.applicable {
         return Err(format!("Perfil não aplicável: {}", preview.message));
@@ -367,6 +374,9 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
     }
     let mut defaults = Vec::new();
     for rule in &profile.services {
+        if !rule_applies_to_system(rule, &system) {
+            continue;
+        }
         let start_type = rule
             .windows_default_start_type
             .as_deref()
@@ -433,6 +443,18 @@ fn ensure_profile_has_validated_services(profile: &ServiceProfileFile) -> Result
         return Err("Perfil ainda não validado.".to_string());
     }
     Ok(())
+}
+
+fn rule_applies_to_system(rule: &ServiceRule, system: &DetectedSystem) -> bool {
+    if let Some(required_form_factor) = &rule.form_factor {
+        if system.form_factor.as_ref() != Some(required_form_factor) {
+            return false;
+        }
+    }
+    if rule.requires_no_battery && system.battery_present != Some(false) {
+        return false;
+    }
+    true
 }
 
 fn parse_form_factor(value: &str) -> Option<FormFactor> {
@@ -559,7 +581,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
         $serviceKey.Dispose()
     }
 }
-[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; form_factor=$formFactor; services=@($services) } | ConvertTo-Json -Depth 5 -Compress
+[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; form_factor=$formFactor; has_battery=($batteryDevices.Count -gt 0); services=@($services) } | ConvertTo-Json -Depth 5 -Compress
 "#;
         let data: WindowsSystemData = run_powershell_json(script)?;
         let os = match data.version.as_str() {
@@ -576,6 +598,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             edition_id: data.edition_id,
             supported,
             form_factor: parse_form_factor(&data.form_factor),
+            battery_present: Some(data.has_battery),
             services: data.services,
         })
     }
@@ -643,6 +666,7 @@ struct WindowsSystemData {
     build: String,
     edition_id: String,
     form_factor: String,
+    has_battery: bool,
     services: Vec<InstalledService>,
 }
 
@@ -826,6 +850,7 @@ mod tests {
             supported: edition != WindowsEdition::Unknown,
             edition,
             form_factor: Some(FormFactor::Desktop),
+            battery_present: Some(false),
             services: vec![
                 InstalledService {
                     name: "ExampleSvc".to_string(),
@@ -1008,6 +1033,8 @@ mod tests {
             name: "ExampleSvc".to_string(),
             start_type: "Manual".to_string(),
             windows_default_start_type: None,
+            form_factor: None,
+            requires_no_battery: false,
             profiles: vec![ProductProfile::Safe],
         });
         let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
@@ -1036,6 +1063,8 @@ mod tests {
                 name: name.to_string(),
                 start_type: "Disabled".to_string(),
                 windows_default_start_type: None,
+                form_factor: None,
+                requires_no_battery: false,
                 profiles: vec![ProductProfile::Safe],
             });
             let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
@@ -1089,6 +1118,8 @@ mod tests {
             name: "ExampleSvc".to_string(),
             start_type: "Manual".to_string(),
             windows_default_start_type: Some("Automatic".to_string()),
+            form_factor: None,
+            requires_no_battery: false,
             profiles: vec![ProductProfile::Safe],
         });
         let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
@@ -1118,6 +1149,8 @@ mod tests {
                 name: name.to_string(),
                 start_type: "Manual".to_string(),
                 windows_default_start_type: None,
+                form_factor: None,
+                requires_no_battery: false,
                 profiles: vec![ProductProfile::Safe],
             })
             .collect();
@@ -1159,6 +1192,8 @@ mod tests {
             name: "ExampleSvc".to_string(),
             start_type: "Manual".to_string(),
             windows_default_start_type: Some("Automatic".to_string()),
+            form_factor: None,
+            requires_no_battery: false,
             profiles: vec![ProductProfile::Safe],
         });
         let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
@@ -1206,6 +1241,8 @@ mod tests {
             name: "ExampleSvc".to_string(),
             start_type: "Disabled".to_string(),
             windows_default_start_type: None,
+            form_factor: None,
+            requires_no_battery: false,
             profiles: vec![ProductProfile::Custom],
         });
         let result = preview(
