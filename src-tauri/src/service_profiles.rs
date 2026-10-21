@@ -435,6 +435,15 @@ fn ensure_profile_has_validated_services(profile: &ServiceProfileFile) -> Result
     Ok(())
 }
 
+fn parse_form_factor(value: &str) -> Option<FormFactor> {
+    match value {
+        "Desktop" => Some(FormFactor::Desktop),
+        "Notebook" => Some(FormFactor::Notebook),
+        "Any" => Some(FormFactor::Any),
+        _ => None,
+    }
+}
+
 fn edition_label(edition: &WindowsEdition) -> &'static str {
     match edition {
         WindowsEdition::Home => "Home",
@@ -566,11 +575,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             edition,
             edition_id: data.edition_id,
             supported,
-            form_factor: match data.form_factor.as_str() {
-                "Desktop" => Some(FormFactor::Desktop),
-                "Notebook" => Some(FormFactor::Notebook),
-                _ => None,
-            },
+            form_factor: parse_form_factor(&data.form_factor),
             services: data.services,
         })
     }
@@ -845,6 +850,18 @@ mod tests {
             saved: Vec::new(),
             changes: Vec::new(),
         }
+    }
+
+    #[test]
+    fn only_four_public_service_presets_are_available() {
+        assert_eq!(product_profiles(), vec![ProductProfile::Recommended, ProductProfile::Safe, ProductProfile::Refined, ProductProfile::Aggressive]);
+    }
+
+    #[test]
+    fn hardware_form_factor_detection_rejects_unknown_values() {
+        assert_eq!(parse_form_factor("Desktop"), Some(FormFactor::Desktop));
+        assert_eq!(parse_form_factor("Notebook"), Some(FormFactor::Notebook));
+        assert_eq!(parse_form_factor("Unknown"), None);
     }
 
     #[test]
