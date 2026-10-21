@@ -162,6 +162,18 @@ function renderTabs() {
   tabsEl.appendChild(contributionTab);
 }
 
+function syncExecutionControls() {
+  const running = Boolean(activeTaskId);
+  const presetButton = document.getElementById("preset-run-btn");
+  const debloatButton = document.getElementById("debloat-profile-run-btn");
+  const cancelButton = document.getElementById("cancel-task-btn");
+
+  cancelButton.hidden = !running;
+  cancelButton.disabled = !running;
+  presetButton.disabled = running || Boolean(debloatProfileQueue) || activeSection === "servicos";
+  debloatButton.disabled = running || Boolean(debloatProfileQueue);
+}
+
 function renderCards() {
   const cardsEl = document.getElementById("cards");
   const dashboard = document.querySelector(".dashboard");
@@ -173,7 +185,8 @@ function renderCards() {
   serviceProfilePanel.hidden = activeSection !== "servicos";
   capabilityPanel.hidden = activeSection !== "capacidades";
   dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
-  document.getElementById("preset-run-btn").disabled = activeSection === "servicos";
+  document.querySelector(".levels").hidden = activeSection !== "limpeza";
+  syncExecutionControls();
   cardsEl.innerHTML = "";
   if (activeSection === "servicos" || activeSection === "capacidades") { if (activeSection === "servicos" && !windowsServices.length) void loadWindowsServices(); return; }
   if (activeSection === "contribuir") {
@@ -660,8 +673,8 @@ async function runTask(item, cardEl) {
 function stopDebloatProfileQueue(message) {
   if (!debloatProfileQueue) return;
   debloatProfileQueue = null;
-  document.getElementById("debloat-profile-run-btn").disabled = false;
   document.getElementById("debloat-profile-status").textContent = message;
+  syncExecutionControls();
 }
 
 async function runNextDebloatProfileTask() {
@@ -975,6 +988,7 @@ async function registerEvents() {
     if (payload.event === "task-started") {
       activeTaskId = payload.task_id;
       activeExecutionId = payload.execution_id;
+      syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
@@ -995,6 +1009,7 @@ async function registerEvents() {
               activeExecutionId = null;
               if (activeTaskId === payload.task_id) activeTaskId = null;
             }
+            syncExecutionControls();
             if (debloatProfileQueue?.currentTaskId === payload.task_id) {
               stopDebloatProfileQueue("Perfil interrompido porque o ponto de restauração não foi criado.");
             }
@@ -1025,6 +1040,7 @@ async function registerEvents() {
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
+      syncExecutionControls();
       refreshHistory();
       if (debloatProfileQueue?.currentTaskId === payload.task_id) {
         debloatProfileQueue.currentTaskId = null;
@@ -1043,6 +1059,7 @@ async function registerEvents() {
 
 (async function init() {
   await loadStructure();
+  syncExecutionControls();
   renderTabs();
   renderSectionSummary();
   renderCards();
