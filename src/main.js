@@ -177,8 +177,6 @@ function renderCards() {
   const profileControls = document.getElementById("debloat-profile-controls");
   const serviceProfilePanel = document.getElementById("service-profile-panel");
   const capabilityPanel = document.getElementById("capability-inventory-panel");
-  const serviceInventoryPanel = document.getElementById("service-inventory-panel");
-  serviceInventoryPanel.hidden = activeSection !== "servicos";
   profileControls.hidden = activeSection !== "limpeza";
   serviceProfilePanel.hidden = activeSection !== "servicos";
   capabilityPanel.hidden = activeSection !== "capacidades";
@@ -1165,7 +1163,11 @@ async function registerEvents() {
     if (event.key !== "Escape") return;
     const confirmationModal = document.getElementById("confirmation-modal");
     const riskModal = document.getElementById("risk-modal");
-    if (!confirmationModal.classList.contains("hidden")) {
+    const serviceInventoryModal = document.getElementById("service-inventory-modal");
+    if (!serviceInventoryModal.classList.contains("hidden")) {
+      serviceInventoryModal.classList.add("hidden");
+      serviceInventoryModal.setAttribute("aria-hidden", "true");
+    } else if (!confirmationModal.classList.contains("hidden")) {
       closeConfirmationModal(false);
     } else if (!riskModal.classList.contains("hidden")) {
       if (pendingTask?.profileQueue) {
@@ -1240,6 +1242,22 @@ async function registerEvents() {
 
   document.getElementById("capability-refresh-btn").addEventListener("click", () => {
     void loadCapabilityInventory();
+  });
+
+  const serviceInventoryModal = document.getElementById("service-inventory-modal");
+  const closeServiceInventory = () => {
+    serviceInventoryModal.classList.add("hidden");
+    serviceInventoryModal.setAttribute("aria-hidden", "true");
+  };
+  document.getElementById("open-service-inventory").addEventListener("click", () => {
+    serviceInventoryModal.classList.remove("hidden");
+    serviceInventoryModal.setAttribute("aria-hidden", "false");
+    document.getElementById("close-service-inventory").focus();
+    if (!windowsServices.length) void loadWindowsServices();
+  });
+  document.getElementById("close-service-inventory").addEventListener("click", closeServiceInventory);
+  serviceInventoryModal.addEventListener("click", (event) => {
+    if (event.target === serviceInventoryModal) closeServiceInventory();
   });
 
   document.getElementById("service-profile-preview-btn").addEventListener("click", async (event) => {
