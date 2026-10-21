@@ -751,9 +751,12 @@ fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64, u64) {
             }
         }
         if line.contains("falha(s)") && seen_failure_lines.insert(line.trim().to_string()) {
-            let count = line
-                .split_whitespace()
-                .find_map(|part| part.strip_suffix("falha(s)").and_then(|n| n.parse::<u64>().ok()))
+            let parts = line.split_whitespace().collect::<Vec<_>>();
+            let count = parts
+                .iter()
+                .position(|part| part.contains("falha(s)"))
+                .and_then(|index| index.checked_sub(1))
+                .and_then(|index| parts[index].trim_matches(|ch: char| !ch.is_ascii_digit()).parse::<u64>().ok())
                 .unwrap_or(0);
             failures = failures.saturating_add(count);
         }
@@ -769,7 +772,7 @@ fn format_cleanup_summary(
     elapsed_label: &str,
 ) -> String {
     format!(
-        "Resumo da execução:\\n- {files} arquivos removidos\\n- {registry} chaves/entradas de Registro excluídas\\n- {:.1} MB liberados (estimativa)\\n- Tempo de execução: {elapsed_label}\\n\\n- Total de erros durante execução: {failures}",
+        "Resumo da execução:\n- {files} arquivos removidos\n- {registry} chaves/entradas de Registro excluídas\n- {:.1} MB liberados (estimativa)\n- Tempo de execução: {elapsed_label}\n\n- Total de erros durante execução: {failures}",
         bytes as f64 / 1_000_000.0
     )
 }
@@ -788,7 +791,7 @@ fn clean_final_cleanup_output(output: &str) -> String {
                 && !line.starts_with("Varredura integrada:")
         })
         .collect::<Vec<_>>()
-        .join("\\n")
+        .join("\n")
 }
 
 fn execute_task(
@@ -1256,7 +1259,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 let output = if cleaned_output.trim().is_empty() {
                     summary.clone()
                 } else {
-                    format!("{cleaned_output}\\n\\n{summary}")
+                    format!("{cleaned_output}\n\n{summary}")
                 };
                 write_execution_log(
                     &execution_id_for_spawn,
