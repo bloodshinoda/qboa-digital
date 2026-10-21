@@ -879,7 +879,15 @@ mod tests {
 
     #[test]
     fn only_four_public_service_presets_are_available() {
-        assert_eq!(product_profiles(), vec![ProductProfile::Recommended, ProductProfile::Safe, ProductProfile::Refined, ProductProfile::Aggressive]);
+        assert_eq!(
+            product_profiles(),
+            vec![
+                ProductProfile::Recommended,
+                ProductProfile::Safe,
+                ProductProfile::Refined,
+                ProductProfile::Aggressive,
+            ]
+        );
     }
 
     #[test]
