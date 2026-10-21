@@ -59,6 +59,10 @@ const Qboa = {
     return invoke("run_diagnostic_check", { mode });
   },
 
+  async getCapabilityInventory() {
+    return invoke("get_capability_inventory");
+  },
+
   async deleteCleanupFinding(findingId) {
     return invoke("delete_cleanup_finding", { findingId, confirmed: true });
   },
@@ -137,6 +141,18 @@ function renderTabs() {
   });
   tabsEl.appendChild(serviceTab);
 
+  const capabilityTab = document.createElement("button");
+  capabilityTab.className = "tab" + (activeSection === "capacidades" ? " active" : "");
+  capabilityTab.textContent = "Capacidades";
+  capabilityTab.addEventListener("click", () => {
+    activeSection = "capacidades";
+    renderTabs();
+    document.getElementById("section-summary").textContent = "Inventário de hardware, firmware e recursos do Windows";
+    renderCards();
+    void loadCapabilityInventory();
+  });
+  tabsEl.appendChild(capabilityTab);
+
   const contributionTab = document.createElement("button");
   contributionTab.className = "tab" + (activeSection === "contribuir" ? " active" : "");
   contributionTab.textContent = "♡ Contribuir";
@@ -155,12 +171,14 @@ function renderCards() {
   const recoveryPanel = document.querySelector(".recovery-panel");
   const profileControls = document.getElementById("debloat-profile-controls");
   const serviceProfilePanel = document.getElementById("service-profile-panel");
+  const capabilityPanel = document.getElementById("capability-inventory-panel");
   profileControls.hidden = activeSection !== "desengordurar";
   serviceProfilePanel.hidden = activeSection !== "servicos";
-  dashboard.hidden = activeSection === "servicos";
+  capabilityPanel.hidden = activeSection !== "capacidades";
+  dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
   document.getElementById("preset-run-btn").disabled = activeSection === "servicos";
   cardsEl.innerHTML = "";
-  if (activeSection === "servicos") return;
+  if (activeSection === "servicos" || activeSection === "capacidades") return;
   if (activeSection === "contribuir") {
     dashboard.classList.add("contribution-view");
     recoveryPanel.hidden = true;
@@ -232,6 +250,72 @@ function renderCards() {
     card.addEventListener("click", () => runTask(item, card));
     cardsEl.appendChild(card);
   });
+}
+
+const capabilityStatusLabels = {
+  detected: "Detectado / habilitado",
+  disabled: "Detectado, mas desabilitado",
+  registered_not_present: "Registrado, não presente",
+  not_detected: "Não detectado",
+  unknown: "Desconhecido",
+  not_applicable: "Não aplicável"
+};
+
+async function loadCapabilityInventory() {
+  const button = document.getElementById("capability-refresh-btn");
+  const status = document.getElementById("capability-status");
+  button.disabled = true;
+  status.textContent = "Coletando evidências do Windows…";
+  try {
+    const report = await Qboa.getCapabilityInventory();
+    renderCapabilityInventory(report);
+    status.textContent = `Inventário concluído: ${report.capabilities.length} capacidades avaliadas. A coleta não altera configurações.`;
+  } catch (error) {
+    status.textContent = `Não foi possível coletar o inventário: ${String(error)}`;
+    document.getElementById("capability-system").replaceChildren();
+    document.getElementById("capability-list").replaceChildren();
+    document.getElementById("capability-warnings").replaceChildren();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderCapabilityInventory(report) {
+  const system = document.getElementById("capability-system");
+  const list = document.getElementById("capability-list");
+  const warnings = document.getElementById("capability-warnings");
+  system.replaceChildren();
+  list.replaceChildren();
+  warnings.replaceChildren();
+  const summary = report.system || {};
+  const systemLines = [
+    [summary.os_name, summary.os_version ? `versão ${summary.os_version}` : null, summary.os_build ? `build ${summary.os_build}` : null].filter(Boolean).join(" · "),
+    [summary.manufacturer, summary.model].filter(Boolean).join(" "),
+    summary.architecture ? `Arquitetura: ${summary.architecture}` : null
+  ].filter(Boolean);
+  systemLines.forEach((line) => { const p = document.createElement("p"); p.textContent = line; system.appendChild(p); });
+  (report.capabilities || []).forEach((capability) => {
+    const article = document.createElement("article");
+    article.className = "capability-card";
+    const heading = document.createElement("div");
+    heading.className = "capability-card-heading";
+    const title = document.createElement("h3"); title.textContent = capability.label;
+    const badge = document.createElement("span"); badge.className = `capability-state state-${capability.status}`;
+    badge.textContent = capabilityStatusLabels[capability.status] || capability.status;
+    heading.append(title, badge);
+    const description = document.createElement("p"); description.textContent = capability.summary;
+    const confidence = document.createElement("small"); confidence.textContent = `Confiança: ${capability.confidence || "não informada"} · Fonte: ${(capability.sources || []).join(", ") || "não informada"}`;
+    article.append(heading, description, confidence);
+    if ((capability.details || []).length) {
+      const details = document.createElement("details");
+      const disclosure = document.createElement("summary"); disclosure.textContent = "Ver evidências";
+      const evidence = document.createElement("ul");
+      capability.details.forEach((detail) => { const item = document.createElement("li"); item.textContent = detail; evidence.appendChild(item); });
+      details.append(disclosure, evidence); article.appendChild(details);
+    }
+    list.appendChild(article);
+  });
+  (report.warnings || []).forEach((warning) => { const item = document.createElement("li"); item.textContent = warning; warnings.appendChild(item); });
 }
 
 function humanizeLogMessage(message) {
@@ -1016,6 +1100,10 @@ async function registerEvents() {
   });
   document.getElementById("diagnostic-complete-btn").addEventListener("click", () => {
     void runDiagnostic("complete");
+  });
+
+  document.getElementById("capability-refresh-btn").addEventListener("click", () => {
+    void loadCapabilityInventory();
   });
 
   document.getElementById("service-profile-preview-btn").addEventListener("click", async (event) => {
