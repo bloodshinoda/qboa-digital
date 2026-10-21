@@ -70,13 +70,14 @@
     <div class="service-profile-heading"><h2>Alterar perfil de serviços do Windows</h2><button id="open-service-inventory" type="button" class="secondary-button">🧾 Serviços instalados</button></div>
     <p id="service-profile-status">Nenhum perfil validado. Aplicação indisponível.</p>
     <p id="service-system-details"></p>
-    <label for="service-profile-select">Perfil de produto</label>
+    <label for="service-profile-select">Preset de serviços</label>
     <select id="service-profile-select">
-      <option value="recommended">Padrão recomendado</option>
-      <option value="safe">Seguro</option>
-      <option value="tweaked">Personalizado avançado</option>
-      <option value="custom">Personalizado</option>
+      <option value="recommended">Padrão — referência do Windows</option>
+      <option value="safe">Seguro — alterações conservadoras</option>
+      <option value="refined">Refinado — otimização adaptada ao hardware</option>
+      <option value="aggressive">Agressivo — alterações avançadas</option>
     </select>
+    <p class="service-profile-hint">O QBoa só aplicará regras validadas para a edição e o hardware detectados. Recursos de energia e bateria não serão desativados por presunção.</p>
     <div class="service-profile-actions">
       <button id="service-profile-preview-btn" type="button">Prévia</button>
       <button id="service-profile-apply-btn" type="button" disabled>Aplicar perfil</button>
