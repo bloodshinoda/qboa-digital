@@ -903,6 +903,7 @@ mod tests {
             edition,
             form_factor: FormFactor::Any,
             validated: false,
+            defaults_validated: false,
             services: Vec::new(),
         }
     }
@@ -949,6 +950,45 @@ mod tests {
             saved: Vec::new(),
             changes: Vec::new(),
         }
+    }
+
+    #[test]
+    fn historical_windows10_catalog_is_preview_only_until_validated() {
+        let detected = system(WindowsVersion::Windows10, WindowsEdition::Home);
+        let catalog = profile_files()
+            .unwrap()
+            .into_iter()
+            .find(|profile| profile.os == WindowsVersion::Windows10 && profile.edition == WindowsEdition::Home)
+            .unwrap();
+
+        assert!(!catalog.validated);
+        assert!(!catalog.defaults_validated);
+        assert!(!catalog.services.is_empty());
+
+        let preview = preview(&detected, &catalog, ProductProfile::Safe);
+        assert!(!preview.applicable);
+        assert!(preview.message.contains("Aplicação bloqueada"));
+        assert!(preview.services.iter().any(|service| service.proposed.is_some()));
+    }
+
+    #[test]
+    fn historical_baseline_mismatch_is_ignored_instead_of_applied() {
+        let mut catalog = profile(WindowsVersion::Windows10, WindowsEdition::Home);
+        catalog.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Disabled".to_string(),
+            windows_default_start_type: Some("Manual".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
+        let detected = system(WindowsVersion::Windows10, WindowsEdition::Home);
+        let preview = preview(&detected, &catalog, ProductProfile::Safe);
+        let service = preview.services.iter().find(|item| item.service == "ExampleSvc").unwrap();
+
+        assert!(service.proposed.is_none());
+        assert!(service.ignored);
+        assert!(service.incompatible.as_deref().unwrap().contains("baseline histórico"));
     }
 
     #[test]
@@ -1060,7 +1100,7 @@ mod tests {
         assert!(!preview.applicable);
         assert_eq!(
             preview.message,
-            "Edição Pro for Workstations detectada (ProfessionalWorkstation). Perfil ainda não validado; nada será alterado."
+            "Catálogo de serviços ainda não disponível para esta edição."
         );
         assert_eq!(preview.services.len(), backend.system.services.len());
         assert!(preview.services.iter().all(|service| {
