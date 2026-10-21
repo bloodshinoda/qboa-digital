@@ -21,7 +21,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use safety::{ChangeRecord, SafetyManager};
@@ -487,13 +487,18 @@ $ErrorActionPreference = 'Stop';
 $path = Join-Path $env:WINDIR 'SoftwareDistribution\Download';
 if (-not (Test-Path -LiteralPath $path)) {
   Write-Output 'Cache de download do Windows Update não existe; nada a limpar.';
+  Write-Output 'QBOA_METRICS files=0 bytes=0 registry=0';
   exit 0;
 }
 $items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop);
-$removed = 0;
-$failed = 0;
+$removed = 0; $removedFiles = 0; [long]$freedBytes = 0; $failed = 0;
 foreach ($item in $items) {
   try {
+    $tree = @($item) + @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue);
+    $files = @($tree | Where-Object { -not $_.PSIsContainer });
+    $removedFiles += $files.Count;
+    $size = ($files | Measure-Object -Property Length -Sum).Sum;
+    if ($size) { $freedBytes += [long]$size; }
     Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
     $removed++;
   } catch {
@@ -502,6 +507,7 @@ foreach ($item in $items) {
   }
 }
 Write-Output ("Windows Update: {0} item(ns) removido(s), {1} falha(s)." -f $removed, $failed);
+Write-Output ("QBOA_METRICS files={0} bytes={1} registry=0" -f $removedFiles, $freedBytes);
 if ($failed -gt 0) { exit 2 }
 "#,
         execution_id,
