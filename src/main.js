@@ -974,7 +974,9 @@ async function loadServiceProfileState() {
     details.textContent = `${system.os} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
     status.textContent = profile.validated
       ? "Perfil validado disponível."
-      : "Nenhum perfil validado. Aplicação indisponível.";
+      : profile.services?.length
+        ? "Catálogo candidato disponível para prévia; aplicação bloqueada até validação."
+        : "Nenhum perfil validado. Aplicação indisponível.";
     document.getElementById("service-profile-apply-btn").disabled = !profile.validated;
     document.getElementById("service-profile-defaults-btn").disabled = !profile.defaults_validated;
     document.getElementById("service-profile-undo-btn").disabled = !profile.validated;
