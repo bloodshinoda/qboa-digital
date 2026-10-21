@@ -13,6 +13,7 @@ let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
+let windowsServices = [];
 let selectedTweakTaskIds = new Set();
 let debloatProfileQueue = null;
 let browserCleanupDecision = null;
@@ -83,6 +84,14 @@ const Qboa = {
     return invoke("undo_service_profile_changes");
   },
 
+  async listWindowsServices() {
+    return invoke("list_windows_services");
+  },
+
+  async manageWindowsService(name, action, startType = null) {
+    return invoke("manage_windows_service", { name, action, startType });
+  },
+
   async createRestorePoint() {
     return invoke("create_restore_point");
   },
@@ -134,6 +143,7 @@ function renderTabs() {
     document.getElementById("section-summary").textContent = "Alterar perfil de serviços do Windows";
     renderCards();
     if (!serviceProfileState) await loadServiceProfileState();
+    await loadWindowsServices();
   });
   tabsEl.appendChild(serviceTab);
 
@@ -157,6 +167,7 @@ function renderCards() {
   const serviceProfilePanel = document.getElementById("service-profile-panel");
   profileControls.hidden = activeSection !== "desengordurar";
   serviceProfilePanel.hidden = activeSection !== "servicos";
+  document.getElementById("service-inventory-panel").hidden = activeSection !== "servicos";
   dashboard.hidden = activeSection === "servicos";
   document.getElementById("preset-run-btn").disabled = activeSection === "servicos";
   cardsEl.innerHTML = "";
@@ -822,6 +833,130 @@ async function loadServiceProfileState() {
   }
 }
 
+function serviceStatusLabel(status) {
+  return ({ running: "Em execução", stopped: "Parado", startpending: "Iniciando", stoppending: "Parando", paused: "Pausado" })[String(status).toLowerCase()] || status;
+}
+
+function serviceStartTypeLabel(startType) {
+  return ({ automatic: "Automático", manual: "Manual", disabled: "Desativado", unknown: "Desconhecido" })[String(startType).toLowerCase()] || startType;
+}
+
+async function loadWindowsServices() {
+  const status = document.getElementById("service-inventory-status");
+  const refresh = document.getElementById("service-inventory-refresh");
+  refresh.disabled = true;
+  status.textContent = "Consultando serviços do Windows...";
+  try {
+    windowsServices = await Qboa.listWindowsServices();
+    renderWindowsServices();
+    status.textContent = `${windowsServices.length} serviço(s) encontrado(s). Serviços protegidos não podem ser parados, reiniciados ou desativados.`;
+  } catch (error) {
+    windowsServices = [];
+    renderWindowsServices();
+    status.textContent = String(error);
+  } finally {
+    refresh.disabled = false;
+  }
+}
+
+function renderWindowsServices() {
+  const body = document.getElementById("service-inventory-rows");
+  const filter = document.getElementById("service-inventory-filter").value.trim().toLocaleLowerCase();
+  body.replaceChildren();
+  const filtered = windowsServices.filter((service) =>
+    service.name.toLocaleLowerCase().includes(filter) ||
+    service.display_name.toLocaleLowerCase().includes(filter)
+  );
+  filtered.forEach((service) => {
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    const name = document.createElement("strong");
+    name.textContent = service.display_name;
+    const key = document.createElement("small");
+    key.textContent = service.name;
+    nameCell.append(name, key);
+    if (service.protected) {
+      const protectedLabel = document.createElement("span");
+      protectedLabel.className = "service-protected-label";
+      protectedLabel.textContent = "Protegido";
+      nameCell.appendChild(protectedLabel);
+      nameCell.title = service.protection_reason || "Serviço crítico protegido pelo QBoa.";
+    }
+    const stateCell = document.createElement("td");
+    stateCell.textContent = serviceStatusLabel(service.status);
+    const startCell = document.createElement("td");
+    const startSelect = document.createElement("select");
+    startSelect.setAttribute("aria-label", `Inicialização de ${service.name}`);
+    [["automatic", "Automático"], ["manual", "Manual"], ["disabled", "Desativado"]].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      startSelect.appendChild(option);
+    });
+    startSelect.value = ["automatic", "manual", "disabled"].includes(service.start_type) ? service.start_type : "manual";
+    startSelect.disabled = service.start_type === "unknown";
+    startSelect.addEventListener("change", async () => {
+      const next = startSelect.value;
+      const old = service.start_type;
+      if (next === old) return;
+      if (next === "disabled" && service.protected) {
+        appendConsole(`Alteração bloqueada: ${service.name} é protegido pelo QBoa.`);
+        startSelect.value = old;
+        return;
+      }
+      if (!(await askConfirmation(`Alterar a inicialização de ${service.display_name} para ${serviceStartTypeLabel(next)}?`, "Alterar serviço?"))) {
+        startSelect.value = old;
+        return;
+      }
+      startSelect.disabled = true;
+      try {
+        appendConsole(await Qboa.manageWindowsService(service.name, "set_start_type", next));
+        await loadWindowsServices();
+      } catch (error) {
+        appendConsole(String(error));
+        startSelect.value = old;
+      } finally {
+        startSelect.disabled = false;
+      }
+    });
+    startCell.appendChild(startSelect);
+    const actionsCell = document.createElement("td");
+    const addAction = (label, action, disabled, confirmation) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "service-action-button secondary-button";
+      button.textContent = label;
+      button.disabled = disabled;
+      button.addEventListener("click", async () => {
+        if (confirmation && !(await askConfirmation(confirmation, `${label} serviço?`))) return;
+        button.disabled = true;
+        try {
+          appendConsole(await Qboa.manageWindowsService(service.name, action));
+          await loadWindowsServices();
+        } catch (error) {
+          appendConsole(String(error));
+        } finally {
+          button.disabled = false;
+        }
+      });
+      actionsCell.appendChild(button);
+    };
+    addAction("Iniciar", "start", service.status.toLowerCase() === "running", `Iniciar o serviço ${service.display_name}?`);
+    addAction("Parar", "stop", service.protected || service.status.toLowerCase() !== "running", `Parar o serviço ${service.display_name}?`);
+    addAction("Reiniciar", "restart", service.protected || service.status.toLowerCase() !== "running", `Reiniciar o serviço ${service.display_name}?`);
+    row.append(nameCell, stateCell, startCell, actionsCell);
+    body.appendChild(row);
+  });
+  if (!filtered.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 4;
+    cell.textContent = windowsServices.length ? "Nenhum serviço corresponde ao filtro." : "Nenhum serviço carregado.";
+    row.appendChild(cell);
+    body.appendChild(row);
+  }
+}
+
 async function registerEvents() {
   // Não bloqueia o vínculo dos controles da interface esperando o listener Tauri.
   // Se listen() demorar ou falhar, os botões de confirmação continuam funcionais.
@@ -1017,6 +1152,11 @@ async function registerEvents() {
   document.getElementById("diagnostic-complete-btn").addEventListener("click", () => {
     void runDiagnostic("complete");
   });
+
+  document.getElementById("service-inventory-refresh").addEventListener("click", () => {
+    void loadWindowsServices();
+  });
+  document.getElementById("service-inventory-filter").addEventListener("input", renderWindowsServices);
 
   document.getElementById("service-profile-preview-btn").addEventListener("click", async (event) => {
     const button = event.currentTarget;
