@@ -555,14 +555,18 @@ fn classify_form_factor(
         || chassis_types
             .iter()
             .any(|kind| MOBILE_CHASSIS.contains(kind));
-    if mobile_evidence {
-        return Some(FormFactor::Notebook);
-    }
-
     let desktop_evidence = matches!(pc_system_type, Some(1 | 3))
         || chassis_types
             .iter()
             .any(|kind| DESKTOP_CHASSIS.contains(kind));
+
+    // Qualquer conflito explícito entre fontes invalida a classificação.
+    if mobile_evidence && desktop_evidence {
+        return None;
+    }
+    if mobile_evidence {
+        return Some(FormFactor::Notebook);
+    }
     if desktop_evidence && !has_battery {
         return Some(FormFactor::Desktop);
     }
@@ -1055,6 +1059,7 @@ mod tests {
             Some(FormFactor::Notebook)
         );
         assert_eq!(classify_form_factor(Some(1), &[3], true), None);
+        assert_eq!(classify_form_factor(Some(2), &[3, 9], true), None);
         assert_eq!(classify_form_factor(None, &[], false), None);
     }
 
