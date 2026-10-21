@@ -96,7 +96,9 @@ pub(crate) fn manage_service(
     match action {
         "start" | "stop" | "restart" => {
             if start_type.is_some() {
-                return Err("Tipo de inicialização não deve ser informado para esta ação.".to_string());
+                return Err(
+                    "Tipo de inicialização não deve ser informado para esta ação.".to_string(),
+                );
             }
             if matches!(action, "stop" | "restart") && is_protected(name) {
                 return Err(format!(
