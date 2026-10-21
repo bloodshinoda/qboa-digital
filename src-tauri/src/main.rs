@@ -775,7 +775,9 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output("[Etapa 2/8] Limpando diretórios temporários avançados e relatórios de falha...");
+            on_output(
+                "[Etapa 2/8] Limpando diretórios temporários avançados e relatórios de falha...",
+            );
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
             on_output("[Etapa 3/8] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
