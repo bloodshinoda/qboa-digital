@@ -244,13 +244,17 @@ pub(crate) fn preview(
             } else {
                 "Padrão é apenas referência. A baseline desta versão ainda não foi validada e não será aplicada.".to_string()
             },
-            services: system.services.iter().map(|service| ServicePreviewItem {
-                service: service.name.clone(),
-                current: service.start_type.clone(),
-                proposed: None,
-                incompatible: None,
-                ignored: true,
-            }).collect(),
+            services: system
+                .services
+                .iter()
+                .map(|service| ServicePreviewItem {
+                    service: service.name.clone(),
+                    current: service.start_type.clone(),
+                    proposed: None,
+                    incompatible: None,
+                    ignored: true,
+                })
+                .collect(),
             ignored: names,
         };
     }
@@ -295,7 +299,9 @@ pub(crate) fn preview(
         // personalizado pelo usuário.
         if let Some(baseline) = rule.windows_default_start_type.as_deref() {
             if !service.start_type.eq_ignore_ascii_case(baseline) {
-                let reason = "Estado atual diverge do baseline histórico; regra ignorada por segurança.".to_string();
+                let reason =
+                    "Estado atual diverge do baseline histórico; regra ignorada por segurança."
+                        .to_string();
                 ignored.push(service.name.clone());
                 items.push(ServicePreviewItem {
                     service: service.name.clone(),
@@ -323,7 +329,11 @@ pub(crate) fn preview(
         items.push(ServicePreviewItem {
             service: service.name.clone(),
             current: service.start_type.clone(),
-            proposed: if incompatibility.is_none() { Some(rule.start_type.clone()) } else { None },
+            proposed: if incompatibility.is_none() {
+                Some(rule.start_type.clone())
+            } else {
+                None
+            },
             incompatible: incompatibility.map(str::to_string),
             ignored: incompatibility.is_some(),
         });
@@ -420,7 +430,9 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
 ) -> Result<(), String> {
     ensure_profile_has_validated_services(profile)?;
     if !profile.defaults_validated {
-        return Err("A baseline de padrões do Windows ainda não foi validada para esta versão.".to_string());
+        return Err(
+            "A baseline de padrões do Windows ainda não foi validada para esta versão.".to_string(),
+        );
     }
     let system = backend.detect_system()?;
     if !profile_incompatibilities(&system, profile).is_empty() {
