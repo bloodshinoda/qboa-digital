@@ -1104,6 +1104,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             }
         };
 
+        let execution_started = Instant::now();
         let execution = execute_task(
             &task_for_spawn,
             &execution_id_for_spawn,
@@ -1114,7 +1115,21 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         drop(apply_registry);
         match execution {
             Ok(output) => {
-                write_execution_log(&execution_id_for_spawn, "task-executor-completed");
+                let (files_removed, bytes_freed, registry_entries_removed) = parse_cleanup_metrics(&output);
+                let elapsed = execution_started.elapsed();
+                let elapsed_seconds = elapsed.as_secs();
+                let elapsed_label = if elapsed_seconds >= 60 {
+                    format!("{} min {} s", elapsed_seconds / 60, elapsed_seconds % 60)
+                } else {
+                    format!("{:.1} s", elapsed.as_secs_f64())
+                };
+                let summary = format!(
+                    "Resumo da execução — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo de execução: {elapsed_label}.",
+                    bytes_freed as f64 / 1_000_000_000.0
+                );
+                on_output(&summary);
+                let output = format!("{output}\\n\\n{summary}");
+                write_execution_log(&execution_id_for_spawn, &format!("task-executor-completed {summary}"));
                 let journal_result = if let Some(change) = registry_change.take() {
                     safety_state()
                         .lock()
