@@ -9,6 +9,12 @@ Fontes:
 - Black Viper Safe Laptop: https://github.com/madbomb122/WinServiceConfigurator/blob/main/Win%2010/BlackViper-Laptop-Safe.csv
 - Black Viper Tweaked Desktop: https://github.com/madbomb122/WinServiceConfigurator/blob/main/Win%2010/BlackViper-Desktop-Tweaked.csv
 
+Mapeamento dos quatro controles do QBoa:
+- **Padrão:** referência informativa; não aplica a configuração histórica como se fosse o padrão atual.
+- **Seguro:** usa o Safe comum a desktop e notebook; diferenças específicas de hardware são omitidas.
+- **Refinado:** parte do Safe e só usa diferenças do Safe Desktop quando desktop e ausência de bateria forem confirmados.
+- **Agressivo:** usa Tweaked Desktop; diferenças em relação ao perfil portátil só entram quando desktop e ausência de bateria forem confirmados.
+
 A configuração padrão de referência é histórica (Windows 10 April 2018 Update). Ela **não** é tratada como baseline confiável para restaurar padrões em versões modernas. O QBoa compara o tipo de inicialização atual com o baseline histórico e omite regras divergentes; isso é uma heurística conservadora, não uma prova de equivalência entre builds.
 
 Os catálogos permanecem com aplicação bloqueada até validação prática. Os arquivos de Windows 11 não herdam automaticamente as regras do Windows 10: a fonte contém uma lista padrão do Windows 11, mas não fornece perfis Safe/Tweaked equivalentes atuais. Regras condicionais a desktop exigem evidência de hardware inequívoca e ausência de bateria; se a detecção for inconclusiva, essas regras são omitidas.
