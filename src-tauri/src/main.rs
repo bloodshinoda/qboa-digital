@@ -649,6 +649,9 @@ fn apply_cleanup_findings(
                 "Varredura integrada ({profile}): {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).",
                 report.files_removed, report.registry_entries_removed, report.failures
             ));
+            for failure in &report.failure_details {
+                on_output(&format!("Falha ao corrigir achado: {failure}"));
+            }
             on_output(&format!(
                 "QBOA_METRICS files={} bytes={} registry={}",
                 report.files_removed, report.bytes_freed, report.registry_entries_removed
