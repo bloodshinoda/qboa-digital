@@ -1370,7 +1370,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 }
             }
             Err(err) => {
-                let (files_removed, bytes_freed, registry_entries_removed) =
+                let (files_removed, bytes_freed, registry_entries_removed, _failures) =
                     parse_cleanup_metrics(&streamed_output);
                 let elapsed = execution_started.elapsed();
                 let elapsed_seconds = elapsed.as_secs();
