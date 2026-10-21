@@ -158,7 +158,9 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
             continue;
         }
         let file_size = match &candidate.action {
-            FindingAction::DeleteShortcut(path) => std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0),
+            FindingAction::DeleteShortcut(path) => std::fs::metadata(path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0),
             _ => 0,
         };
         match backend.delete(&candidate.action) {
@@ -167,7 +169,8 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
                     report.files_removed += 1;
                     report.bytes_freed = report.bytes_freed.saturating_add(file_size);
                 }
-                FindingAction::DeleteAssociation { .. } | FindingAction::DeleteUninstallEntry { .. } => {
+                FindingAction::DeleteAssociation { .. }
+                | FindingAction::DeleteUninstallEntry { .. } => {
                     report.registry_entries_removed += 1;
                 }
             },
@@ -1049,7 +1052,10 @@ mod tests {
         assert_eq!(report.registry_entries_removed, 1);
         assert_eq!(report.failures, 0);
         assert_eq!(backend.deleted.len(), 2);
-        assert!(!backend.deleted.iter().any(|action| matches!(action, FindingAction::DeleteUninstallEntry { .. })));
+        assert!(!backend
+            .deleted
+            .iter()
+            .any(|action| matches!(action, FindingAction::DeleteUninstallEntry { .. })));
     }
 
     #[test]
