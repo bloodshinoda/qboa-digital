@@ -304,7 +304,8 @@ function renderCapabilityInventory(report) {
     badge.textContent = capabilityStatusLabels[capability.status] || capability.status;
     heading.append(title, badge);
     const description = document.createElement("p"); description.textContent = capability.summary;
-    const confidence = document.createElement("small"); confidence.textContent = `Confiança: ${capability.confidence || "não informada"} · Fonte: ${(capability.sources || []).join(", ") || "não informada"}`;
+    const confidenceLabels = { high: "alta", medium: "média", low: "baixa" };
+    const confidence = document.createElement("small"); confidence.textContent = `Confiança: ${confidenceLabels[capability.confidence] || "não informada"} · Fonte: ${(capability.sources || []).join(", ") || "não informada"}`;
     article.append(heading, description, confidence);
     if ((capability.details || []).length) {
       const details = document.createElement("details");
