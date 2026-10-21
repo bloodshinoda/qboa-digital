@@ -386,6 +386,10 @@ button {
   overflow-wrap: anywhere;
 }
 
+#cancel-task-btn[hidden] {
+  display: none !important;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
