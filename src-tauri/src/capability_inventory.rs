@@ -87,18 +87,24 @@ try{
  $sys.manufacturer=$cs.Manufacturer;$sys.model=$cs.Model
  $evidence=[System.Collections.Generic.List[string]]::new()
  $pcType=[int]$cs.PCSystemType
- $desktopTypes=@(3,4,5,6,7,13,15,16,23,24)
- $mobileTypes=@(8,9,10,11,14,30,31,32)
- if($desktopTypes -contains $pcType){$sys.device_type='desktop';$sys.device_confidence='high';$evidence.Add("Win32_ComputerSystem.PCSystemType=$pcType")}
- elseif($mobileTypes -contains $pcType){$sys.device_type='mobile';$sys.device_confidence='high';$evidence.Add("Win32_ComputerSystem.PCSystemType=$pcType")}
+ # Win32_ComputerSystem.PCSystemType: 2=desktop, 3=mobile, 4=workstation.
+ if($pcType -eq 2){$sys.device_type='desktop';$sys.device_confidence='high';$evidence.Add("Win32_ComputerSystem.PCSystemType=$pcType (desktop)")}
+ elseif($pcType -eq 3){$sys.device_type='mobile';$sys.device_confidence='high';$evidence.Add("Win32_ComputerSystem.PCSystemType=$pcType (mobile)")}
+ elseif($pcType -eq 4){$sys.device_type='desktop';$sys.device_confidence='high';$evidence.Add("Win32_ComputerSystem.PCSystemType=$pcType (workstation)")}
  $modelText=("$($cs.Manufacturer) $($cs.Model)")
  if($modelText -match '(?i)VMware|VirtualBox|Virtual Machine|KVM|QEMU|Hyper-V|Virtual Platform'){
    $sys.device_type='virtual_machine';$sys.device_confidence='high';$evidence.Add("Fabricante/modelo indica máquina virtual: $modelText")
  } else {
    try{
-     $chassis=@(Get-CimInstance Win32_SystemEnclosure -ErrorAction Stop | ForEach-Object {$_.ChassisTypes} | Where-Object {$_ -ne $null})
-     if($sys.device_type -eq 'unknown' -and @($chassis | Where-Object {$desktopTypes -contains [int]$_}).Count -gt 0){$sys.device_type='desktop';$sys.device_confidence='medium';$evidence.Add("Win32_SystemEnclosure.ChassisTypes=$($chassis -join ',')")}
-     elseif($sys.device_type -eq 'unknown' -and @($chassis | Where-Object {$mobileTypes -contains [int]$_}).Count -gt 0){$sys.device_type='mobile';$sys.device_confidence='medium';$evidence.Add("Win32_SystemEnclosure.ChassisTypes=$($chassis -join ',')")}
+     $chassis=@(Get-CimInstance Win32_SystemEnclosure -ErrorAction Stop | ForEach-Object {$_.ChassisTypes} | Where-Object {$_ -ne $null} | ForEach-Object {[int]$_})
+     # ChassisTypes: 3=desktop, 4=low-profile, 5=pizza box, 6=mini tower, 7=tower, 13=all-in-one, 15=space-saving, 16=lunch box, 24=sealed-case PC.
+     $desktopChassis=@(3,4,5,6,7,13,15,16,24)
+     $mobileChassis=@(8,9,10,11,12,14,18,21,30,31,32)
+     if(@($chassis | Where-Object {$desktopChassis -contains $_}).Count -gt 0){
+       $sys.device_type='desktop';$sys.device_confidence='high';$evidence.Add("Win32_SystemEnclosure.ChassisTypes=$($chassis -join ',')")
+     } elseif($sys.device_type -eq 'unknown' -and @($chassis | Where-Object {$mobileChassis -contains $_}).Count -gt 0){
+       $sys.device_type='mobile';$sys.device_confidence='high';$evidence.Add("Win32_SystemEnclosure.ChassisTypes=$($chassis -join ',')")
+     }
    }catch{$warnings.Add('Tipo de chassi indisponível.')}
    if($sys.device_type -eq 'unknown'){
      try{$battery=@(Get-CimInstance Win32_Battery -ErrorAction Stop);if($battery.Count -gt 0){$sys.device_type='mobile';$sys.device_confidence='medium';$evidence.Add('Bateria reportada por Win32_Battery; tipo de equipamento inferido como móvel.')}}catch{$warnings.Add('Consulta auxiliar de bateria indisponível para classificação do equipamento.')}
