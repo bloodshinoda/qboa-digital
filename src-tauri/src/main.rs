@@ -756,7 +756,12 @@ fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64, u64) {
                 .iter()
                 .position(|part| part.contains("falha(s)"))
                 .and_then(|index| index.checked_sub(1))
-                .and_then(|index| parts[index].trim_matches(|ch: char| !ch.is_ascii_digit()).parse::<u64>().ok())
+                .and_then(|index| {
+                    parts[index]
+                        .trim_matches(|ch: char| !ch.is_ascii_digit())
+                        .parse::<u64>()
+                        .ok()
+                })
                 .unwrap_or(0);
             failures = failures.saturating_add(count);
         }
@@ -771,8 +776,13 @@ fn format_cleanup_summary(
     failures: u64,
     elapsed_label: &str,
 ) -> String {
+    let registry_label = if registry == 1 {
+        "chave/entrada de Registro excluída"
+    } else {
+        "chaves/entradas de Registro excluídas"
+    };
     format!(
-        "Resumo da execução:\n- {files} arquivos removidos\n- {registry} chaves/entradas de Registro excluídas\n- {:.1} MB liberados (estimativa)\n- Tempo de execução: {elapsed_label}\n\n- Total de erros durante execução: {failures}",
+        "Resumo da execução:\n- {files} arquivos removidos\n- {registry} {registry_label}\n- {:.1} MB liberados (estimativa)\n- Tempo de execução: {elapsed_label}\n\n- Total de erros durante execução: {failures}",
         bytes as f64 / 1_000_000.0
     )
 }
