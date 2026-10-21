@@ -628,6 +628,23 @@ fn delete_association(
     if !ASSOCIATION_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()) {
         return Err("Extensão fora da lista verificada.".to_string());
     }
+    let mut verifier = WindowsCleanupFindingBackend;
+    let current = verifier
+        .associations()?
+        .into_iter()
+        .find(|item| {
+            item.extension.eq_ignore_ascii_case(extension)
+                && item.source == *source
+                && item.prog_id.eq_ignore_ascii_case(prog_id)
+        })
+        .ok_or_else(|| "A associação mudou desde a detecção.".to_string())?;
+    match current.state {
+        AssociationState::MissingClass => {}
+        AssociationState::Executable(path) if !verifier.path_exists(&path)? => {}
+        AssociationState::Executable(_) | AssociationState::Uncertain => {
+            return Err("A associação não está mais comprovadamente inválida.".to_string());
+        }
+    }
     let encoded_extension = base64_encode(extension.as_bytes());
     let encoded_prog_id = base64_encode(prog_id.as_bytes());
     let source_name = match source {
