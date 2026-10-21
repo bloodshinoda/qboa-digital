@@ -22,6 +22,7 @@ pub(crate) struct ServiceEntry {
     pub display_name: String,
     pub status: String,
     pub start_type: String,
+    pub is_microsoft: bool,
     pub protected: bool,
     pub protection_reason: Option<String>,
 }
@@ -32,6 +33,7 @@ struct RawService {
     display_name: String,
     status: String,
     start_type: String,
+    is_microsoft: bool,
 }
 
 pub(crate) fn list_services() -> Result<Vec<ServiceEntry>, String> {
@@ -51,11 +53,29 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     'Disabled' { 'disabled' }
     default { 'unknown' }
   }
+  $binaryPath = $null
+  if ([string]$_.PathName -match '^"([^"]+\\.exe)"') {
+    $binaryPath = $Matches[1]
+  } elseif ([string]$_.PathName -match '^(.+?\\.exe)(?:\\s|$)') {
+    $binaryPath = $Matches[1].Trim('"')
+  }
+  if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
+    $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$($_.Name)\\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
+    if ($serviceDll) { $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll) }
+  }
+  $isMicrosoft = $false
+  if ($binaryPath -and (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
+    try {
+      $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath -ErrorAction Stop
+      $isMicrosoft = $signature.Status -eq 'Valid' -and [string]$signature.SignerCertificate.Subject -match '(?i)(Microsoft Corporation|Microsoft Windows)'
+    } catch { $isMicrosoft = $false }
+  }
   [pscustomobject]@{
     name = [string]$_.Name
     display_name = [string]$_.DisplayName
     status = ([string]$_.State).ToLowerInvariant()
     start_type = $start
+    is_microsoft = [bool]$isMicrosoft
   }
 } | Sort-Object display_name)
 ConvertTo-Json -InputObject $services -Depth 4 -Compress
@@ -74,6 +94,7 @@ ConvertTo-Json -InputObject $services -Depth 4 -Compress
                     display_name: service.display_name,
                     status: service.status,
                     start_type: service.start_type,
+                    is_microsoft: service.is_microsoft,
                     protected,
                     protection_reason: protected
                         .then(|| "Serviço crítico protegido pelo QBoa.".to_string()),
