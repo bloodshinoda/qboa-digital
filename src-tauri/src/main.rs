@@ -454,8 +454,7 @@ fn cleanup_standard(
     )?;
     let registry_keys_removed = apply_registry(task_id)?;
     let summary = "Limpeza padrão concluída: temporários, caches, MRUs e lixeira.";
-    let registry_metrics =
-        format!("QBOA_METRICS files=0 bytes=0 registry={registry_keys_removed}");
+    let registry_metrics = format!("QBOA_METRICS files=0 bytes=0 registry={registry_keys_removed}");
     on_output(summary);
     on_output(&registry_metrics);
     Ok(format!("{output}\n{summary}\n{registry_metrics}"))
