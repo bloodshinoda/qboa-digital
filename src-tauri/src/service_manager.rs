@@ -61,23 +61,32 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
 ConvertTo-Json -InputObject $services -Depth 4 -Compress
 "#;
         let output = run_powershell(script)?;
-        let raw: Vec<RawService> = serde_json::from_str(output.trim_start_matches('\u{feff}').trim())
-            .map_err(|error| format!("Não foi possível interpretar a lista de serviços: {error}"))?;
-        Ok(raw.into_iter().map(|service| {
-            let protected = is_protected(&service.name);
-            ServiceEntry {
-                name: service.name,
-                display_name: service.display_name,
-                status: service.status,
-                start_type: service.start_type,
-                protected,
-                protection_reason: protected.then(|| "Serviço crítico protegido pelo QBoa.".to_string()),
-            }
-        }).collect())
+        let raw: Vec<RawService> =
+            serde_json::from_str(output.trim_start_matches('\u{feff}').trim())
+                .map_err(|error| format!("Não foi possível interpretar a lista de serviços: {error}"))?;
+        Ok(raw
+            .into_iter()
+            .map(|service| {
+                let protected = is_protected(&service.name);
+                ServiceEntry {
+                    name: service.name,
+                    display_name: service.display_name,
+                    status: service.status,
+                    start_type: service.start_type,
+                    protected,
+                    protection_reason: protected
+                        .then(|| "Serviço crítico protegido pelo QBoa.".to_string()),
+                }
+            })
+            .collect())
     }
 }
 
-pub(crate) fn manage_service(name: &str, action: &str, start_type: Option<&str>) -> Result<String, String> {
+pub(crate) fn manage_service(
+    name: &str,
+    action: &str,
+    start_type: Option<&str>,
+) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
         return Err("Nome de serviço inválido.".to_string());
@@ -89,16 +98,21 @@ pub(crate) fn manage_service(name: &str, action: &str, start_type: Option<&str>)
                 return Err("Tipo de inicialização não deve ser informado para esta ação.".to_string());
             }
             if matches!(action, "stop" | "restart") && is_protected(name) {
-                return Err(format!("Ação bloqueada: o serviço {name} é protegido pelo QBoa."));
+                return Err(format!(
+                    "Ação bloqueada: o serviço {name} é protegido pelo QBoa."
+                ));
             }
         }
         "set_start_type" => {
-            let requested = start_type.ok_or_else(|| "Informe o tipo de inicialização.".to_string())?;
+            let requested =
+                start_type.ok_or_else(|| "Informe o tipo de inicialização.".to_string())?;
             if !valid_start_type(requested) {
                 return Err("Tipo de inicialização inválido.".to_string());
             }
             if requested.eq_ignore_ascii_case("disabled") && is_protected(name) {
-                return Err(format!("Não é permitido desativar o serviço protegido {name}."));
+                return Err(format!(
+                    "Não é permitido desativar o serviço protegido {name}."
+                ));
             }
         }
         _ => return Err("Ação de serviço desconhecida.".to_string()),
@@ -114,44 +128,56 @@ pub(crate) fn manage_service(name: &str, action: &str, start_type: Option<&str>)
     {
         let encoded_name = base64_encode(name.as_bytes());
         let script = match action {
-            "start" => format!(r#"
+            "start" => format!(
+                r#"
 $ErrorActionPreference='Stop'
 $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_name}'))
 $svc=Get-Service -Name $name -ErrorAction Stop
 Start-Service -InputObject $svc -ErrorAction Stop
 $svc.Refresh()
 Write-Output ("Serviço {0}: {1}" -f $svc.Name, $svc.Status)
-"#),
-            "stop" => format!(r#"
+"#
+            ),
+            "stop" => format!(
+                r#"
 $ErrorActionPreference='Stop'
 $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_name}'))
 $svc=Get-Service -Name $name -ErrorAction Stop
 Stop-Service -InputObject $svc -ErrorAction Stop
 $svc.Refresh()
 Write-Output ("Serviço {0}: {1}" -f $svc.Name, $svc.Status)
-"#),
-            "restart" => format!(r#"
+"#
+            ),
+            "restart" => format!(
+                r#"
 $ErrorActionPreference='Stop'
 $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_name}'))
 $svc=Get-Service -Name $name -ErrorAction Stop
 Restart-Service -InputObject $svc -ErrorAction Stop
 $svc.Refresh()
 Write-Output ("Serviço {0}: {1}" -f $svc.Name, $svc.Status)
-"#),
+"#
+            ),
             "set_start_type" => {
-                let start = match start_type.unwrap_or_default().to_ascii_lowercase().as_str() {
+                let start = match start_type
+                    .unwrap_or_default()
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
                     "automatic" => "Automatic",
                     "manual" => "Manual",
                     "disabled" => "Disabled",
                     _ => return Err("Tipo de inicialização inválido.".to_string()),
                 };
-                format!(r#"
+                format!(
+                    r#"
 $ErrorActionPreference='Stop'
 $name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_name}'))
 $svc=Get-Service -Name $name -ErrorAction Stop
 Set-Service -InputObject $svc -StartupType {start} -ErrorAction Stop
 Write-Output ("Inicialização de {0} alterada para {1}" -f $svc.Name, '{start}')
-"#)
+"#
+                )
             }
             _ => unreachable!("A ação foi validada antes da execução"),
         };
@@ -164,7 +190,9 @@ fn valid_start_type(value: &str) -> bool {
 }
 
 fn is_protected(name: &str) -> bool {
-    PROTECTED_SERVICES.iter().any(|service| service.eq_ignore_ascii_case(name))
+    PROTECTED_SERVICES
+        .iter()
+        .any(|service| service.eq_ignore_ascii_case(name))
 }
 
 #[cfg(target_os = "windows")]
@@ -212,8 +240,16 @@ fn base64_encode(bytes: &[u8]) -> String {
         let c = *chunk.get(2).unwrap_or(&0);
         output.push(TABLE[(a >> 2) as usize] as char);
         output.push(TABLE[(((a & 3) << 4) | (b >> 4)) as usize] as char);
-        output.push(if chunk.len() > 1 { TABLE[(((b & 15) << 2) | (c >> 6)) as usize] as char } else { '=' });
-        output.push(if chunk.len() > 2 { TABLE[(c & 63) as usize] as char } else { '=' });
+        output.push(if chunk.len() > 1 {
+            TABLE[(((b & 15) << 2) | (c >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        output.push(if chunk.len() > 2 {
+            TABLE[(c & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     output
 }
