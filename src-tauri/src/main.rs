@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod cleanup_findings;
 mod capability_inventory;
+mod cleanup_findings;
 mod diagnostics;
 mod registry_executor;
 mod safety;
