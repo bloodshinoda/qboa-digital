@@ -732,22 +732,63 @@ fn count_mru_registry_keys(snapshot_location: &str) -> u64 {
     paths.len() as u64
 }
 
-fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64) {
+fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64, u64) {
     let mut files = 0u64;
     let mut bytes = 0u64;
     let mut registry = 0u64;
-    for line in output.lines().filter(|line| line.contains("QBOA_METRICS")) {
-        for field in line.split_whitespace() {
-            if let Some(value) = field.strip_prefix("files=") {
-                files = files.saturating_add(value.parse().unwrap_or(0));
-            } else if let Some(value) = field.strip_prefix("bytes=") {
-                bytes = bytes.saturating_add(value.parse().unwrap_or(0));
-            } else if let Some(value) = field.strip_prefix("registry=") {
-                registry = registry.saturating_add(value.parse().unwrap_or(0));
+    let mut failures = 0u64;
+    let mut seen_failure_lines = std::collections::HashSet::new();
+    for line in output.lines() {
+        if line.contains("QBOA_METRICS") {
+            for field in line.split_whitespace() {
+                if let Some(value) = field.strip_prefix("files=") {
+                    files = files.saturating_add(value.parse().unwrap_or(0));
+                } else if let Some(value) = field.strip_prefix("bytes=") {
+                    bytes = bytes.saturating_add(value.parse().unwrap_or(0));
+                } else if let Some(value) = field.strip_prefix("registry=") {
+                    registry = registry.saturating_add(value.parse().unwrap_or(0));
+                }
             }
         }
+        if line.contains("falha(s)") && seen_failure_lines.insert(line.trim().to_string()) {
+            let count = line
+                .split_whitespace()
+                .find_map(|part| part.strip_suffix("falha(s)").and_then(|n| n.parse::<u64>().ok()))
+                .unwrap_or(0);
+            failures = failures.saturating_add(count);
+        }
     }
-    (files, bytes, registry)
+    (files, bytes, registry, failures)
+}
+
+fn format_cleanup_summary(
+    files: u64,
+    bytes: u64,
+    registry: u64,
+    failures: u64,
+    elapsed_label: &str,
+) -> String {
+    format!(
+        "Resumo da execução:\\n- {files} arquivos removidos\\n- {registry} chaves/entradas de Registro excluídas\\n- {:.1} MB liberados (estimativa)\\n- Tempo de execução: {elapsed_label}\\n\\n- Total de erros durante execução: {failures}",
+        bytes as f64 / 1_000_000.0
+    )
+}
+
+fn clean_final_cleanup_output(output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            !line.contains("QBOA_METRICS")
+                && !line.starts_with("Limpeza padrão:")
+                && !line.starts_with("Limpeza leve:")
+                && !line.starts_with("Limpeza média:")
+                && !line.starts_with("Limpeza pesada:")
+                && !line.starts_with("Lixeira não esvaziada:")
+                && !line.starts_with("Varredura integrada:")
+        })
+        .collect::<Vec<_>>()
+        .join("\\n")
 }
 
 fn execute_task(
@@ -1195,7 +1236,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         drop(on_output);
         match execution {
             Ok(output) => {
-                let (files_removed, bytes_freed, registry_entries_removed) =
+                let (files_removed, bytes_freed, registry_entries_removed, failures) =
                     parse_cleanup_metrics(&output);
                 let elapsed = execution_started.elapsed();
                 let elapsed_seconds = elapsed.as_secs();
@@ -1204,11 +1245,19 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 } else {
                     format!("{:.1} s", elapsed.as_secs_f64())
                 };
-                let summary = format!(
-                    "Resumo da execução — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo de execução: {elapsed_label}.",
-                    bytes_freed as f64 / 1_000_000_000.0
+                let summary = format_cleanup_summary(
+                    files_removed,
+                    bytes_freed,
+                    registry_entries_removed,
+                    failures,
+                    &elapsed_label,
                 );
-                let output = format!("{output}\n\n{summary}");
+                let cleaned_output = clean_final_cleanup_output(&output);
+                let output = if cleaned_output.trim().is_empty() {
+                    summary.clone()
+                } else {
+                    format!("{cleaned_output}\\n\\n{summary}")
+                };
                 write_execution_log(
                     &execution_id_for_spawn,
                     &format!("task-executor-completed {summary}"),
