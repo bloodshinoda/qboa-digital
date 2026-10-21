@@ -1028,7 +1028,7 @@ mod tests {
     }
 
     #[test]
-    fn historical_windows10_catalog_is_preview_only_until_validated() {
+    fn historical_windows10_catalog_allows_only_heuristic_compatible_changes() {
         let detected = system(WindowsVersion::Windows10, WindowsEdition::Home);
         let catalog = profile_files()
             .unwrap()
