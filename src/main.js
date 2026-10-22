@@ -1086,8 +1086,11 @@ async function loadServiceProfileState() {
     document.getElementById("service-profile-undo-btn").disabled = !canApplyProfile;
   } catch (error) {
     serviceProfileState = null;
-    status.textContent = "Não foi possível consultar os serviços do Windows.";
+    const detail = error instanceof Error ? error.message : String(error);
+    status.textContent = `Não foi possível consultar os serviços do Windows: ${detail}`;
     details.textContent = "";
+    appendConsole(`Falha ao carregar o estado do perfil de serviços: ${detail}`);
+    console.error("Falha ao carregar o estado do perfil de serviços:", error);
   }
 }
 
@@ -1374,15 +1377,33 @@ async function registerEvents() {
 
   document.getElementById("service-profile-preview-btn").addEventListener("click", async (event) => {
     const button = event.currentTarget;
+    const status = document.getElementById("service-profile-preview-status");
+    const profile = document.getElementById("service-profile-select").value;
     button.disabled = true;
+    status.textContent = "Preparando a prévia do perfil…";
+    appendConsole(`Solicitada prévia do perfil de serviços: ${profile}.`);
+    console.info("[QBoa] Solicitada prévia do perfil de serviços:", profile);
+
     try {
-      if (!serviceProfileState) await loadServiceProfileState();
-      if (!serviceProfileState) return;
-      const profile = document.getElementById("service-profile-select").value;
+      if (!serviceProfileState) {
+        status.textContent = "Consultando o estado atual dos serviços do Windows…";
+        await loadServiceProfileState();
+      }
+      if (!serviceProfileState) {
+        throw new Error("O estado dos serviços não foi carregado. Consulte o Registro de atividades para ver o detalhe.");
+      }
+
+      status.textContent = "Gerando prévia; isso pode levar alguns segundos…";
       const preview = await Qboa.previewServiceProfile(profile);
       renderServiceProfilePreview(preview);
+      appendConsole(`Prévia do perfil ${profile} recebida: ${preview.services?.length ?? 0} serviço(s) listado(s).`);
+      console.info("[QBoa] Prévia do perfil recebida:", preview);
     } catch (error) {
-      document.getElementById("service-profile-preview-status").textContent = String(error);
+      const detail = error instanceof Error ? error.message : String(error);
+      status.textContent = `Falha ao gerar a prévia: ${detail}`;
+      appendConsole(`Falha ao gerar a prévia do perfil ${profile}: ${detail}`);
+      console.error(`[QBoa] Falha ao gerar a prévia do perfil ${profile}:`, error);
+      document.getElementById("service-profile-apply-btn").disabled = true;
     } finally {
       button.disabled = false;
     }
