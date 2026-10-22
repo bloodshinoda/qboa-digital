@@ -2,18 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 const PROTECTED_SERVICES: &[&str] = &[
-    "RpcSs",
-    "DcomLaunch",
-    "PlugPlay",
-    "EventLog",
-    "SamSs",
-    "LSM",
-    "WinDefend",
-    "wuauserv",
-    "Dhcp",
-    "BITS",
-    "CryptSvc",
-    "TrustedInstaller",
+    "wuauserv", "WinDefend", "Dhcp", "RpcSs", "PlugPlay", "DcomLaunch",
+    "EventLog", "SamSs", "LSM", "BITS", "CryptSvc", "TrustedInstaller",
+    "RpcEptMapper", "BFE", "MpsSvc", "Power", "Schedule", "Winmgmt",
+    "gpsvc", "BrokerInfrastructure", "ProfSvc", "UserManager", "nsi",
+    "LanmanWorkstation", "AudioSrv", "AudioEndpointBuilder", "Dnscache",
+    "NlaSvc", "KeyIso", "CoreMessagingRegistrar", "SgrmBroker",
+    "SystemEventsBroker",
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
