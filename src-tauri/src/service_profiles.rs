@@ -450,7 +450,6 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
         .map(|item| (item.service.clone(), item.proposed.clone().unwrap_or_default()))
         .collect();
 
-    let mut requested_disable = HashSet::new();
     for name in selected_to_disable {
         let normalized = name.trim().to_ascii_lowercase();
         if normalized.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
@@ -462,7 +461,6 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
         if !system.services.iter().any(|service| service.name.eq_ignore_ascii_case(name)) {
             return Err(format!("O serviço selecionado não está instalado: {name}"));
         }
-        requested_disable.insert(normalized);
     }
 
     let mut targets: HashMap<String, (String, String)> = HashMap::new();
