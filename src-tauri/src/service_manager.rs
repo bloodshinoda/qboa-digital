@@ -43,6 +43,8 @@ pub(crate) struct ServiceEntry {
     pub status: String,
     pub start_type: String,
     pub is_microsoft: bool,
+    pub publisher: Option<String>,
+    pub signature_status: String,
     pub protected: bool,
     pub protection_reason: Option<String>,
 }
@@ -54,6 +56,8 @@ struct RawService {
     status: String,
     start_type: String,
     is_microsoft: bool,
+    publisher: Option<String>,
+    signature_status: String,
 }
 
 pub(crate) fn list_services() -> Result<Vec<ServiceEntry>, String> {
@@ -84,19 +88,39 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
     if ($serviceDll) { $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll) }
   }
-  $isMicrosoft = $false
+  if ($binaryPath) { $binaryPath = [Environment]::ExpandEnvironmentVariables($binaryPath) }
+  if ($binaryPath -and $binaryPath.StartsWith('\\SystemRoot\\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
+  }
+  if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
+    $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$($_.Name)\\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
+    if ($serviceDll) { $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll) }
+  }
+  $publisher = $null
+  $signatureStatus = 'unknown_path'
   if ($binaryPath -and (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
     try {
       $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath -ErrorAction Stop
-      $isMicrosoft = $signature.Status -eq 'Valid' -and [string]$signature.SignerCertificate.Subject -match '(?i)(Microsoft Corporation|Microsoft Windows)'
-    } catch { $isMicrosoft = $false }
+      if ($signature.SignerCertificate) { $publisher = [string]$signature.SignerCertificate.Subject }
+      switch ([string]$signature.Status) {
+        'Valid' { $signatureStatus = 'valid' }
+        'NotSigned' { $signatureStatus = 'unsigned' }
+        { $_ -in @('HashMismatch', 'NotTrusted') } { $signatureStatus = 'invalid' }
+        default { $signatureStatus = 'inconclusive' }
+      }
+    } catch { $signatureStatus = 'inconclusive' }
+  } elseif ($binaryPath) {
+    $signatureStatus = 'missing_file'
   }
+  $isMicrosoft = $signatureStatus -eq 'valid' -and $publisher -match '(?i)(Microsoft Corporation|Microsoft Windows)'
   [pscustomobject]@{
     name = [string]$_.Name
     display_name = [string]$_.DisplayName
     status = ([string]$_.State).ToLowerInvariant()
     start_type = $start
     is_microsoft = [bool]$isMicrosoft
+    publisher = $publisher
+    signature_status = $signatureStatus
   }
 } | Sort-Object display_name)
 ConvertTo-Json -InputObject $services -Depth 4 -Compress
@@ -116,6 +140,8 @@ ConvertTo-Json -InputObject $services -Depth 4 -Compress
                     status: service.status,
                     start_type: service.start_type,
                     is_microsoft: service.is_microsoft,
+                    publisher: service.publisher,
+                    signature_status: service.signature_status,
                     protected,
                     protection_reason: protected
                         .then(|| "Serviço crítico protegido pelo QBoa.".to_string()),
