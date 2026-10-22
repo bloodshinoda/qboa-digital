@@ -308,10 +308,10 @@ function renderWindowsServices() {
      String(service.publisher || "").toLocaleLowerCase().includes(filter))
   );
   document.getElementById("service-inventory-status").textContent =
-    \`\${filtered.length} de \${windowsServices.length} serviço(s) exibido(s).\` +
+    `${filtered.length} de ${windowsServices.length} serviço(s) exibido(s).` +
     (hideMicrosoft ? " Serviços Microsoft ocultos." : "");
   const selectedCount = document.getElementById("service-bulk-selection-count");
-  selectedCount.textContent = \`\${selectedServiceNames.size} selecionado(s)\`;
+  selectedCount.textContent = `${selectedServiceNames.size} selecionado(s)`;
   document.getElementById("service-bulk-apply").disabled = selectedServiceNames.size === 0;
   const selectVisible = document.getElementById("service-inventory-select-visible");
   selectVisible.checked = filtered.length > 0 && filtered.every((service) => selectedServiceNames.has(service.name));
@@ -322,7 +322,7 @@ function renderWindowsServices() {
     const serviceCheckbox = document.createElement("input");
     serviceCheckbox.type = "checkbox";
     serviceCheckbox.checked = selectedServiceNames.has(service.name);
-    serviceCheckbox.setAttribute("aria-label", \`Selecionar \${service.display_name}\`);
+    serviceCheckbox.setAttribute("aria-label", `Selecionar ${service.display_name}`);
     serviceCheckbox.addEventListener("change", () => {
       if (serviceCheckbox.checked) selectedServiceNames.add(service.name);
       else selectedServiceNames.delete(service.name);
@@ -335,7 +335,7 @@ function renderWindowsServices() {
     const key = document.createElement("small");
     key.textContent = service.name;
     const publisher = document.createElement("small");
-    publisher.textContent = \`Publicador: \${service.publisher || "não identificado"}\`;
+    publisher.textContent = `Publicador: ${service.publisher || "não identificado"}`;
     nameCell.append(name, key, publisher);
     const signatureCell = document.createElement("td");
     const signatureLabels = {
