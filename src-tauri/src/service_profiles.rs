@@ -854,6 +854,9 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             4 { 'Disabled' }
             default { [string]$serviceKey.GetValue('Start', 'Unknown') }
         }
+        if ($start -eq 'Automatic' -and [int]$serviceKey.GetValue('DelayedAutoStart', 0) -eq 1) {
+            $start = 'Automatic (Delayed)'
+        }
         [pscustomobject]@{ name=$_.ServiceName; start_type=$start }
         $serviceKey.Dispose()
     }
@@ -887,7 +890,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
     fn start_types(&mut self, names: &[String]) -> Result<Vec<InstalledService>, String> {
         let encoded = base64_encode(&serde_json::to_vec(names).map_err(|error| error.to_string())?);
         let script = format!(
-            r#"$ErrorActionPreference='Stop';$names=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))|ConvertFrom-Json;$all=Get-CimInstance Win32_Service -ErrorAction Stop;$r=@();foreach($name in $names){{$matches=@($all|Where-Object{{$_.Name -ieq $name}});if($matches.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};$s=$matches[0];$start=switch($s.StartMode){{'Auto'{{'Automatic'}}'Manual'{{'Manual'}}'Disabled'{{'Disabled'}}default{{$s.StartMode}}}};$r+=[pscustomobject]@{{name=$s.Name;start_type=$start}}}};ConvertTo-Json -InputObject @($r) -Depth 4 -Compress"#
+            r#"$ErrorActionPreference='Stop';$names=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))|ConvertFrom-Json;$all=Get-CimInstance Win32_Service -ErrorAction Stop;$r=@();foreach($name in $names){{$matches=@($all|Where-Object{{$_.Name -ieq $name}});if($matches.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};$s=$matches[0];$start=switch($s.StartMode){{'Auto'{{'Automatic'}}'Manual'{{'Manual'}}'Disabled'{{'Disabled'}}default{{$s.StartMode}}}};$key=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\$($s.Name)");if($start -eq 'Automatic' -and $key -and [int]$key.GetValue('DelayedAutoStart',0) -eq 1){{$start='Automatic (Delayed)'}};if($key){{$key.Dispose()}};$r+=[pscustomobject]@{{name=$s.Name;start_type=$start}}}};ConvertTo-Json -InputObject @($r) -Depth 4 -Compress"#
         );
         run_powershell_json(&script)
     }
