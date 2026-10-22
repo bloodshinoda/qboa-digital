@@ -845,13 +845,17 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             return Err(format!("Alteração bloqueada para o serviço {name}."));
         }
         let encoded = base64_encode(name.as_bytes());
-        let start_type = match start_type.to_ascii_lowercase().as_str() {
-            "automatic" => "Automatic",
-            "manual" => "Manual",
-            _ => "Disabled",
+        let normalized = start_type.trim().to_ascii_lowercase();
+        let (windows_start_type, delayed) = match normalized.as_str() {
+            "automatic" => ("Automatic", false),
+            "automatic (delayed)" => ("Automatic", true),
+            "manual" => ("Manual", false),
+            "disabled" => ("Disabled", false),
+            _ => return Err(format!("Tipo de inicialização inválido para {name}.")),
         };
+        let delayed_value = if delayed { 1 } else { 0 };
         let script = format!(
-            r#"$ErrorActionPreference='Stop';$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'));$services=@(Get-Service|Where-Object{{$_.Name -ieq $name}});if($services.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};Set-Service -InputObject $services[0] -StartupType {start_type}"#
+            r#"$ErrorActionPreference='Stop';$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'));$services=@(Get-Service|Where-Object{{$_.Name -ieq $name}});if($services.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};Set-Service -InputObject $services[0] -StartupType {windows_start_type};$key="HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$name";New-ItemProperty -Path $key -Name DelayedAutoStart -PropertyType DWord -Value {delayed_value} -Force | Out-Null"#
         );
         run_powershell(&script).map(|_| ())
     }
