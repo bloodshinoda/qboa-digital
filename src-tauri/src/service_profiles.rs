@@ -302,6 +302,33 @@ pub(crate) fn preview(
 
     for service in &system.services {
         let Some(rule) = rules.get(&service.name.to_ascii_lowercase()) else {
+            if let Some(target) = matrix_target(&service.name, system, &selected) {
+                let baseline = matrix_baseline(&service.name, &system.os);
+                let baseline_mismatch = baseline.as_deref().is_some_and(|expected| {
+                    !service.start_type.trim().eq_ignore_ascii_case(expected)
+                });
+                let incompatibility = if baseline_mismatch {
+                    Some("Estado atual diverge do baseline de referência; regra ignorada por segurança.")
+                } else if protected_disable(&service.name, &target) {
+                    Some("Serviço protegido não pode ser desativado.")
+                } else if !valid_start_type(&service.start_type) || !valid_start_type(&target) {
+                    Some("Tipo de inicialização inválido ou não reconhecido.")
+                } else {
+                    None
+                };
+                if let Some(reason) = incompatibility {
+                    reasons.push(reason);
+                    ignored.push(service.name.clone());
+                }
+                items.push(ServicePreviewItem {
+                    service: service.name.clone(),
+                    current: service.start_type.clone(),
+                    proposed: if incompatibility.is_none() { Some(target) } else { None },
+                    incompatible: incompatibility.map(str::to_string),
+                    ignored: incompatibility.is_some(),
+                });
+                continue;
+            }
             ignored.push(service.name.clone());
             items.push(ServicePreviewItem {
                 service: service.name.clone(),
