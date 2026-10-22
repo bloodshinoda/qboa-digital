@@ -1267,6 +1267,7 @@ mod tests {
     fn unknown_service_is_ignored_and_left_unchanged() {
         let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
         profile.validated = true;
+        profile.defaults_validated = true;
         profile.services.push(ServiceRule {
             name: "ExampleSvc".to_string(),
             start_type: "Manual".to_string(),
@@ -1449,9 +1450,14 @@ mod tests {
     fn profile_templates_have_empty_unvalidated_matrices() {
         let profiles = profile_files().unwrap();
         assert_eq!(profiles.len(), 10);
-        assert!(profiles
-            .iter()
-            .all(|profile| !profile.validated && profile.services.is_empty()));
+        assert!(profiles.iter().all(|profile| !profile.validated));
+        for profile in &profiles {
+            let has_heuristic_catalog = profile.os == WindowsVersion::Windows10
+                && matches!(profile.edition, WindowsEdition::Home | WindowsEdition::Pro);
+            assert_eq!(profile.heuristic_apply_enabled, has_heuristic_catalog);
+            assert_eq!(!profile.services.is_empty(), has_heuristic_catalog);
+            assert!(!profile.defaults_validated);
+        }
         for os in [WindowsVersion::Windows10, WindowsVersion::Windows11] {
             for edition in [
                 WindowsEdition::Home,
