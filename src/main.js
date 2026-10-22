@@ -15,6 +15,7 @@ let activityTimer = null;
 let serviceProfileState = null;
 let serviceSignatureFindings = [];
 let windowsServices = [];
+let selectedServiceNames = new Set();
 let selectedTweakTaskIds = new Set();
 let debloatProfileQueue = null;
 let browserCleanupDecision = null;
@@ -282,6 +283,8 @@ async function loadWindowsServices() {
   status.textContent = "Consultando serviços do Windows...";
   try {
     windowsServices = await Qboa.listWindowsServices();
+    const installedNames = new Set(windowsServices.map((service) => service.name));
+    selectedServiceNames = new Set([...selectedServiceNames].filter((name) => installedNames.has(name)));
     status.textContent = `${windowsServices.length} serviço(s) encontrado(s). Serviços protegidos não podem ser parados, reiniciados ou desativados.`;
     renderWindowsServices();
   } catch (error) {
@@ -301,19 +304,50 @@ function renderWindowsServices() {
   const filtered = windowsServices.filter((service) =>
     (!hideMicrosoft || !service.is_microsoft) &&
     (service.name.toLocaleLowerCase().includes(filter) ||
-     service.display_name.toLocaleLowerCase().includes(filter))
+     service.display_name.toLocaleLowerCase().includes(filter) ||
+     String(service.publisher || "").toLocaleLowerCase().includes(filter))
   );
   document.getElementById("service-inventory-status").textContent =
-    `${filtered.length} de ${windowsServices.length} serviço(s) exibido(s).` +
+    \`\${filtered.length} de \${windowsServices.length} serviço(s) exibido(s).\` +
     (hideMicrosoft ? " Serviços Microsoft ocultos." : "");
+  const selectedCount = document.getElementById("service-bulk-selection-count");
+  selectedCount.textContent = \`\${selectedServiceNames.size} selecionado(s)\`;
+  document.getElementById("service-bulk-apply").disabled = selectedServiceNames.size === 0;
+  const selectVisible = document.getElementById("service-inventory-select-visible");
+  selectVisible.checked = filtered.length > 0 && filtered.every((service) => selectedServiceNames.has(service.name));
+  selectVisible.indeterminate = filtered.some((service) => selectedServiceNames.has(service.name)) && !selectVisible.checked;
   filtered.forEach((service) => {
     const row = document.createElement("tr");
+    const selectCell = document.createElement("td");
+    const serviceCheckbox = document.createElement("input");
+    serviceCheckbox.type = "checkbox";
+    serviceCheckbox.checked = selectedServiceNames.has(service.name);
+    serviceCheckbox.setAttribute("aria-label", \`Selecionar \${service.display_name}\`);
+    serviceCheckbox.addEventListener("change", () => {
+      if (serviceCheckbox.checked) selectedServiceNames.add(service.name);
+      else selectedServiceNames.delete(service.name);
+      renderWindowsServices();
+    });
+    selectCell.appendChild(serviceCheckbox);
     const nameCell = document.createElement("td");
     const name = document.createElement("strong");
     name.textContent = service.display_name;
     const key = document.createElement("small");
     key.textContent = service.name;
-    nameCell.append(name, key);
+    const publisher = document.createElement("small");
+    publisher.textContent = \`Publicador: \${service.publisher || "não identificado"}\`;
+    nameCell.append(name, key, publisher);
+    const signatureCell = document.createElement("td");
+    const signatureLabels = {
+      valid: "Assinatura válida",
+      unsigned: "Sem assinatura",
+      invalid: "Assinatura inválida",
+      inconclusive: "Verificação inconclusiva",
+      missing_file: "Executável ausente",
+      unknown_path: "Caminho desconhecido"
+    };
+    signatureCell.textContent = signatureLabels[service.signature_status] || "Não verificada";
+    signatureCell.title = service.publisher || "O Windows não identificou um publicador confiável";
     if (service.protected) {
       const protectedLabel = document.createElement("span");
       protectedLabel.className = "service-protected-label";
@@ -383,13 +417,13 @@ function renderWindowsServices() {
     addAction("Iniciar", "start", service.status.toLowerCase() === "running", `Iniciar o serviço ${service.display_name}?`);
     addAction("Parar", "stop", service.protected || service.status.toLowerCase() !== "running", `Parar o serviço ${service.display_name}?`);
     addAction("Reiniciar", "restart", service.protected || service.status.toLowerCase() !== "running", `Reiniciar o serviço ${service.display_name}?`);
-    row.append(nameCell, stateCell, startCell, actionsCell);
+    row.append(selectCell, nameCell, signatureCell, stateCell, startCell, actionsCell);
     body.appendChild(row);
   });
   if (!filtered.length) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 4;
+    cell.colSpan = 6;
     cell.textContent = windowsServices.length ? "Nenhum serviço corresponde ao filtro." : "Nenhum serviço carregado.";
     row.appendChild(cell);
     body.appendChild(row);
@@ -1259,6 +1293,66 @@ async function registerEvents() {
   };
   document.getElementById("service-inventory-filter").addEventListener("input", renderWindowsServices);
   document.getElementById("service-inventory-hide-microsoft").addEventListener("change", renderWindowsServices);
+  document.getElementById("service-inventory-select-visible").addEventListener("change", (event) => {
+    const filter = document.getElementById("service-inventory-filter").value.trim().toLocaleLowerCase();
+    const hideMicrosoft = document.getElementById("service-inventory-hide-microsoft").checked;
+    const visible = windowsServices.filter((service) =>
+      (!hideMicrosoft || !service.is_microsoft) &&
+      (service.name.toLocaleLowerCase().includes(filter) ||
+       service.display_name.toLocaleLowerCase().includes(filter) ||
+       String(service.publisher || "").toLocaleLowerCase().includes(filter))
+    );
+    visible.forEach((service) => {
+      if (event.currentTarget.checked) selectedServiceNames.add(service.name);
+      else selectedServiceNames.delete(service.name);
+    });
+    renderWindowsServices();
+  });
+  document.getElementById("service-bulk-apply").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const actionValue = document.getElementById("service-bulk-action").value;
+    const [action, startType] = actionValue.split(":");
+    const selected = windowsServices.filter((service) => selectedServiceNames.has(service.name));
+    if (!selected.length) return;
+    const blocked = selected.filter((service) =>
+      service.protected && (action === "stop" || action === "restart" ||
+        (action === "set_start_type" && startType === "disabled"))
+    );
+    const eligible = selected.filter((service) => !blocked.includes(service));
+    if (!eligible.length) {
+      appendConsole("Nenhum serviço selecionado pode receber esta modificação: os itens estão protegidos pelo QBoa.");
+      return;
+    }
+    const changeLabel = action === "set_start_type"
+      ? \`definir inicialização como \${serviceStartTypeLabel(startType)}\`
+      : ({ start: "iniciar", stop: "parar", restart: "reiniciar" })[action];
+    const blockedNote = blocked.length ? \` \${blocked.length} serviço(s) protegido(s) serão ignorados.\` : "";
+    if (!(await askConfirmation(
+      \`Aplicar a ação "\${changeLabel}" a \${eligible.length} serviço(s)?\${blockedNote} A operação pode ter sucesso parcial; cada resultado será registrado.\`,
+      "Confirmar modificação em massa?"
+    ))) return;
+    button.disabled = true;
+    let succeeded = 0;
+    const failures = [];
+    try {
+      for (const service of eligible) {
+        try {
+          await Qboa.manageWindowsService(service.name, action, startType || null);
+          succeeded += 1;
+        } catch (error) {
+          failures.push(\`\${service.name}: \${String(error)}\`);
+        }
+      }
+      appendConsole(\`Modificação em massa concluída: \${succeeded}/\${eligible.length} serviço(s) alterado(s).\`);
+      if (blocked.length) appendConsole(\`Ignorados por proteção: \${blocked.map((service) => service.name).join(", ")}\`);
+      failures.forEach((failure) => appendConsole(\`Falha: \${failure}\`));
+      selectedServiceNames.clear();
+      await loadWindowsServices();
+    } finally {
+      button.disabled = false;
+      renderWindowsServices();
+    }
+  });
   document.getElementById("open-service-inventory").addEventListener("click", () => {
     serviceInventoryModal.classList.remove("hidden");
     serviceInventoryModal.setAttribute("aria-hidden", "false");
