@@ -805,3 +805,10 @@ button.copy-pix-button:hover:not(:disabled) {
   .service-inventory-modal .service-inventory-panel { padding: 12px; }
   .service-inventory-modal .service-inventory-table-wrap { max-height: calc(90vh - 300px); }
 }
+
+
+/* Resumo de serviços: alterações efetivas, com sinalização visual por ação. */
+#console-output .service-summary-heading { color: var(--accent, #4ade80); font-weight: 800; }
+#console-output .service-summary-disabled { color: #ff7777; }
+#console-output .service-summary-enabled { color: #6ee7a0; }
+#console-output .service-summary-manual { color: #f6c66a; }
