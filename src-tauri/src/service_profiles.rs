@@ -220,10 +220,19 @@ fn powershell_output_result(
     stdout: &[u8],
     _stderr: &[u8],
 ) -> Result<String, String> {
+    const ERROR_MARKER: &str = "__QBOA_POWERSHELL_ERROR__:";
+    let output = String::from_utf8_lossy(stdout);
     if succeeded {
-        Ok(String::from_utf8_lossy(stdout).trim().to_string())
+        Ok(output.trim().to_string())
+    } else if let Some((_, detail)) = output.split_once(ERROR_MARKER) {
+        let detail = detail.lines().next().unwrap_or_default().trim();
+        if detail.is_empty() {
+            Err("O PowerShell falhou ao consultar os serviços do Windows.".to_string())
+        } else {
+            Err(format!("Falha no PowerShell ao consultar os serviços do Windows: {detail}"))
+        }
     } else {
-        Err("Não foi possível consultar os serviços do Windows.".to_string())
+        Err("Não foi possível consultar os serviços do Windows. O PowerShell terminou com erro; consulte o log técnico do QBoa.".to_string())
     }
 }
 
@@ -696,19 +705,15 @@ $batteryDevices = @(Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue)
 $computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
 $pcSystemType = if ($computerSystem -and $null -ne $computerSystem.PCSystemType) { [int]$computerSystem.PCSystemType } else { $null }
 $chassisTypes = @(Get-CimInstance Win32_SystemEnclosure -ErrorAction SilentlyContinue | ForEach-Object { $_.Chassis } | ForEach-Object { [int]$_ })
-$services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-Object {
-    $serviceKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\$($_.ServiceName)")
-    if ($serviceKey) {
-        $start = switch ([int]$serviceKey.GetValue('Start', -1)) {
-            2 { 'Automatic' }
-            3 { 'Manual' }
-            4 { 'Disabled' }
-            default { [string]$serviceKey.GetValue('Start', 'Unknown') }
-        }
-        [pscustomobject]@{ name=$_.ServiceName; start_type=$start }
-        $serviceKey.Dispose()
+$services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
+    $start = switch ([string]$_.StartMode) {
+        'Auto' { 'Automatic' }
+        'Manual' { 'Manual' }
+        'Disabled' { 'Disabled' }
+        default { [string]$_.StartMode }
     }
-}
+    [pscustomobject]@{ name=[string]$_.Name; start_type=$start }
+})
 [pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; pc_system_type=$pcSystemType; chassis_types=@($chassisTypes); has_battery=($batteryDevices.Count -gt 0); services=@($services) } | ConvertTo-Json -Depth 5 -Compress
 "#;
         let data: WindowsSystemData = run_powershell_json(script)?;
@@ -833,13 +838,14 @@ fn run_powershell(script: &str) -> Result<String, String> {
     use std::process::Command;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let wrapped_script = format!(
+        "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;try {{ {script} }} catch {{ [Console]::Out.WriteLine('__QBOA_POWERSHELL_ERROR__:' + $_.Exception.Message); exit 1 }}"
+    );
     let encoded = base64_encode(
-        &format!(
-            "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
-        )
-        .encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect::<Vec<_>>(),
+        &wrapped_script
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
     );
     let output = Command::new("powershell")
         .args([
@@ -1260,6 +1266,12 @@ mod tests {
         assert_eq!(
             powershell_output_result(true, stdout, clixml).unwrap(),
             "{\"services\":[]}"
+        );
+
+        let diagnostic = b"__QBOA_POWERSHELL_ERROR__: Acesso negado";
+        assert_eq!(
+            powershell_output_result(false, diagnostic, clixml).unwrap_err(),
+            "Falha no PowerShell ao consultar os serviços do Windows: Acesso negado"
         );
     }
 
