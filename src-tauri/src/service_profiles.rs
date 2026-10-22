@@ -819,9 +819,8 @@ fn parse_edition(value: &str) -> Option<WindowsEdition> {
         "ProfessionalWorkstation" | "ProfessionalWorkstationN" => {
             Some(WindowsEdition::ProForWorkstations)
         }
-        "Enterprise" | "EnterpriseN" | "EnterpriseG" | "EnterpriseS" | "IoTEnterprise" | "IoTEnterpriseS" => {
-            Some(WindowsEdition::Enterprise)
-        }
+        "Enterprise" | "EnterpriseN" | "EnterpriseG" | "EnterpriseS" | "IoTEnterprise"
+        | "IoTEnterpriseS" => Some(WindowsEdition::Enterprise),
         "Education" | "EducationN" | "ProfessionalEducation" => Some(WindowsEdition::Education),
         _ => None,
     }
