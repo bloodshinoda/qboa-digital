@@ -2,18 +2,38 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 const PROTECTED_SERVICES: &[&str] = &[
+    "wuauserv",
+    "WinDefend",
+    "Dhcp",
     "RpcSs",
-    "DcomLaunch",
     "PlugPlay",
+    "DcomLaunch",
     "EventLog",
     "SamSs",
     "LSM",
-    "WinDefend",
-    "wuauserv",
-    "Dhcp",
     "BITS",
     "CryptSvc",
     "TrustedInstaller",
+    "RpcEptMapper",
+    "BFE",
+    "MpsSvc",
+    "Power",
+    "Schedule",
+    "Winmgmt",
+    "gpsvc",
+    "BrokerInfrastructure",
+    "ProfSvc",
+    "UserManager",
+    "nsi",
+    "LanmanWorkstation",
+    "AudioSrv",
+    "AudioEndpointBuilder",
+    "Dnscache",
+    "NlaSvc",
+    "KeyIso",
+    "CoreMessagingRegistrar",
+    "SgrmBroker",
+    "SystemEventsBroker",
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -23,6 +43,8 @@ pub(crate) struct ServiceEntry {
     pub status: String,
     pub start_type: String,
     pub is_microsoft: bool,
+    pub publisher: Option<String>,
+    pub signature_status: String,
     pub protected: bool,
     pub protection_reason: Option<String>,
 }
@@ -34,6 +56,8 @@ struct RawService {
     status: String,
     start_type: String,
     is_microsoft: bool,
+    publisher: Option<String>,
+    signature_status: String,
 }
 
 pub(crate) fn list_services() -> Result<Vec<ServiceEntry>, String> {
@@ -60,23 +84,43 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     $binaryPath = $Matches[1].Trim('"')
   }
   if ($binaryPath) { $binaryPath = [Environment]::ExpandEnvironmentVariables($binaryPath) }
+  if ($binaryPath -and $binaryPath.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
+  }
   if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
     $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
-    if ($serviceDll) { $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll) }
+    if ($serviceDll) {
+      $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll)
+      if ($binaryPath.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
+      }
+    }
   }
-  $isMicrosoft = $false
+  $publisher = $null
+  $signatureStatus = 'unknown_path'
   if ($binaryPath -and (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
     try {
       $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath -ErrorAction Stop
-      $isMicrosoft = $signature.Status -eq 'Valid' -and [string]$signature.SignerCertificate.Subject -match '(?i)(Microsoft Corporation|Microsoft Windows)'
-    } catch { $isMicrosoft = $false }
+      if ($signature.SignerCertificate) { $publisher = [string]$signature.SignerCertificate.Subject }
+      switch ([string]$signature.Status) {
+        'Valid' { $signatureStatus = 'valid' }
+        'NotSigned' { $signatureStatus = 'unsigned' }
+        { $_ -in @('HashMismatch', 'NotTrusted') } { $signatureStatus = 'invalid' }
+        default { $signatureStatus = 'inconclusive' }
+      }
+    } catch { $signatureStatus = 'inconclusive' }
+  } elseif ($binaryPath) {
+    $signatureStatus = 'missing_file'
   }
+  $isMicrosoft = $signatureStatus -eq 'valid' -and $publisher -match '(?i)(Microsoft Corporation|Microsoft Windows)'
   [pscustomobject]@{
     name = [string]$_.Name
     display_name = [string]$_.DisplayName
     status = ([string]$_.State).ToLowerInvariant()
     start_type = $start
     is_microsoft = [bool]$isMicrosoft
+    publisher = $publisher
+    signature_status = $signatureStatus
   }
 } | Sort-Object display_name)
 ConvertTo-Json -InputObject $services -Depth 4 -Compress
@@ -96,6 +140,121 @@ ConvertTo-Json -InputObject $services -Depth 4 -Compress
                     status: service.status,
                     start_type: service.start_type,
                     is_microsoft: service.is_microsoft,
+                    publisher: service.publisher,
+                    signature_status: service.signature_status,
+                    protected,
+                    protection_reason: protected
+                        .then(|| "Serviço crítico protegido pelo QBoa.".to_string()),
+                }
+            })
+            .collect())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct ServiceSignatureFinding {
+    pub name: String,
+    pub display_name: String,
+    pub start_type: String,
+    pub binary_path: String,
+    pub signature_status: String,
+    pub publisher: Option<String>,
+    pub protected: bool,
+    pub protection_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawSignatureFinding {
+    name: String,
+    display_name: String,
+    start_type: String,
+    binary_path: String,
+    signature_status: String,
+    publisher: Option<String>,
+}
+
+pub(crate) fn audit_unsigned_services() -> Result<Vec<ServiceSignatureFinding>, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        return Err("A auditoria de assinaturas só está disponível no Windows.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+$ErrorActionPreference = 'Stop'
+$findings = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
+  $binaryPath = $null
+  if ([string]$_.PathName -match '^"([^"]+\.exe)"') {
+    $binaryPath = $Matches[1]
+  } elseif ([string]$_.PathName -match '^(.+?\.exe)(?:\s|$)') {
+    $binaryPath = $Matches[1].Trim('"')
+  }
+  if ($binaryPath) { $binaryPath = [Environment]::ExpandEnvironmentVariables($binaryPath) }
+  if ($binaryPath -and $binaryPath.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
+  }
+  if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
+    $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
+    if ($serviceDll) {
+      $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll)
+      if ($binaryPath.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
+      }
+    }
+  }
+  $status = 'unknown_path'
+  $publisher = $null
+  if ($binaryPath -and (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
+    try {
+      $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath -ErrorAction Stop
+      if ($signature.SignerCertificate) { $publisher = [string]$signature.SignerCertificate.Subject }
+      switch ([string]$signature.Status) {
+        'Valid' { $status = 'valid' }
+        'NotSigned' { $status = 'unsigned' }
+        { $_ -in @('HashMismatch', 'NotTrusted') } { $status = 'invalid' }
+        default { $status = 'inconclusive' }
+      }
+    } catch { $status = 'inconclusive' }
+  } elseif ($binaryPath) {
+    $status = 'missing_file'
+  }
+  $start = switch ([string]$_.StartMode) {
+    'Auto' { 'automatic' }
+    'Manual' { 'manual' }
+    'Disabled' { 'disabled' }
+    default { 'unknown' }
+  }
+  if ($status -ne 'valid') {
+    [pscustomobject]@{
+      name = [string]$_.Name
+      display_name = [string]$_.DisplayName
+      start_type = $start
+      binary_path = [string]$binaryPath
+      signature_status = $status
+      publisher = $publisher
+    }
+  }
+} | Sort-Object display_name)
+ConvertTo-Json -InputObject $findings -Depth 4 -Compress
+"#;
+        let output = run_powershell(script)?;
+        let raw: Vec<RawSignatureFinding> =
+            serde_json::from_str(output.trim_start_matches('\u{feff}').trim()).map_err(
+                |error| format!("Não foi possível interpretar a auditoria de assinaturas: {error}"),
+            )?;
+
+        Ok(raw
+            .into_iter()
+            .map(|finding| {
+                let protected = is_protected(&finding.name);
+                ServiceSignatureFinding {
+                    name: finding.name,
+                    display_name: finding.display_name,
+                    start_type: finding.start_type,
+                    binary_path: finding.binary_path,
+                    signature_status: finding.signature_status,
+                    publisher: finding.publisher,
                     protected,
                     protection_reason: protected
                         .then(|| "Serviço crítico protegido pelo QBoa.".to_string()),

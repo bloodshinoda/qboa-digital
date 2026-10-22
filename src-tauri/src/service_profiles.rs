@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+
+const PRESET_MATRIX_CSV: &str = include_str!("../../matrix-baseline.csv");
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 
@@ -166,6 +168,7 @@ pub(crate) trait ServiceProfileBackend {
     fn detect_system(&mut self) -> Result<DetectedSystem, String>;
     fn start_types(&mut self, names: &[String]) -> Result<Vec<InstalledService>, String>;
     fn set_start_type(&mut self, name: &str, start_type: &str) -> Result<(), String>;
+    fn stop_service(&mut self, name: &str) -> Result<String, String>;
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String>;
     fn save_snapshot(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String>;
 }
@@ -300,6 +303,39 @@ pub(crate) fn preview(
 
     for service in &system.services {
         let Some(rule) = rules.get(&service.name.to_ascii_lowercase()) else {
+            if let Some(target) = matrix_target(&service.name, system, &selected) {
+                let baseline = matrix_baseline(&service.name, &system.os);
+                let baseline_mismatch = baseline.as_deref().is_some_and(|expected| {
+                    !service.start_type.trim().eq_ignore_ascii_case(expected)
+                });
+                let incompatibility = if baseline_mismatch {
+                    Some("Estado atual diverge do baseline histórico de referência; regra ignorada por segurança.")
+                } else if protected_disable(&service.name, &target) {
+                    Some("Serviço protegido não pode ser desativado.")
+                } else if !valid_start_type(&service.start_type) || !valid_start_type(&target) {
+                    Some("Tipo de inicialização inválido ou não reconhecido.")
+                } else {
+                    None
+                };
+                if let Some(reason) = incompatibility {
+                    if !baseline_mismatch {
+                        reasons.push(reason);
+                    }
+                    ignored.push(service.name.clone());
+                }
+                items.push(ServicePreviewItem {
+                    service: service.name.clone(),
+                    current: service.start_type.clone(),
+                    proposed: if incompatibility.is_none() {
+                        Some(target)
+                    } else {
+                        None
+                    },
+                    incompatible: incompatibility.map(str::to_string),
+                    ignored: incompatibility.is_some(),
+                });
+                continue;
+            }
             ignored.push(service.name.clone());
             items.push(ServicePreviewItem {
                 service: service.name.clone(),
@@ -315,10 +351,16 @@ pub(crate) fn preview(
         // coincide com a baseline histórica do catálogo, não presumimos que a
         // regra continue válida nesta versão ou que o serviço não tenha sido
         // personalizado pelo usuário.
-        if let Some(baseline) = rule.windows_default_start_type.as_deref() {
-            if !service.start_type.eq_ignore_ascii_case(baseline) {
+        let matrix_reference = matrix_baseline(&service.name, &system.os);
+        let baseline = matrix_reference
+            .as_deref()
+            .or(rule.windows_default_start_type.as_deref());
+        if let Some(baseline) = baseline {
+            let current_normalized = service.start_type.trim().to_ascii_lowercase();
+            let baseline_normalized = baseline.trim().to_ascii_lowercase();
+            if current_normalized != baseline_normalized {
                 let reason =
-                    "Estado atual diverge do baseline histórico; regra ignorada por segurança."
+                    "Estado atual diverge do baseline histórico de referência; regra ignorada por segurança."
                         .to_string();
                 ignored.push(service.name.clone());
                 items.push(ServicePreviewItem {
@@ -332,11 +374,13 @@ pub(crate) fn preview(
             }
         }
 
-        let incompatibility = if protected_disable(&rule.name, &rule.start_type) {
+        let target_start_type = matrix_target(&service.name, system, &selected)
+            .unwrap_or_else(|| rule.start_type.clone());
+        let incompatibility = if protected_disable(&rule.name, &target_start_type) {
             Some("Serviço protegido não pode ser desativado.")
         } else if !valid_start_type(&service.start_type) {
             Some("Tipo de inicialização atual não pode ser alterado com segurança.")
-        } else if !valid_start_type(&rule.start_type) {
+        } else if !valid_start_type(&target_start_type) {
             Some("Tipo de inicialização inválido.")
         } else {
             None
@@ -348,7 +392,7 @@ pub(crate) fn preview(
             service: service.name.clone(),
             current: service.start_type.clone(),
             proposed: if incompatibility.is_none() {
-                Some(rule.start_type.clone())
+                Some(target_start_type)
             } else {
                 None
             },
@@ -415,7 +459,16 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     backend: &mut B,
     profile: &ServiceProfileFile,
     selected: ProductProfile,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
+    apply_profile_with_disabled_services(backend, profile, selected, &[])
+}
+
+pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
+    backend: &mut B,
+    profile: &ServiceProfileFile,
+    selected: ProductProfile,
+    selected_to_disable: &[String],
+) -> Result<Vec<String>, String> {
     ensure_profile_has_validated_services(profile)?;
     let system = backend.detect_system()?;
     if selected != ProductProfile::Custom
@@ -427,26 +480,68 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     {
         return Err("Perfil solicita desativar um serviço protegido.".to_string());
     }
-    let preview = preview(&system, profile, selected);
+    let preview = preview(&system, profile, selected.clone());
     if !preview.applicable {
         return Err(format!("Perfil não aplicável: {}", preview.message));
     }
 
-    let names: Vec<String> = preview
+    let profile_changes: Vec<(String, String)> = preview
         .services
         .iter()
         .filter(|item| {
             item.incompatible.is_none()
-                && item
-                    .proposed
-                    .as_deref()
-                    .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
+                && item.proposed.as_deref().is_some_and(|target| {
+                    !item.current.eq_ignore_ascii_case(target)
+                        || target.eq_ignore_ascii_case("disabled")
+                })
         })
-        .map(|item| item.service.clone())
+        .map(|item| {
+            (
+                item.service.clone(),
+                item.proposed.clone().unwrap_or_default(),
+            )
+        })
         .collect();
-    if names.is_empty() {
-        return Err("Nenhuma alteração compatível para aplicar neste sistema.".to_string());
+
+    for name in selected_to_disable {
+        let normalized = name.trim().to_ascii_lowercase();
+        if normalized.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            return Err("A seleção contém um nome de serviço inválido.".to_string());
+        }
+        if PROTECTED_SERVICES
+            .iter()
+            .any(|protected| protected.eq_ignore_ascii_case(name))
+        {
+            return Err(format!(
+                "Não é permitido desativar o serviço protegido {name}."
+            ));
+        }
+        if !system
+            .services
+            .iter()
+            .any(|service| service.name.eq_ignore_ascii_case(name))
+        {
+            return Err(format!("O serviço selecionado não está instalado: {name}"));
+        }
     }
+
+    let mut targets: HashMap<String, (String, String)> = HashMap::new();
+    for (name, start_type) in profile_changes {
+        targets.insert(name.to_ascii_lowercase(), (name, start_type));
+    }
+    for name in selected_to_disable {
+        targets.insert(
+            name.to_ascii_lowercase(),
+            (name.clone(), "disabled".to_string()),
+        );
+    }
+    if targets.is_empty() {
+        return Err(
+            "Nenhuma alteração compatível ou serviço selecionado para desativação.".to_string(),
+        );
+    }
+
+    let names: Vec<String> = targets.values().map(|(name, _)| name.clone()).collect();
     let snapshot_services = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &snapshot_services)?;
     backend.save_snapshot(&ServiceSnapshot {
@@ -455,16 +550,55 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
         edition: system.edition,
         services: snapshot_services,
     })?;
-    for item in preview.services.iter().filter(|item| {
-        item.incompatible.is_none()
-            && item
-                .proposed
-                .as_deref()
-                .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
-    }) {
-        backend.set_start_type(&item.service, item.proposed.as_deref().unwrap_or_default())?;
+
+    // Snapshot completo salvo antes de qualquer alteração: permite desfazer o preset
+    // junto com os serviços escolhidos explicitamente na auditoria.
+    let mut activity = vec![
+        format!(
+            "Aplicando perfil {:?}: {} serviço(s) no plano.",
+            selected,
+            targets.len()
+        ),
+        format!(
+            "Snapshot de reversão salvo para {} serviço(s).",
+            names.len()
+        ),
+    ];
+    let mut changed = 0usize;
+    let mut failures = 0usize;
+    for (name, start_type) in targets.values() {
+        if protected_disable(name, start_type) {
+            activity.push(format!("BLOQUEADO: {name} é protegido pelo QBoa."));
+            failures += 1;
+            continue;
+        }
+        match backend.set_start_type(name, start_type) {
+            Ok(()) => {
+                changed += 1;
+                activity.push(format!("{name}: inicialização definida como {start_type}."));
+            }
+            Err(error) => {
+                activity.push(format!(
+                    "FALHA: {name}: não foi possível alterar a inicialização: {error}"
+                ));
+                failures += 1;
+                continue;
+            }
+        }
+        if start_type.eq_ignore_ascii_case("disabled") {
+            match backend.stop_service(name) {
+                Ok(message) => activity.push(format!("{name}: {message}")),
+                Err(error) => {
+                    activity.push(format!("FALHA: {name}: inicialização desativada, mas não foi possível parar o serviço: {error}"));
+                    failures += 1;
+                }
+            }
+        }
     }
-    Ok(())
+    activity.push(format!(
+        "Aplicação finalizada: {changed} alteração(ões) de inicialização concluída(s); {failures} falha(s)."
+    ));
+    Ok(activity)
 }
 
 pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
@@ -528,15 +662,15 @@ pub(crate) fn undo_last_application<B: ServiceProfileBackend>(
     {
         return Err("Snapshot não corresponde ao Windows detectado.".to_string());
     }
-    let allowed_names: HashSet<String> = profile
+    let installed_names: HashSet<String> = system
         .services
         .iter()
-        .map(|rule| rule.name.to_ascii_lowercase())
+        .map(|service| service.name.to_ascii_lowercase())
         .collect();
     for service in &snapshot.services {
         if !valid_start_type(&service.start_type)
             || protected_disable(&service.name, &service.start_type)
-            || !allowed_names.contains(&service.name.to_ascii_lowercase())
+            || !installed_names.contains(&service.name.to_ascii_lowercase())
         {
             return Err(format!("Snapshot inválido para {}.", service.name));
         }
@@ -647,15 +781,80 @@ fn profile_incompatibilities(
     reasons
 }
 
+fn matrix_row(service: &str) -> Option<Vec<&str>> {
+    PRESET_MATRIX_CSV
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let line = line.trim_start_matches('\u{feff}');
+            let cells: Vec<&str> = line.split(',').collect();
+            cells
+                .first()
+                .is_some_and(|name| name.eq_ignore_ascii_case(service))
+                .then_some(cells)
+        })
+        .next()
+}
+
+fn matrix_baseline(service: &str, os: &WindowsVersion) -> Option<String> {
+    let column = match os {
+        WindowsVersion::Windows10 => 1,
+        WindowsVersion::Windows11 => 5,
+    };
+    matrix_row(service)
+        .and_then(|row| row.get(column).copied())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| match value.to_ascii_lowercase().as_str() {
+            "automatic (delayed)" => "automatic (delayed)".to_string(),
+            "automatic" => "automatic".to_string(),
+            "manual" => "manual".to_string(),
+            "disabled" => "disabled".to_string(),
+            other => other.to_string(),
+        })
+}
+
+fn matrix_protected(service: &str) -> bool {
+    matrix_row(service)
+        .and_then(|row| row.get(10).copied())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("sim"))
+}
+
+fn matrix_target(
+    service: &str,
+    system: &DetectedSystem,
+    selected: &ProductProfile,
+) -> Option<String> {
+    let column = match (&system.os, selected, system.form_factor.as_ref()) {
+        (WindowsVersion::Windows10, ProductProfile::Safe, Some(FormFactor::Desktop)) => 2,
+        (WindowsVersion::Windows10, ProductProfile::Safe, Some(FormFactor::Notebook)) => 3,
+        (WindowsVersion::Windows10, ProductProfile::Aggressive, Some(FormFactor::Desktop))
+            if system.battery_present == Some(false) =>
+        {
+            4
+        }
+        // A matriz não define preset agressivo para notebooks nem presets refinados.
+        // Nesses casos, preservamos as regras já existentes do catálogo por edição.
+        _ => return None,
+    };
+    matrix_row(service)
+        .and_then(|row| row.get(column).copied())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+}
+
 fn valid_start_type(start_type: &str) -> bool {
-    ["automatic", "manual", "disabled"].contains(&start_type.to_ascii_lowercase().as_str())
+    ["automatic", "automatic (delayed)", "manual", "disabled"]
+        .contains(&start_type.trim().to_ascii_lowercase().as_str())
 }
 
 fn protected_disable(service: &str, start_type: &str) -> bool {
     start_type.eq_ignore_ascii_case("disabled")
-        && PROTECTED_SERVICES
-            .iter()
-            .any(|protected| service.eq_ignore_ascii_case(protected))
+        && (matrix_protected(service)
+            || PROTECTED_SERVICES
+                .iter()
+                .any(|protected| service.eq_ignore_ascii_case(protected)))
 }
 
 #[cfg(target_os = "windows")]
@@ -705,6 +904,9 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             4 { 'Disabled' }
             default { [string]$serviceKey.GetValue('Start', 'Unknown') }
         }
+        if ($start -eq 'Automatic' -and [int]$serviceKey.GetValue('DelayedAutoStart', 0) -eq 1) {
+            $start = 'Automatic (Delayed)'
+        }
         [pscustomobject]@{ name=$_.ServiceName; start_type=$start }
         $serviceKey.Dispose()
     }
@@ -738,7 +940,7 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
     fn start_types(&mut self, names: &[String]) -> Result<Vec<InstalledService>, String> {
         let encoded = base64_encode(&serde_json::to_vec(names).map_err(|error| error.to_string())?);
         let script = format!(
-            r#"$ErrorActionPreference='Stop';$names=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))|ConvertFrom-Json;$all=Get-CimInstance Win32_Service -ErrorAction Stop;$r=@();foreach($name in $names){{$matches=@($all|Where-Object{{$_.Name -ieq $name}});if($matches.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};$s=$matches[0];$start=switch($s.StartMode){{'Auto'{{'Automatic'}}'Manual'{{'Manual'}}'Disabled'{{'Disabled'}}default{{$s.StartMode}}}};$r+=[pscustomobject]@{{name=$s.Name;start_type=$start}}}};ConvertTo-Json -InputObject @($r) -Depth 4 -Compress"#
+            r#"$ErrorActionPreference='Stop';$names=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))|ConvertFrom-Json;$all=Get-CimInstance Win32_Service -ErrorAction Stop;$r=@();foreach($name in $names){{$matches=@($all|Where-Object{{$_.Name -ieq $name}});if($matches.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};$s=$matches[0];$start=switch($s.StartMode){{'Auto'{{'Automatic'}}'Manual'{{'Manual'}}'Disabled'{{'Disabled'}}default{{$s.StartMode}}}};$key=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\$($s.Name)");if($start -eq 'Automatic' -and $key -and [int]$key.GetValue('DelayedAutoStart',0) -eq 1){{$start='Automatic (Delayed)'}};if($key){{$key.Dispose()}};$r+=[pscustomobject]@{{name=$s.Name;start_type=$start}}}};ConvertTo-Json -InputObject @($r) -Depth 4 -Compress"#
         );
         run_powershell_json(&script)
     }
@@ -748,15 +950,27 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             return Err(format!("Alteração bloqueada para o serviço {name}."));
         }
         let encoded = base64_encode(name.as_bytes());
-        let start_type = match start_type.to_ascii_lowercase().as_str() {
-            "automatic" => "Automatic",
-            "manual" => "Manual",
-            _ => "Disabled",
+        let normalized = start_type.trim().to_ascii_lowercase();
+        let (windows_start_type, delayed) = match normalized.as_str() {
+            "automatic" => ("Automatic", false),
+            "automatic (delayed)" => ("Automatic", true),
+            "manual" => ("Manual", false),
+            "disabled" => ("Disabled", false),
+            _ => return Err(format!("Tipo de inicialização inválido para {name}.")),
         };
+        let delayed_value = if delayed { 1 } else { 0 };
         let script = format!(
-            r#"$ErrorActionPreference='Stop';$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'));$services=@(Get-Service|Where-Object{{$_.Name -ieq $name}});if($services.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};Set-Service -InputObject $services[0] -StartupType {start_type}"#
+            r#"$ErrorActionPreference='Stop';$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'));$services=@(Get-Service|Where-Object{{$_.Name -ieq $name}});if($services.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};Set-Service -InputObject $services[0] -StartupType {windows_start_type};$key="HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$name";New-ItemProperty -Path $key -Name DelayedAutoStart -PropertyType DWord -Value {delayed_value} -Force | Out-Null"#
         );
         run_powershell(&script).map(|_| ())
+    }
+
+    fn stop_service(&mut self, name: &str) -> Result<String, String> {
+        let encoded = base64_encode(name.as_bytes());
+        let script = format!(
+            r#"$ErrorActionPreference='Stop';$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'));$services=@(Get-Service|Where-Object{{$_.Name -ieq $name}});if($services.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};$service=$services[0];if($service.Status -eq 'Stopped'){{Write-Output 'já estava parado.';exit 0}};Stop-Service -InputObject $service -ErrorAction Stop;$service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(20));Write-Output 'parado com sucesso.'"#
+        );
+        run_powershell(&script).map(|output| output.trim().to_string())
     }
 
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String> {
@@ -901,6 +1115,9 @@ impl ServiceProfileBackend for WindowsServiceProfileBackend {
     fn set_start_type(&mut self, _name: &str, _start_type: &str) -> Result<(), String> {
         Err("Operação de serviços só está disponível no Windows.".to_string())
     }
+    fn stop_service(&mut self, _name: &str) -> Result<String, String> {
+        Err("Operação de serviços só está disponível no Windows.".to_string())
+    }
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String> {
         Err("Operação de serviços só está disponível no Windows.".to_string())
     }
@@ -945,6 +1162,9 @@ mod tests {
                 service.start_type = start_type.to_string();
             }
             Ok(())
+        }
+        fn stop_service(&mut self, name: &str) -> Result<String, String> {
+            Ok(format!("{name}: parado com sucesso."))
         }
         fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String> {
             Ok(self.snapshot.clone())
@@ -1311,6 +1531,106 @@ mod tests {
             assert!(backend.changes.is_empty());
             assert!(backend.saved.is_empty());
         }
+    }
+
+    #[test]
+    fn selected_unsigned_service_is_snapshotted_and_can_be_undone() {
+        let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
+        profile.validated = true;
+        profile.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: Some("Automatic".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
+        let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
+
+        apply_profile_with_disabled_services(
+            &mut backend,
+            &profile,
+            ProductProfile::Safe,
+            &["MysterySvc".to_string()],
+        )
+        .unwrap();
+
+        assert!(backend.saved[0]
+            .services
+            .iter()
+            .any(|service| service.name == "MysterySvc"));
+        assert_eq!(
+            backend
+                .system
+                .services
+                .iter()
+                .find(|service| service.name == "MysterySvc")
+                .unwrap()
+                .start_type,
+            "disabled"
+        );
+
+        undo_last_application(&mut backend, &profile).unwrap();
+        assert_eq!(
+            backend
+                .system
+                .services
+                .iter()
+                .find(|service| service.name == "MysterySvc")
+                .unwrap()
+                .start_type,
+            "Manual"
+        );
+        assert_eq!(
+            backend
+                .system
+                .services
+                .iter()
+                .find(|service| service.name == "ExampleSvc")
+                .unwrap()
+                .start_type,
+            "Automatic"
+        );
+    }
+
+    #[test]
+    fn selected_unknown_or_protected_services_are_rejected_before_changes() {
+        let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
+        profile.validated = true;
+        profile.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: Some("Automatic".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
+
+        let mut unknown_backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
+        assert!(apply_profile_with_disabled_services(
+            &mut unknown_backend,
+            &profile,
+            ProductProfile::Safe,
+            &["NotInstalled".to_string()],
+        )
+        .is_err());
+        assert!(unknown_backend.changes.is_empty());
+        assert!(unknown_backend.saved.is_empty());
+
+        let mut protected_backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
+        protected_backend.system.services.push(InstalledService {
+            name: "RpcSs".to_string(),
+            start_type: "Automatic".to_string(),
+        });
+        assert!(apply_profile_with_disabled_services(
+            &mut protected_backend,
+            &profile,
+            ProductProfile::Safe,
+            &["RpcSs".to_string()],
+        )
+        .is_err());
+        assert!(protected_backend.changes.is_empty());
+        assert!(protected_backend.saved.is_empty());
     }
 
     #[test]
