@@ -115,10 +115,23 @@
       <input id="service-inventory-hide-microsoft" type="checkbox">
       <span>Ocultar serviços Microsoft</span>
     </label>
+    <section class="service-bulk-toolbar" aria-label="Modificações em massa">
+      <label for="service-bulk-action">Modificar serviços selecionados</label>
+      <select id="service-bulk-action">
+        <option value="set_start_type:automatic">Inicialização: Automático</option>
+        <option value="set_start_type:manual">Inicialização: Manual</option>
+        <option value="set_start_type:disabled">Inicialização: Desativado</option>
+        <option value="start">Iniciar</option>
+        <option value="stop">Parar</option>
+        <option value="restart">Reiniciar</option>
+      </select>
+      <button id="service-bulk-apply" type="button">Aplicar aos selecionados</button>
+      <span id="service-bulk-selection-count" aria-live="polite">0 selecionados</span>
+    </section>
     <p id="service-inventory-status" aria-live="polite">Aguardando consulta aos serviços do Windows.</p>
     <div class="service-inventory-table-wrap">
       <table class="service-inventory-table">
-        <thead><tr><th>Serviço</th><th>Estado</th><th>Inicialização</th><th>Ações</th></tr></thead>
+        <thead><tr><th><input id="service-inventory-select-visible" type="checkbox" aria-label="Selecionar serviços visíveis"></th><th>Serviço / publicador</th><th>Assinatura</th><th>Estado</th><th>Inicialização</th><th>Ações</th></tr></thead>
         <tbody id="service-inventory-rows"></tbody>
       </table>
     </div>
