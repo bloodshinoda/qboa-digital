@@ -837,3 +837,50 @@ button.copy-pix-button:hover:not(:disabled) {
   .service-inventory-modal .service-inventory-panel { padding: 12px; }
   .service-inventory-modal .service-inventory-table-wrap { max-height: calc(90vh - 300px); }
 }
+
+
+/* Auditoria prévia de assinaturas dos serviços do Windows */
+.service-signature-review {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--border-color, #3a4553);
+  border-radius: 12px;
+  background: var(--panel-background, rgba(10, 16, 24, 0.45));
+}
+.service-signature-review[hidden] { display: none; }
+.service-signature-findings {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+.service-signature-finding {
+  padding: 0.85rem;
+  border: 1px solid var(--border-color, #3a4553);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.service-signature-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+.service-signature-label input {
+  flex: 0 0 auto;
+  margin-top: 0.3rem;
+}
+.service-signature-label span {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.service-signature-label small,
+.service-signature-protected {
+  color: var(--muted-text, #aab4c0);
+  overflow-wrap: anywhere;
+}
+.service-signature-protected {
+  display: block;
+  margin: 0.5rem 0 0 1.8rem;
+}
