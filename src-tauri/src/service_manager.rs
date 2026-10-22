@@ -152,7 +152,6 @@ $findings = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
   if ($binaryPath -and (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
     try {
       $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath -ErrorAction Stop
-      $status = [string]$signature.Status
       if ($signature.SignerCertificate) { $publisher = [string]$signature.SignerCertificate.Subject }
       if ($signature.Status -eq 'Valid') { return }
       if ($signature.Status -eq 'NotSigned') { $status = 'unsigned' } else { $status = 'invalid' }
@@ -178,23 +177,28 @@ $findings = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
 ConvertTo-Json -InputObject $findings -Depth 4 -Compress
 "#;
         let output = run_powershell(script)?;
-        let raw: Vec<RawSignatureFinding> = serde_json::from_str(
-            output.trim_start_matches('\u{feff}').trim(),
-        )
-        .map_err(|error| format!("Não foi possível interpretar a auditoria de assinaturas: {error}"))?;
-        Ok(raw.into_iter().map(|finding| {
-            let protected = is_protected(&finding.name);
-            ServiceSignatureFinding {
-                name: finding.name,
-                display_name: finding.display_name,
-                start_type: finding.start_type,
-                binary_path: finding.binary_path,
-                signature_status: finding.signature_status,
-                publisher: finding.publisher,
-                protected,
-                protection_reason: protected.then(|| "Serviço crítico protegido pelo QBoa.".to_string()),
-            }
-        }).collect())
+        let raw: Vec<RawSignatureFinding> =
+            serde_json::from_str(output.trim_start_matches('\u{feff}').trim()).map_err(
+                |error| format!("Não foi possível interpretar a auditoria de assinaturas: {error}"),
+            )?;
+
+        Ok(raw
+            .into_iter()
+            .map(|finding| {
+                let protected = is_protected(&finding.name);
+                ServiceSignatureFinding {
+                    name: finding.name,
+                    display_name: finding.display_name,
+                    start_type: finding.start_type,
+                    binary_path: finding.binary_path,
+                    signature_status: finding.signature_status,
+                    publisher: finding.publisher,
+                    protected,
+                    protection_reason: protected
+                        .then(|| "Serviço crítico protegido pelo QBoa.".to_string()),
+                }
+            })
+            .collect())
     }
 }
 
