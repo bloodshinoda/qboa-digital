@@ -317,7 +317,9 @@ pub(crate) fn preview(
                     None
                 };
                 if let Some(reason) = incompatibility {
-                    reasons.push(reason);
+                    if !baseline_mismatch {
+                        reasons.push(reason);
+                    }
                     ignored.push(service.name.clone());
                 }
                 items.push(ServicePreviewItem {
