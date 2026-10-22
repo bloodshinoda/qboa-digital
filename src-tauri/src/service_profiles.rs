@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+
+const PRESET_MATRIX_CSV: &str = include_str!("../../matrix-baseline.csv");
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 
@@ -315,10 +317,14 @@ pub(crate) fn preview(
         // coincide com a baseline histórica do catálogo, não presumimos que a
         // regra continue válida nesta versão ou que o serviço não tenha sido
         // personalizado pelo usuário.
-        if let Some(baseline) = rule.windows_default_start_type.as_deref() {
-            if !service.start_type.eq_ignore_ascii_case(baseline) {
+        let matrix_reference = matrix_baseline(&service.name, &system.os);
+        let baseline = matrix_reference.as_deref().or(rule.windows_default_start_type.as_deref());
+        if let Some(baseline) = baseline {
+            let current_normalized = service.start_type.trim().to_ascii_lowercase();
+            let baseline_normalized = baseline.trim().to_ascii_lowercase();
+            if current_normalized != baseline_normalized {
                 let reason =
-                    "Estado atual diverge do baseline histórico; regra ignorada por segurança."
+                    "Estado atual diverge do baseline de referência; regra ignorada por segurança."
                         .to_string();
                 ignored.push(service.name.clone());
                 items.push(ServicePreviewItem {
@@ -700,15 +706,53 @@ fn profile_incompatibilities(
     reasons
 }
 
+fn matrix_row(service: &str) -> Option<Vec<&str>> {
+    PRESET_MATRIX_CSV
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let line = line.trim_start_matches('\u{feff}');
+            let cells: Vec<&str> = line.split(',').collect();
+            cells.first().is_some_and(|name| name.eq_ignore_ascii_case(service)).then_some(cells)
+        })
+        .next()
+}
+
+fn matrix_baseline(service: &str, os: &WindowsVersion) -> Option<String> {
+    let column = match os {
+        WindowsVersion::Windows10 => 1,
+        WindowsVersion::Windows11 => 5,
+    };
+    matrix_row(service)
+        .and_then(|row| row.get(column).copied())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| match value.to_ascii_lowercase().as_str() {
+            "automatic (delayed)" => "automatic (delayed)".to_string(),
+            "automatic" => "automatic".to_string(),
+            "manual" => "manual".to_string(),
+            "disabled" => "disabled".to_string(),
+            other => other.to_string(),
+        })
+}
+
+fn matrix_protected(service: &str) -> bool {
+    matrix_row(service)
+        .and_then(|row| row.get(10).copied())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("sim"))
+}
+
 fn valid_start_type(start_type: &str) -> bool {
-    ["automatic", "manual", "disabled"].contains(&start_type.to_ascii_lowercase().as_str())
+    ["automatic", "automatic (delayed)", "manual", "disabled"]
+        .contains(&start_type.trim().to_ascii_lowercase().as_str())
 }
 
 fn protected_disable(service: &str, start_type: &str) -> bool {
     start_type.eq_ignore_ascii_case("disabled")
-        && PROTECTED_SERVICES
-            .iter()
-            .any(|protected| service.eq_ignore_ascii_case(protected))
+        && (matrix_protected(service)
+            || PROTECTED_SERVICES
+                .iter()
+                .any(|protected| service.eq_ignore_ascii_case(protected)))
 }
 
 #[cfg(target_os = "windows")]
