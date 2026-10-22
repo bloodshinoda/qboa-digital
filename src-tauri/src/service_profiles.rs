@@ -1342,6 +1342,76 @@ mod tests {
     }
 
     #[test]
+    fn selected_unsigned_service_is_snapshotted_and_can_be_undone() {
+        let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
+        profile.validated = true;
+        profile.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: Some("Automatic".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
+        let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
+
+        apply_profile_with_disabled_services(
+            &mut backend,
+            &profile,
+            ProductProfile::Safe,
+            &["MysterySvc".to_string()],
+        ).unwrap();
+
+        assert!(backend.saved[0].services.iter().any(|service| service.name == "MysterySvc"));
+        assert_eq!(
+            backend.system.services.iter().find(|service| service.name == "MysterySvc").unwrap().start_type,
+            "disabled"
+        );
+
+        undo_last_application(&mut backend, &profile).unwrap();
+        assert_eq!(
+            backend.system.services.iter().find(|service| service.name == "MysterySvc").unwrap().start_type,
+            "Manual"
+        );
+        assert_eq!(
+            backend.system.services.iter().find(|service| service.name == "ExampleSvc").unwrap().start_type,
+            "Automatic"
+        );
+    }
+
+    #[test]
+    fn selected_unknown_or_protected_services_are_rejected_before_changes() {
+        let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
+        profile.validated = true;
+        profile.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: Some("Automatic".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
+
+        let mut unknown_backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
+        assert!(apply_profile_with_disabled_services(
+            &mut unknown_backend, &profile, ProductProfile::Safe, &["NotInstalled".to_string()]
+        ).is_err());
+        assert!(unknown_backend.changes.is_empty());
+        assert!(unknown_backend.saved.is_empty());
+
+        let mut protected_backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
+        protected_backend.system.services.push(InstalledService {
+            name: "RpcSs".to_string(),
+            start_type: "Automatic".to_string(),
+        });
+        assert!(apply_profile_with_disabled_services(
+            &mut protected_backend, &profile, ProductProfile::Safe, &["RpcSs".to_string()]
+        ).is_err());
+        assert!(protected_backend.changes.is_empty());
+        assert!(protected_backend.saved.is_empty());
+    }
+
+    #[test]
     fn unvalidated_profile_cannot_apply_or_change_start_type() {
         let profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
         let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
