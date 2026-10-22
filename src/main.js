@@ -1314,21 +1314,28 @@ async function registerEvents() {
     const [action, startType] = actionValue.split(":");
     const selected = windowsServices.filter((service) => selectedServiceNames.has(service.name));
     if (!selected.length) return;
-    const blocked = selected.filter((service) =>
+    const unchanged = selected.filter((service) =>
+      (action === "set_start_type" && service.start_type === startType) ||
+      (action === "start" && service.status.toLowerCase() === "running") ||
+      ((action === "stop" || action === "restart") && service.status.toLowerCase() !== "running")
+    );
+    const actionable = selected.filter((service) => !unchanged.includes(service));
+    const blocked = actionable.filter((service) =>
       service.protected && (action === "stop" || action === "restart" ||
         (action === "set_start_type" && startType === "disabled"))
     );
-    const eligible = selected.filter((service) => !blocked.includes(service));
+    const eligible = actionable.filter((service) => !blocked.includes(service));
     if (!eligible.length) {
-      appendConsole("Nenhum serviço selecionado pode receber esta modificação: os itens estão protegidos pelo QBoa.");
+      appendConsole(`Nenhum serviço precisa ou pode receber esta modificação. Sem alteração: ${unchanged.length}; protegidos: ${blocked.length}.`);
       return;
     }
     const changeLabel = action === "set_start_type"
       ? `definir inicialização como ${serviceStartTypeLabel(startType)}`
       : ({ start: "iniciar", stop: "parar", restart: "reiniciar" })[action];
     const blockedNote = blocked.length ? ` ${blocked.length} serviço(s) protegido(s) serão ignorados.` : "";
+    const unchangedNote = unchanged.length ? ` ${unchanged.length} serviço(s) já estão no estado desejado e serão ignorados.` : "";
     if (!(await askConfirmation(
-      `Aplicar a ação "${changeLabel}" a ${eligible.length} serviço(s)?${blockedNote} A operação pode ter sucesso parcial; cada resultado será registrado.`,
+      `Aplicar a ação "${changeLabel}" a ${eligible.length} serviço(s)?${blockedNote}${unchangedNote} A operação pode ter sucesso parcial; cada resultado será registrado.`,
       "Confirmar modificação em massa?"
     ))) return;
     button.disabled = true;
@@ -1345,6 +1352,7 @@ async function registerEvents() {
       }
       appendConsole(`Modificação em massa concluída: ${succeeded}/${eligible.length} serviço(s) alterado(s).`);
       if (blocked.length) appendConsole(`Ignorados por proteção: ${blocked.map((service) => service.name).join(", ")}`);
+      if (unchanged.length) appendConsole(`Sem alteração necessária: ${unchanged.map((service) => service.name).join(", ")}`);
       failures.forEach((failure) => appendConsole(`Falha: ${failure}`));
       selectedServiceNames.clear();
       await loadWindowsServices();
