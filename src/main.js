@@ -1324,11 +1324,11 @@ async function registerEvents() {
       return;
     }
     const changeLabel = action === "set_start_type"
-      ? \`definir inicialização como \${serviceStartTypeLabel(startType)}\`
+      ? `definir inicialização como ${serviceStartTypeLabel(startType)}`
       : ({ start: "iniciar", stop: "parar", restart: "reiniciar" })[action];
-    const blockedNote = blocked.length ? \` \${blocked.length} serviço(s) protegido(s) serão ignorados.\` : "";
+    const blockedNote = blocked.length ? ` ${blocked.length} serviço(s) protegido(s) serão ignorados.` : "";
     if (!(await askConfirmation(
-      \`Aplicar a ação "\${changeLabel}" a \${eligible.length} serviço(s)?\${blockedNote} A operação pode ter sucesso parcial; cada resultado será registrado.\`,
+      `Aplicar a ação "${changeLabel}" a ${eligible.length} serviço(s)?${blockedNote} A operação pode ter sucesso parcial; cada resultado será registrado.`,
       "Confirmar modificação em massa?"
     ))) return;
     button.disabled = true;
@@ -1340,12 +1340,12 @@ async function registerEvents() {
           await Qboa.manageWindowsService(service.name, action, startType || null);
           succeeded += 1;
         } catch (error) {
-          failures.push(\`\${service.name}: \${String(error)}\`);
+          failures.push(`${service.name}: ${String(error)}`);
         }
       }
-      appendConsole(\`Modificação em massa concluída: \${succeeded}/\${eligible.length} serviço(s) alterado(s).\`);
-      if (blocked.length) appendConsole(\`Ignorados por proteção: \${blocked.map((service) => service.name).join(", ")}\`);
-      failures.forEach((failure) => appendConsole(\`Falha: \${failure}\`));
+      appendConsole(`Modificação em massa concluída: ${succeeded}/${eligible.length} serviço(s) alterado(s).`);
+      if (blocked.length) appendConsole(`Ignorados por proteção: ${blocked.map((service) => service.name).join(", ")}`);
+      failures.forEach((failure) => appendConsole(`Falha: ${failure}`));
       selectedServiceNames.clear();
       await loadWindowsServices();
     } finally {
