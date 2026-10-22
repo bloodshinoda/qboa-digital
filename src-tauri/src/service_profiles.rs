@@ -480,7 +480,7 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
     {
         return Err("Perfil solicita desativar um serviço protegido.".to_string());
     }
-    let preview = preview(&system, profile, selected);
+    let preview = preview(&system, profile, selected.clone());
     if !preview.applicable {
         return Err(format!("Perfil não aplicável: {}", preview.message));
     }
