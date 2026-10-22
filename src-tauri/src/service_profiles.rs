@@ -326,7 +326,11 @@ pub(crate) fn preview(
                 items.push(ServicePreviewItem {
                     service: service.name.clone(),
                     current: service.start_type.clone(),
-                    proposed: if incompatibility.is_none() { Some(target) } else { None },
+                    proposed: if incompatibility.is_none() {
+                        Some(target)
+                    } else {
+                        None
+                    },
                     incompatible: incompatibility.map(str::to_string),
                     ignored: incompatibility.is_some(),
                 });
@@ -348,7 +352,9 @@ pub(crate) fn preview(
         // regra continue válida nesta versão ou que o serviço não tenha sido
         // personalizado pelo usuário.
         let matrix_reference = matrix_baseline(&service.name, &system.os);
-        let baseline = matrix_reference.as_deref().or(rule.windows_default_start_type.as_deref());
+        let baseline = matrix_reference
+            .as_deref()
+            .or(rule.windows_default_start_type.as_deref());
         if let Some(baseline) = baseline {
             let current_normalized = service.start_type.trim().to_ascii_lowercase();
             let baseline_normalized = baseline.trim().to_ascii_lowercase();
@@ -548,8 +554,15 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
     // Snapshot completo salvo antes de qualquer alteração: permite desfazer o preset
     // junto com os serviços escolhidos explicitamente na auditoria.
     let mut activity = vec![
-        format!("Aplicando perfil {:?}: {} serviço(s) no plano.", selected, targets.len()),
-        format!("Snapshot de reversão salvo para {} serviço(s).", names.len()),
+        format!(
+            "Aplicando perfil {:?}: {} serviço(s) no plano.",
+            selected,
+            targets.len()
+        ),
+        format!(
+            "Snapshot de reversão salvo para {} serviço(s).",
+            names.len()
+        ),
     ];
     let mut changed = 0usize;
     let mut failures = 0usize;
@@ -565,7 +578,9 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
                 activity.push(format!("{name}: inicialização definida como {start_type}."));
             }
             Err(error) => {
-                activity.push(format!("FALHA: {name}: não foi possível alterar a inicialização: {error}"));
+                activity.push(format!(
+                    "FALHA: {name}: não foi possível alterar a inicialização: {error}"
+                ));
                 failures += 1;
                 continue;
             }
@@ -773,7 +788,10 @@ fn matrix_row(service: &str) -> Option<Vec<&str>> {
         .filter_map(|line| {
             let line = line.trim_start_matches('\u{feff}');
             let cells: Vec<&str> = line.split(',').collect();
-            cells.first().is_some_and(|name| name.eq_ignore_ascii_case(service)).then_some(cells)
+            cells
+                .first()
+                .is_some_and(|name| name.eq_ignore_ascii_case(service))
+                .then_some(cells)
         })
         .next()
 }
