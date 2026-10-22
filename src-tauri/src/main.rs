@@ -1687,8 +1687,8 @@ async fn manage_windows_service(
 }
 
 #[tauri::command]
-async fn audit_unsigned_services(
-) -> Result<Vec<service_manager::ServiceSignatureFinding>, String> {
+async fn audit_unsigned_services() -> Result<Vec<service_manager::ServiceSignatureFinding>, String>
+{
     service_manager::audit_unsigned_services()
 }
 
