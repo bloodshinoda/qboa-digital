@@ -196,7 +196,12 @@ $findings = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
   }
   if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
     $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
-    if ($serviceDll) { $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll) }
+    if ($serviceDll) {
+      $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll)
+      if ($binaryPath.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
+      }
+    }
   }
   $status = 'unknown_path'
   $publisher = $null
