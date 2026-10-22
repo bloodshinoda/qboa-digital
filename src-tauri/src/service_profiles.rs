@@ -416,6 +416,15 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     profile: &ServiceProfileFile,
     selected: ProductProfile,
 ) -> Result<(), String> {
+    apply_profile_with_disabled_services(backend, profile, selected, &[])
+}
+
+pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
+    backend: &mut B,
+    profile: &ServiceProfileFile,
+    selected: ProductProfile,
+    selected_to_disable: &[String],
+) -> Result<(), String> {
     ensure_profile_has_validated_services(profile)?;
     let system = backend.detect_system()?;
     if selected != ProductProfile::Custom
@@ -432,21 +441,42 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
         return Err(format!("Perfil não aplicável: {}", preview.message));
     }
 
-    let names: Vec<String> = preview
-        .services
-        .iter()
+    let profile_changes: Vec<(String, String)> = preview.services.iter()
         .filter(|item| {
             item.incompatible.is_none()
-                && item
-                    .proposed
-                    .as_deref()
+                && item.proposed.as_deref()
                     .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
         })
-        .map(|item| item.service.clone())
+        .map(|item| (item.service.clone(), item.proposed.clone().unwrap_or_default()))
         .collect();
-    if names.is_empty() {
-        return Err("Nenhuma alteração compatível para aplicar neste sistema.".to_string());
+
+    let mut requested_disable = HashSet::new();
+    for name in selected_to_disable {
+        let normalized = name.trim().to_ascii_lowercase();
+        if normalized.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            return Err("A seleção contém um nome de serviço inválido.".to_string());
+        }
+        if PROTECTED_SERVICES.iter().any(|protected| protected.eq_ignore_ascii_case(name)) {
+            return Err(format!("Não é permitido desativar o serviço protegido {name}."));
+        }
+        if !system.services.iter().any(|service| service.name.eq_ignore_ascii_case(name)) {
+            return Err(format!("O serviço selecionado não está instalado: {name}"));
+        }
+        requested_disable.insert(normalized);
     }
+
+    let mut targets: HashMap<String, (String, String)> = HashMap::new();
+    for (name, start_type) in profile_changes {
+        targets.insert(name.to_ascii_lowercase(), (name, start_type));
+    }
+    for name in selected_to_disable {
+        targets.insert(name.to_ascii_lowercase(), (name.clone(), "disabled".to_string()));
+    }
+    if targets.is_empty() {
+        return Err("Nenhuma alteração compatível ou serviço selecionado para desativação.".to_string());
+    }
+
+    let names: Vec<String> = targets.values().map(|(name, _)| name.clone()).collect();
     let snapshot_services = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &snapshot_services)?;
     backend.save_snapshot(&ServiceSnapshot {
@@ -455,14 +485,14 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
         edition: system.edition,
         services: snapshot_services,
     })?;
-    for item in preview.services.iter().filter(|item| {
-        item.incompatible.is_none()
-            && item
-                .proposed
-                .as_deref()
-                .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
-    }) {
-        backend.set_start_type(&item.service, item.proposed.as_deref().unwrap_or_default())?;
+
+    // Snapshot completo salvo antes de qualquer alteração: permite desfazer o preset
+    // junto com os serviços escolhidos explicitamente na auditoria.
+    for (name, start_type) in targets.values() {
+        if protected_disable(name, start_type) {
+            return Err(format!("Não é permitido desativar o serviço protegido {name}."));
+        }
+        backend.set_start_type(name, start_type)?;
     }
     Ok(())
 }
@@ -528,15 +558,15 @@ pub(crate) fn undo_last_application<B: ServiceProfileBackend>(
     {
         return Err("Snapshot não corresponde ao Windows detectado.".to_string());
     }
-    let allowed_names: HashSet<String> = profile
+    let installed_names: HashSet<String> = system
         .services
         .iter()
-        .map(|rule| rule.name.to_ascii_lowercase())
+        .map(|service| service.name.to_ascii_lowercase())
         .collect();
     for service in &snapshot.services {
         if !valid_start_type(&service.start_type)
             || protected_disable(&service.name, &service.start_type)
-            || !allowed_names.contains(&service.name.to_ascii_lowercase())
+            || !installed_names.contains(&service.name.to_ascii_lowercase())
         {
             return Err(format!("Snapshot inválido para {}.", service.name));
         }
