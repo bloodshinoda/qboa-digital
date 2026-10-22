@@ -1260,7 +1260,7 @@ mod tests {
     fn powershell_clixml_stderr_is_never_returned_to_the_interface() {
         let clixml = b"#< CLIXML\r\n<Objs><Obj S='Error'>Preparando m\xC3\xB3dulos para primeiro uso</Obj></Objs>";
         let error = powershell_output_result(false, b"", clixml).unwrap_err();
-        assert_eq!(error, "Não foi possível consultar os serviços do Windows.");
+        assert_eq!(error, "Não foi possível consultar os serviços do Windows. O PowerShell terminou com erro; consulte o log técnico do QBoa.");
         assert!(!error.contains("CLIXML"));
         assert!(!error.contains("Preparando módulos"));
 
