@@ -863,6 +863,7 @@ function renderServiceSignatureAudit(findings) {
   const status = document.getElementById("service-signature-status");
   const applyButton = document.getElementById("service-signature-apply-btn");
   list.replaceChildren();
+  applyButton.disabled = false;
   serviceSignatureFindings = Array.isArray(findings) ? findings : [];
 
   if (!serviceSignatureFindings.length) {
