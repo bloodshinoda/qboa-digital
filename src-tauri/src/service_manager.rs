@@ -84,17 +84,17 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     $binaryPath = $Matches[1].Trim('"')
   }
   if ($binaryPath) { $binaryPath = [Environment]::ExpandEnvironmentVariables($binaryPath) }
-  if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
-    $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
-    if ($serviceDll) { $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll) }
-  }
-  if ($binaryPath) { $binaryPath = [Environment]::ExpandEnvironmentVariables($binaryPath) }
-  if ($binaryPath -and $binaryPath.StartsWith('\\SystemRoot\\', [System.StringComparison]::OrdinalIgnoreCase)) {
+  if ($binaryPath -and $binaryPath.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
     $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
   }
   if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
-    $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$($_.Name)\\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
-    if ($serviceDll) { $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll) }
+    $serviceDll = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
+    if ($serviceDll) {
+      $binaryPath = [Environment]::ExpandEnvironmentVariables([string]$serviceDll)
+      if ($binaryPath.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
+      }
+    }
   }
   $publisher = $null
   $signatureStatus = 'unknown_path'
