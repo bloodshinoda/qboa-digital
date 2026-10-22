@@ -360,7 +360,7 @@ pub(crate) fn preview(
             let baseline_normalized = baseline.trim().to_ascii_lowercase();
             if current_normalized != baseline_normalized {
                 let reason =
-                    "Estado atual diverge do baseline de referência; regra ignorada por segurança."
+                    "Estado atual diverge do baseline histórico de referência; regra ignorada por segurança."
                         .to_string();
                 ignored.push(service.name.clone());
                 items.push(ServicePreviewItem {
