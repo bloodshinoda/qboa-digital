@@ -178,8 +178,13 @@ $findings = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     try {
       $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath -ErrorAction Stop
       if ($signature.SignerCertificate) { $publisher = [string]$signature.SignerCertificate.Subject }
-      if ($signature.Status -eq 'Valid') { return }
-      if ($signature.Status -eq 'NotSigned') { $status = 'unsigned' } else { $status = 'invalid' }
+      if ($signature.Status -eq 'Valid') {
+        $status = 'valid'
+      } elseif ($signature.Status -eq 'NotSigned') {
+        $status = 'unsigned'
+      } else {
+        $status = 'invalid'
+      }
     } catch { $status = 'inconclusive' }
   } elseif ($binaryPath) {
     $status = 'missing_file'
@@ -190,13 +195,15 @@ $findings = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     'Disabled' { 'disabled' }
     default { 'unknown' }
   }
-  [pscustomobject]@{
-    name = [string]$_.Name
-    display_name = [string]$_.DisplayName
-    start_type = $start
-    binary_path = [string]$binaryPath
-    signature_status = $status
-    publisher = $publisher
+  if ($status -ne 'valid') {
+    [pscustomobject]@{
+      name = [string]$_.Name
+      display_name = [string]$_.DisplayName
+      start_type = $start
+      binary_path = [string]$binaryPath
+      signature_status = $status
+      publisher = $publisher
+    }
   }
 } | Sort-Object display_name)
 ConvertTo-Json -InputObject $findings -Depth 4 -Compress
