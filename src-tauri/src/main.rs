@@ -1722,7 +1722,7 @@ async fn preview_service_profile(
 async fn apply_service_profile(
     profile: service_profiles::ProductProfile,
     selected_to_disable: Vec<String>,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     if !selected_to_disable.is_empty() {
         let audit = service_manager::audit_unsigned_services()?;
         for name in &selected_to_disable {
