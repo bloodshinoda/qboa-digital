@@ -309,7 +309,7 @@ pub(crate) fn preview(
                     !service.start_type.trim().eq_ignore_ascii_case(expected)
                 });
                 let incompatibility = if baseline_mismatch {
-                    Some("Estado atual diverge do baseline de referência; regra ignorada por segurança.")
+                    Some("Estado atual diverge do baseline histórico de referência; regra ignorada por segurança.")
                 } else if protected_disable(&service.name, &target) {
                     Some("Serviço protegido não pode ser desativado.")
                 } else if !valid_start_type(&service.start_type) || !valid_start_type(&target) {
