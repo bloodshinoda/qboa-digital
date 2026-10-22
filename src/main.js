@@ -14,8 +14,6 @@ let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
 let windowsServices = [];
-let selectedTweakTaskIds = new Set();
-let debloatProfileQueue = null;
 let browserCleanupDecision = null;
 let showAllSessionChanges = false;
 
@@ -42,10 +40,6 @@ const Qboa = {
 
   async runPreset(presetId) {
     return invoke("run_preset", { presetId });
-  },
-
-  async getDebloatProfileTasks(profile, selectedIds) {
-    return invoke("get_debloat_profile_tasks", { profile, selectedIds });
   },
 
   async getSessionHistory() {
@@ -165,23 +159,19 @@ function renderTabs() {
 function syncExecutionControls() {
   const running = Boolean(activeTaskId);
   const presetButton = document.getElementById("preset-run-btn");
-  const debloatButton = document.getElementById("debloat-profile-run-btn");
   const cancelButton = document.getElementById("cancel-task-btn");
 
   cancelButton.hidden = !running;
   cancelButton.disabled = !running;
-  presetButton.disabled = running || Boolean(debloatProfileQueue) || activeSection === "servicos";
-  debloatButton.disabled = running || Boolean(debloatProfileQueue);
+  presetButton.disabled = running || activeSection === "servicos";
 }
 
 function renderCards() {
   const cardsEl = document.getElementById("cards");
   const dashboard = document.querySelector(".dashboard");
   const recoveryPanel = document.querySelector(".recovery-panel");
-  const profileControls = document.getElementById("debloat-profile-controls");
   const serviceProfilePanel = document.getElementById("service-profile-panel");
   const capabilityPanel = document.getElementById("capability-inventory-panel");
-  profileControls.hidden = activeSection !== "limpeza";
   serviceProfilePanel.hidden = activeSection !== "servicos";
   capabilityPanel.hidden = activeSection !== "capacidades";
   dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
@@ -238,24 +228,6 @@ function renderCards() {
       const riskLabel = item.risk === "safe" ? "🟢 Seguro" : item.risk === "moderate" ? "🟡 Moderado" : "🟠 Avançado";
       risk.textContent = riskLabel;
       card.appendChild(risk);
-    }
-    if (
-      activeSection === "limpeza" && item.id.startsWith("desengordurar_") &&
-      document.getElementById("debloat-profile-select").value === "personalizado"
-    ) {
-      const selection = document.createElement("label");
-      selection.className = "custom-profile-selection";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = selectedTweakTaskIds.has(item.id);
-      checkbox.addEventListener("click", (event) => event.stopPropagation());
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) selectedTweakTaskIds.add(item.id);
-        else selectedTweakTaskIds.delete(item.id);
-      });
-      selection.append(checkbox, document.createTextNode("Incluir no perfil Personalizado"));
-      selection.addEventListener("click", (event) => event.stopPropagation());
-      card.appendChild(selection);
     }
     card.addEventListener("click", () => runTask(item, card));
     cardsEl.appendChild(card);
@@ -551,8 +523,8 @@ function requiresConfirmation(item) {
   return item.risk === "moderate" || item.risk === "advanced";
 }
 
-function showRiskModal(item, cardEl, profileQueue = false) {
-  pendingTask = { item, cardEl, profileQueue };
+function showRiskModal(item, cardEl) {
+  pendingTask = { item, cardEl };
   const modal = document.getElementById("risk-modal");
   const message = document.getElementById("risk-message");
 
@@ -658,74 +630,12 @@ async function executeTask(item, cardEl) {
 }
 
 async function runTask(item, cardEl) {
-  if (debloatProfileQueue) {
-    appendConsole("Aguarde a conclusão do perfil de limpeza avançada.");
-    return;
-  }
   if (requiresConfirmation(item)) {
     showRiskModal(item, cardEl);
     return;
   }
 
   await executeTask(item, cardEl);
-}
-
-function stopDebloatProfileQueue(message) {
-  if (!debloatProfileQueue) return;
-  debloatProfileQueue = null;
-  document.getElementById("debloat-profile-status").textContent = message;
-  syncExecutionControls();
-}
-
-async function runNextDebloatProfileTask() {
-  if (!debloatProfileQueue || activeTaskId) return;
-  if (!debloatProfileQueue.items.length) {
-    stopDebloatProfileQueue("Perfil concluído.");
-    return;
-  }
-
-  const item = debloatProfileQueue.items.shift();
-  debloatProfileQueue.currentTaskId = item.id;
-  const card = document.querySelector(`[data-task-id="${item.id}"]`);
-  if (requiresConfirmation(item)) {
-    showRiskModal(item, card, true);
-    document.getElementById("debloat-profile-status").textContent =
-      `Confirme a tarefa ${item.name} para continuar.`;
-    return;
-  }
-  if (!(await executeTask(item, card))) {
-    stopDebloatProfileQueue(`Perfil interrompido em ${item.name}.`);
-  }
-}
-
-async function startDebloatProfile() {
-  const button = document.getElementById("debloat-profile-run-btn");
-  const status = document.getElementById("debloat-profile-status");
-  if (activeTaskId || debloatProfileQueue) {
-    status.textContent = "Aguarde a tarefa atual terminar.";
-    return;
-  }
-  const profile = document.getElementById("debloat-profile-select").value;
-  const selectedIds = profile === "personalizado" ? [...selectedTweakTaskIds] : [];
-  if (profile === "personalizado" && selectedIds.length === 0) {
-    status.textContent = "Marque ao menos uma tarefa para o perfil Personalizado.";
-    return;
-  }
-  button.disabled = true;
-  status.textContent = "Preparando perfil...";
-  try {
-    const ids = await Qboa.getDebloatProfileTasks(profile, selectedIds);
-    const debloatItems = structure.sections.flatMap((section) => section.items).filter((item) => item.id.startsWith("desengordurar_"));
-    const items = ids.map((id) => debloatItems.find((item) => item.id === id));
-    if (items.some((item) => !item)) throw new Error("O catálogo retornou uma tarefa desconhecida.");
-    debloatProfileQueue = { items, currentTaskId: null };
-    syncExecutionControls();
-    status.textContent = "Executando tarefas do perfil.";
-    await runNextDebloatProfileTask();
-  } catch (error) {
-    button.disabled = false;
-    status.textContent = String(error);
-  }
 }
 
 function presetDisplayName(level) {
@@ -764,7 +674,7 @@ function bindLevels() {
   });
 
   document.getElementById("preset-run-btn").addEventListener("click", async () => {
-    if (activeTaskId || debloatProfileQueue) {
+    if (activeTaskId) {
       appendConsole("Já existe uma tarefa em execução.");
       return;
     }
@@ -792,12 +702,6 @@ function bindLevels() {
     }
   });
 
-  document.getElementById("debloat-profile-select").addEventListener("change", () => {
-    if (activeSection === "limpeza") renderCards();
-  });
-  document.getElementById("debloat-profile-run-btn").addEventListener("click", () => {
-    void startDebloatProfile();
-  });
 }
 
 async function refreshHistory() {
@@ -949,6 +853,64 @@ async function runDiagnostic(mode) {
   }
 }
 
+
+function serviceStartTypeSummary(beforeState, afterState, operation) {
+  const before = beforeState?.system?.services;
+  const after = afterState?.system?.services;
+  if (!Array.isArray(before) || !Array.isArray(after)) return null;
+
+  const previous = new Map(before.map((service) => [service.name.toLowerCase(), service]));
+  const disabled = [];
+  const reenabled = [];
+  const automatic = [];
+  const manual = [];
+
+  after.forEach((service) => {
+    const old = previous.get(service.name.toLowerCase());
+    if (!old || String(old.start_type).toLowerCase() === String(service.start_type).toLowerCase()) return;
+    const currentType = String(service.start_type).toLowerCase();
+    const previousType = String(old.start_type).toLowerCase();
+    if (currentType === "disabled") disabled.push(service.name);
+    else if (previousType === "disabled") reenabled.push(`${service.name} (${serviceStartTypeLabel(service.start_type)})`);
+    else if (currentType === "automatic") automatic.push(service.name);
+    else if (currentType === "manual") manual.push(service.name);
+  });
+
+  const changed = disabled.length + reenabled.length + automatic.length + manual.length;
+  const lines = [
+    "=================",
+    "RESUMO DA EXECUÇÃO",
+    "=================",
+    `Operação: ${operation}`,
+    `Serviços desabilitados: ${disabled.length}`,
+    ...(disabled.length ? disabled.map((name) => `  - ${name}`) : ["  - Nenhum"]),
+    `Serviços reativados: ${reenabled.length}`,
+    ...(reenabled.length ? reenabled.map((name) => `  - ${name}`) : ["  - Nenhum"]),
+    `Inicialização alterada para automática: ${automatic.length}`,
+    ...(automatic.length ? automatic.map((name) => `  - ${name}`) : ["  - Nenhum"]),
+    `Inicialização alterada para manual: ${manual.length}`,
+    ...(manual.length ? manual.map((name) => `  - ${name}`) : ["  - Nenhum"]),
+    `Total de serviços alterados: ${changed}`
+  ];
+  return lines.join("\n");
+}
+
+async function executeServiceProfileOperation(operation, action, fallbackMessage) {
+  const beforeState = await Qboa.getServiceProfileState().catch(() => null);
+  await action();
+  const afterState = await Qboa.getServiceProfileState().catch(() => null);
+  const summary = serviceStartTypeSummary(beforeState, afterState, operation);
+  if (summary) {
+    consoleBuffer = consoleBuffer.trimEnd()
+      ? `${consoleBuffer.trimEnd()}\n\n\n${summary}`
+      : summary;
+    renderConsole();
+  } else {
+    appendConsole(fallbackMessage);
+  }
+  await loadServiceProfileState();
+}
+
 async function loadServiceProfileState() {
   const status = document.getElementById("service-profile-status");
   const details = document.getElementById("service-system-details");
@@ -1022,9 +984,6 @@ async function registerEvents() {
               if (activeTaskId === payload.task_id) activeTaskId = null;
             }
             syncExecutionControls();
-            if (debloatProfileQueue?.currentTaskId === payload.task_id) {
-              stopDebloatProfileQueue("Perfil interrompido porque o ponto de restauração não foi criado.");
-            }
           }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
@@ -1054,14 +1013,6 @@ async function registerEvents() {
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
       syncExecutionControls();
       refreshHistory();
-      if (debloatProfileQueue?.currentTaskId === payload.task_id) {
-        debloatProfileQueue.currentTaskId = null;
-        if (payload.event === "task-completed") {
-          void runNextDebloatProfileTask();
-        } else {
-          stopDebloatProfileQueue(`Perfil interrompido em ${taskDisplayName(payload.task_id)}.`);
-        }
-      }
     }
   }).catch((error) => {
     console.error("Não foi possível registrar os eventos do Qboa:", error);
@@ -1091,9 +1042,6 @@ async function registerEvents() {
   });
 
   document.getElementById("risk-cancel").addEventListener("click", () => {
-    if (pendingTask?.profileQueue) {
-      stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
-    }
     closeRiskModal();
   });
 
@@ -1109,9 +1057,6 @@ async function registerEvents() {
   });
   document.getElementById("risk-modal").addEventListener("click", (event) => {
     if (event.target === event.currentTarget) {
-      if (pendingTask?.profileQueue) {
-        stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
-      }
       closeRiskModal();
     }
   });
@@ -1126,9 +1071,6 @@ async function registerEvents() {
     } else if (!confirmationModal.classList.contains("hidden")) {
       closeConfirmationModal(false);
     } else if (!riskModal.classList.contains("hidden")) {
-      if (pendingTask?.profileQueue) {
-        stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
-      }
       closeRiskModal();
     }
   });
@@ -1147,15 +1089,9 @@ async function registerEvents() {
 
     try {
       const started = await executeTask(task.item, task.cardEl);
-      if (!started && task.profileQueue) {
-        stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
-      }
     } catch (error) {
       appendConsole(`Falha ao iniciar ${task.item.name}: ${String(error)}`);
       if (task.cardEl) task.cardEl.classList.remove("running");
-      if (task.profileQueue) {
-        stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
-      }
     } finally {
       confirmButton.disabled = false;
       closeRiskModal();
@@ -1241,8 +1177,11 @@ async function registerEvents() {
     const title = aggressive ? "Aplicar preset Agressivo?" : "Aplicar preset de serviços?";
     if (!(await askConfirmation(message, title))) return;
     try {
-      await Qboa.applyServiceProfile(profile);
-      appendConsole("Preset de serviços aplicado.");
+      await executeServiceProfileOperation(
+        `Aplicação do perfil ${document.getElementById("service-profile-select").selectedOptions[0]?.textContent || profile}`,
+        () => Qboa.applyServiceProfile(profile),
+        "Preset de serviços aplicado."
+      );
     } catch (error) {
       appendConsole(String(error));
     }
@@ -1252,8 +1191,11 @@ async function registerEvents() {
     if (!serviceProfileState?.profile?.defaults_validated) return;
     if (!(await askConfirmation("Restaurar o padrão do Windows?", "Restaurar serviços do Windows?"))) return;
     try {
-      await Qboa.restoreWindowsServiceDefaults();
-      appendConsole("Padrão do Windows restaurado.");
+      await executeServiceProfileOperation(
+        "Restauração dos padrões do Windows",
+        () => Qboa.restoreWindowsServiceDefaults(),
+        "Padrão do Windows restaurado."
+      );
     } catch (error) {
       appendConsole(String(error));
     }
@@ -1263,8 +1205,11 @@ async function registerEvents() {
     if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
     if (!(await askConfirmation("Desfazer minhas alterações?", "Desfazer alterações?"))) return;
     try {
-      await Qboa.undoServiceProfileChanges();
-      appendConsole("Alterações desfeitas.");
+      await executeServiceProfileOperation(
+        "Reversão das alterações de serviços",
+        () => Qboa.undoServiceProfileChanges(),
+        "Alterações desfeitas."
+      );
     } catch (error) {
       appendConsole(String(error));
     }
