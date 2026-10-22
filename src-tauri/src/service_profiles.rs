@@ -1427,6 +1427,7 @@ mod tests {
     fn restore_windows_defaults_snapshots_before_restoring() {
         let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
         profile.validated = true;
+        profile.defaults_validated = true;
         profile.services.push(ServiceRule {
             name: "ExampleSvc".to_string(),
             start_type: "Manual".to_string(),
