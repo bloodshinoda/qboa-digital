@@ -1687,6 +1687,11 @@ async fn manage_windows_service(
 }
 
 #[tauri::command]
+async fn audit_unsigned_services() -> Result<Vec<service_manager::ServiceSignatureFinding>, String> {
+    service_manager::audit_unsigned_services()
+}
+
+#[tauri::command]
 async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
@@ -1713,11 +1718,19 @@ async fn preview_service_profile(
 }
 
 #[tauri::command]
-async fn apply_service_profile(profile: service_profiles::ProductProfile) -> Result<(), String> {
+async fn apply_service_profile(
+    profile: service_profiles::ProductProfile,
+    selected_to_disable: Vec<String>,
+) -> Result<(), String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
     let service_profile = service_profiles::system_profile(&system)?;
-    service_profiles::apply_profile(&mut backend, &service_profile, profile)
+    service_profiles::apply_profile_with_disabled_services(
+        &mut backend,
+        &service_profile,
+        profile,
+        &selected_to_disable,
+    )
 }
 
 #[tauri::command]
@@ -1774,6 +1787,7 @@ fn main() {
             manage_windows_service,
             get_service_profile_state,
             preview_service_profile,
+            audit_unsigned_services,
             apply_service_profile,
             restore_windows_service_defaults,
             undo_service_profile_changes
