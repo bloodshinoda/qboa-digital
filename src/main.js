@@ -985,8 +985,10 @@ async function loadServiceProfileState() {
     document.getElementById("service-profile-undo-btn").disabled = !canApplyProfile;
   } catch (error) {
     serviceProfileState = null;
-    status.textContent = "Não foi possível consultar os serviços do Windows.";
+    const detail = String(error);
+    status.textContent = `Falha ao consultar os serviços do Windows: ${detail}`;
     details.textContent = "";
+    appendConsole(`Falha ao carregar o estado do perfil de serviços: ${detail}`);
   }
 }
 
@@ -1213,7 +1215,9 @@ async function registerEvents() {
       const preview = await Qboa.previewServiceProfile(profile);
       renderServiceProfilePreview(preview);
     } catch (error) {
-      document.getElementById("service-profile-preview-status").textContent = String(error);
+      const detail = String(error);
+      document.getElementById("service-profile-preview-status").textContent = detail;
+      appendConsole(`Falha ao gerar prévia do perfil de serviços: ${detail}`);
     } finally {
       button.disabled = false;
     }
