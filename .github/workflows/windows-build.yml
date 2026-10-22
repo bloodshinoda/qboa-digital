@@ -5,11 +5,15 @@ on:
   push:
     branches:
       - main
+      - "feat/**"
+      - "fix/**"
     tags:
       - "v*"
   pull_request:
     branches:
       - main
+      - "feat/**"
+      - "fix/**"
 
 permissions:
   contents: read
