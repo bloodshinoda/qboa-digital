@@ -480,9 +480,27 @@ function writeStatus(text) {
 
 function renderConsole() {
   const out = document.getElementById("console-output");
-  out.textContent = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
+  const content = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
     .filter(Boolean)
     .join("\n");
+  const lines = content.split("\n");
+  out.replaceChildren();
+  lines.forEach((line, index) => {
+    const item = document.createElement("span");
+    item.className = "console-line";
+    if (line === "RESUMO DA EXECUÇÃO") item.classList.add("service-summary-heading");
+    else if (/^DESABILITADOS \(/.test(line)) item.classList.add("service-summary-disabled");
+    else if (/^REATIVADOS \(/.test(line)) item.classList.add("service-summary-enabled");
+    else if (/^ALTERADOS PARA AUTOMÁTICO \(/.test(line)) item.classList.add("service-summary-enabled");
+    else if (/^ALTERADOS PARA MANUAL \(/.test(line)) item.classList.add("service-summary-manual");
+    else if (/^  - /.test(line) && lines.slice(0, index).reverse().find((prior) => /^(DESABILITADOS|REATIVADOS|ALTERADOS PARA AUTOMÁTICO|ALTERADOS PARA MANUAL) \(/.test(prior))) {
+      const section = lines.slice(0, index).reverse().find((prior) => /^(DESABILITADOS|REATIVADOS|ALTERADOS PARA AUTOMÁTICO|ALTERADOS PARA MANUAL) \(/.test(prior));
+      item.classList.add(section.startsWith("DESABILITADOS") ? "service-summary-disabled" : section.startsWith("REATIVADOS") || section.startsWith("ALTERADOS PARA AUTOMÁTICO") ? "service-summary-enabled" : "service-summary-manual");
+    }
+    item.textContent = line;
+    out.appendChild(item);
+    if (index < lines.length - 1) out.appendChild(document.createTextNode("\\n"));
+  });
   out.scrollTop = out.scrollHeight;
 }
 
@@ -859,38 +877,34 @@ function serviceStartTypeSummary(beforeState, afterState, operation) {
   const after = afterState?.system?.services;
   if (!Array.isArray(before) || !Array.isArray(after)) return null;
 
-  const previous = new Map(before.map((service) => [service.name.toLowerCase(), service]));
+  const previous = new Map(before.map((service) => [String(service.name).toLowerCase(), service]));
   const disabled = [];
-  const reenabled = [];
+  const enabled = [];
   const automatic = [];
   const manual = [];
 
   after.forEach((service) => {
-    const old = previous.get(service.name.toLowerCase());
+    const old = previous.get(String(service.name).toLowerCase());
     if (!old || String(old.start_type).toLowerCase() === String(service.start_type).toLowerCase()) return;
     const currentType = String(service.start_type).toLowerCase();
     const previousType = String(old.start_type).toLowerCase();
     if (currentType === "disabled") disabled.push(service.name);
-    else if (previousType === "disabled") reenabled.push(`${service.name} (${serviceStartTypeLabel(service.start_type)})`);
+    else if (previousType === "disabled") enabled.push(`${service.name} (${serviceStartTypeLabel(service.start_type)})`);
     else if (currentType === "automatic") automatic.push(service.name);
     else if (currentType === "manual") manual.push(service.name);
   });
 
-  const changed = disabled.length + reenabled.length + automatic.length + manual.length;
+  const changed = disabled.length + enabled.length + automatic.length + manual.length;
   const lines = [
     "=================",
     "RESUMO DA EXECUÇÃO",
     "=================",
     `Operação: ${operation}`,
-    `Serviços desabilitados: ${disabled.length}`,
-    ...(disabled.length ? disabled.map((name) => `  - ${name}`) : ["  - Nenhum"]),
-    `Serviços reativados: ${reenabled.length}`,
-    ...(reenabled.length ? reenabled.map((name) => `  - ${name}`) : ["  - Nenhum"]),
-    `Inicialização alterada para automática: ${automatic.length}`,
-    ...(automatic.length ? automatic.map((name) => `  - ${name}`) : ["  - Nenhum"]),
-    `Inicialização alterada para manual: ${manual.length}`,
-    ...(manual.length ? manual.map((name) => `  - ${name}`) : ["  - Nenhum"]),
-    `Total de serviços alterados: ${changed}`
+    ...(disabled.length ? [`DESABILITADOS (${disabled.length})`, ...disabled.map((name) => `  - ${name}`)] : []),
+    ...(enabled.length ? [`REATIVADOS (${enabled.length})`, ...enabled.map((name) => `  - ${name}`)] : []),
+    ...(automatic.length ? [`ALTERADOS PARA AUTOMÁTICO (${automatic.length})`, ...automatic.map((name) => `  - ${name}`)] : []),
+    ...(manual.length ? [`ALTERADOS PARA MANUAL (${manual.length})`, ...manual.map((name) => `  - ${name}`)] : []),
+    changed ? `Total de serviços alterados: ${changed}` : "Nenhum serviço teve a inicialização alterada."
   ];
   return lines.join("\n");
 }
