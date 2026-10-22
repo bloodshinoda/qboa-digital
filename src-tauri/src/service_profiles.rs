@@ -811,7 +811,10 @@ fn matrix_target(
         (WindowsVersion::Windows10, ProductProfile::Safe, Some(FormFactor::Desktop)) => 2,
         (WindowsVersion::Windows10, ProductProfile::Safe, Some(FormFactor::Notebook)) => 3,
         (WindowsVersion::Windows10, ProductProfile::Aggressive, Some(FormFactor::Desktop))
-            if system.battery_present == Some(false) => 4,
+            if system.battery_present == Some(false) =>
+        {
+            4
+        }
         // A matriz não define preset agressivo para notebooks nem presets refinados.
         // Nesses casos, preservamos as regras já existentes do catálogo por edição.
         _ => return None,
