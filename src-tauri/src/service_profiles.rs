@@ -229,7 +229,9 @@ fn powershell_output_result(
         if detail.is_empty() {
             Err("O PowerShell falhou ao consultar os serviços do Windows.".to_string())
         } else {
-            Err(format!("Falha no PowerShell ao consultar os serviços do Windows: {detail}"))
+            Err(format!(
+                "Falha no PowerShell ao consultar os serviços do Windows: {detail}"
+            ))
         }
     } else {
         Err("Não foi possível consultar os serviços do Windows. O PowerShell terminou com erro; consulte o log técnico do QBoa.".to_string())
