@@ -1388,21 +1388,43 @@ mod tests {
             &profile,
             ProductProfile::Safe,
             &["MysterySvc".to_string()],
-        ).unwrap();
+        )
+        .unwrap();
 
-        assert!(backend.saved[0].services.iter().any(|service| service.name == "MysterySvc"));
+        assert!(backend.saved[0]
+            .services
+            .iter()
+            .any(|service| service.name == "MysterySvc"));
         assert_eq!(
-            backend.system.services.iter().find(|service| service.name == "MysterySvc").unwrap().start_type,
+            backend
+                .system
+                .services
+                .iter()
+                .find(|service| service.name == "MysterySvc")
+                .unwrap()
+                .start_type,
             "disabled"
         );
 
         undo_last_application(&mut backend, &profile).unwrap();
         assert_eq!(
-            backend.system.services.iter().find(|service| service.name == "MysterySvc").unwrap().start_type,
+            backend
+                .system
+                .services
+                .iter()
+                .find(|service| service.name == "MysterySvc")
+                .unwrap()
+                .start_type,
             "Manual"
         );
         assert_eq!(
-            backend.system.services.iter().find(|service| service.name == "ExampleSvc").unwrap().start_type,
+            backend
+                .system
+                .services
+                .iter()
+                .find(|service| service.name == "ExampleSvc")
+                .unwrap()
+                .start_type,
             "Automatic"
         );
     }
@@ -1422,8 +1444,12 @@ mod tests {
 
         let mut unknown_backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
         assert!(apply_profile_with_disabled_services(
-            &mut unknown_backend, &profile, ProductProfile::Safe, &["NotInstalled".to_string()]
-        ).is_err());
+            &mut unknown_backend,
+            &profile,
+            ProductProfile::Safe,
+            &["NotInstalled".to_string()],
+        )
+        .is_err());
         assert!(unknown_backend.changes.is_empty());
         assert!(unknown_backend.saved.is_empty());
 
@@ -1433,8 +1459,12 @@ mod tests {
             start_type: "Automatic".to_string(),
         });
         assert!(apply_profile_with_disabled_services(
-            &mut protected_backend, &profile, ProductProfile::Safe, &["RpcSs".to_string()]
-        ).is_err());
+            &mut protected_backend,
+            &profile,
+            ProductProfile::Safe,
+            &["RpcSs".to_string()],
+        )
+        .is_err());
         assert!(protected_backend.changes.is_empty());
         assert!(protected_backend.saved.is_empty());
     }
