@@ -1463,12 +1463,18 @@ async function registerEvents() {
     if (!(await askConfirmation(message, title))) return;
     button.disabled = true;
     try {
-      await Qboa.applyServiceProfile(profile, selectedToDisable);
-      appendConsole("Preset de serviços aplicado; alterações registradas no snapshot para possível reversão.");
+      appendConsole(`Iniciando aplicação do perfil ${profile}.`);
+      const activity = await Qboa.applyServiceProfile(profile, selectedToDisable);
+      if (Array.isArray(activity)) activity.forEach((line) => appendConsole(`[Serviços] ${line}`));
+      else appendConsole(`[Serviços] ${String(activity ?? "Aplicação concluída sem relatório detalhado.")}`);
+      const failures = Array.isArray(activity) ? activity.filter((line) => /FALHA:|BLOQUEADO:/i.test(line)).length : 0;
+      document.getElementById("service-signature-status").textContent = failures
+        ? `Aplicação concluída parcialmente: ${failures} ocorrência(s) precisam de atenção. Consulte o Registro de atividades.`
+        : "Perfil aplicado. Confira o Registro de atividades para ver o resultado por serviço.";
       document.getElementById("service-signature-review").hidden = true;
       await loadServiceProfileState();
     } catch (error) {
-      appendConsole(String(error));
+      appendConsole(`[Serviços] FALHA ao aplicar o perfil ${profile}: ${String(error)}`);
       document.getElementById("service-signature-status").textContent = `Não foi possível aplicar as alterações: ${String(error)}`;
     } finally {
       button.disabled = false;
