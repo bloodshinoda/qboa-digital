@@ -178,12 +178,11 @@ $findings = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     try {
       $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath -ErrorAction Stop
       if ($signature.SignerCertificate) { $publisher = [string]$signature.SignerCertificate.Subject }
-      if ($signature.Status -eq 'Valid') {
-        $status = 'valid'
-      } elseif ($signature.Status -eq 'NotSigned') {
-        $status = 'unsigned'
-      } else {
-        $status = 'invalid'
+      switch ([string]$signature.Status) {
+        'Valid' { $status = 'valid' }
+        'NotSigned' { $status = 'unsigned' }
+        { $_ -in @('HashMismatch', 'NotTrusted') } { $status = 'invalid' }
+        default { $status = 'inconclusive' }
       }
     } catch { $status = 'inconclusive' }
   } elseif ($binaryPath) {
