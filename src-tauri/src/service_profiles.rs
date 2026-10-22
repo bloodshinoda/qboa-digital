@@ -168,6 +168,7 @@ pub(crate) trait ServiceProfileBackend {
     fn detect_system(&mut self) -> Result<DetectedSystem, String>;
     fn start_types(&mut self, names: &[String]) -> Result<Vec<InstalledService>, String>;
     fn set_start_type(&mut self, name: &str, start_type: &str) -> Result<(), String>;
+    fn stop_service(&mut self, name: &str) -> Result<String, String>;
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String>;
     fn save_snapshot(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String>;
 }
@@ -483,10 +484,10 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
         .iter()
         .filter(|item| {
             item.incompatible.is_none()
-                && item
-                    .proposed
-                    .as_deref()
-                    .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
+                && item.proposed.as_deref().is_some_and(|target| {
+                    !item.current.eq_ignore_ascii_case(target)
+                        || target.eq_ignore_ascii_case("disabled")
+                })
         })
         .map(|item| {
             (
@@ -546,15 +547,43 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
 
     // Snapshot completo salvo antes de qualquer alteração: permite desfazer o preset
     // junto com os serviços escolhidos explicitamente na auditoria.
+    let mut activity = vec![
+        format!("Aplicando perfil {:?}: {} serviço(s) no plano.", selected, targets.len()),
+        format!("Snapshot de reversão salvo para {} serviço(s).", names.len()),
+    ];
+    let mut changed = 0usize;
+    let mut failures = 0usize;
     for (name, start_type) in targets.values() {
         if protected_disable(name, start_type) {
-            return Err(format!(
-                "Não é permitido desativar o serviço protegido {name}."
-            ));
+            activity.push(format!("BLOQUEADO: {name} é protegido pelo QBoa."));
+            failures += 1;
+            continue;
         }
-        backend.set_start_type(name, start_type)?;
+        match backend.set_start_type(name, start_type) {
+            Ok(()) => {
+                changed += 1;
+                activity.push(format!("{name}: inicialização definida como {start_type}."));
+            }
+            Err(error) => {
+                activity.push(format!("FALHA: {name}: não foi possível alterar a inicialização: {error}"));
+                failures += 1;
+                continue;
+            }
+        }
+        if start_type.eq_ignore_ascii_case("disabled") {
+            match backend.stop_service(name) {
+                Ok(message) => activity.push(format!("{name}: {message}")),
+                Err(error) => {
+                    activity.push(format!("FALHA: {name}: inicialização desativada, mas não foi possível parar o serviço: {error}"));
+                    failures += 1;
+                }
+            }
+        }
     }
-    Ok(())
+    activity.push(format!(
+        "Aplicação finalizada: {changed} alteração(ões) de inicialização concluída(s); {failures} falha(s)."
+    ));
+    Ok(activity)
 }
 
 pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
@@ -915,6 +944,14 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
         run_powershell(&script).map(|_| ())
     }
 
+    fn stop_service(&mut self, name: &str) -> Result<String, String> {
+        let encoded = base64_encode(name.as_bytes());
+        let script = format!(
+            r#"$ErrorActionPreference='Stop';$name=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'));$services=@(Get-Service|Where-Object{{$_.Name -ieq $name}});if($services.Count-ne 1){{throw "Serviço não encontrado ou ambíguo: $name"}};$service=$services[0];if($service.Status -eq 'Stopped'){{Write-Output 'já estava parado.';exit 0}};Stop-Service -InputObject $service -ErrorAction Stop;$service.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(20));Write-Output 'parado com sucesso.'"#
+        );
+        run_powershell(&script).map(|output| output.trim().to_string())
+    }
+
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String> {
         if !self.snapshot_path.exists() {
             return Ok(None);
@@ -1057,6 +1094,9 @@ impl ServiceProfileBackend for WindowsServiceProfileBackend {
     fn set_start_type(&mut self, _name: &str, _start_type: &str) -> Result<(), String> {
         Err("Operação de serviços só está disponível no Windows.".to_string())
     }
+    fn stop_service(&mut self, _name: &str) -> Result<String, String> {
+        Err("Operação de serviços só está disponível no Windows.".to_string())
+    }
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String> {
         Err("Operação de serviços só está disponível no Windows.".to_string())
     }
@@ -1101,6 +1141,9 @@ mod tests {
                 service.start_type = start_type.to_string();
             }
             Ok(())
+        }
+        fn stop_service(&mut self, name: &str) -> Result<String, String> {
+            Ok(format!("{name}: parado com sucesso."))
         }
         fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String> {
             Ok(self.snapshot.clone())
