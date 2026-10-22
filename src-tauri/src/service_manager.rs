@@ -140,7 +140,7 @@ $findings = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     $binaryPath = $Matches[1].Trim('"')
   }
   if ($binaryPath) { $binaryPath = [Environment]::ExpandEnvironmentVariables($binaryPath) }
-  if ($binaryPath -and $binaryPath.StartsWith('\SystemRoot\', [StringComparison]::OrdinalIgnoreCase)) {
+  if ($binaryPath -and $binaryPath.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
     $binaryPath = Join-Path $env:windir $binaryPath.Substring(12)
   }
   if ($binaryPath -and [IO.Path]::GetFileName($binaryPath) -ieq 'svchost.exe') {
