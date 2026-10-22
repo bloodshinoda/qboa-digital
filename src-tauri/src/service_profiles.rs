@@ -497,10 +497,7 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
         );
     }
 
-    let names: Vec<String> = targets
-        .values()
-        .map(|(name, _)| name.clone())
-        .collect();
+    let names: Vec<String> = targets.values().map(|(name, _)| name.clone()).collect();
     let snapshot_services = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &snapshot_services)?;
     backend.save_snapshot(&ServiceSnapshot {
