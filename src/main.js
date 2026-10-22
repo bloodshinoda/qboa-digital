@@ -896,11 +896,14 @@ function renderServiceSignatureAudit(findings) {
         unknown_path: "Caminho do executável não identificado"
       };
       statusLine.textContent = `Verificação: ${labels[finding.signature_status] || finding.signature_status}`;
+      const startup = document.createElement("small");
+      const startupLabels = { automatic: "Automática", manual: "Manual", disabled: "Desativada", unknown: "Desconhecida" };
+      startup.textContent = `Inicialização: ${startupLabels[finding.start_type] || finding.start_type || "desconhecida"}`;
       const path = document.createElement("small");
       path.textContent = `Arquivo: ${finding.binary_path || "caminho indisponível"}`;
       const publisher = document.createElement("small");
       publisher.textContent = `Publicador: ${finding.publisher || "não identificado"}`;
-      details.append(title, serviceName, statusLine, path, publisher);
+      details.append(title, serviceName, statusLine, startup, path, publisher);
       label.append(checkbox, details);
       item.appendChild(label);
       if (finding.protected) {
