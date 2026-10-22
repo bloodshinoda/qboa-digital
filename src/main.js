@@ -13,6 +13,7 @@ let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
+let serviceSignatureFindings = [];
 let windowsServices = [];
 let selectedTweakTaskIds = new Set();
 let debloatProfileQueue = null;
@@ -72,8 +73,12 @@ const Qboa = {
     return invoke("preview_service_profile", { profile });
   },
 
-  async applyServiceProfile(profile) {
-    return invoke("apply_service_profile", { profile });
+  async auditUnsignedServices() {
+    return invoke("audit_unsigned_services");
+  },
+
+  async applyServiceProfile(profile, selectedToDisable = []) {
+    return invoke("apply_service_profile", { profile, selectedToDisable });
   },
 
   async restoreWindowsServiceDefaults() {
@@ -852,6 +857,64 @@ async function refreshHistory() {
     console.error("Não foi possível ler o histórico da sessão.", error);
   }
 }
+function renderServiceSignatureAudit(findings) {
+  const panel = document.getElementById("service-signature-review");
+  const list = document.getElementById("service-signature-findings");
+  const status = document.getElementById("service-signature-status");
+  const applyButton = document.getElementById("service-signature-apply-btn");
+  list.replaceChildren();
+  serviceSignatureFindings = Array.isArray(findings) ? findings : [];
+
+  if (!serviceSignatureFindings.length) {
+    status.textContent = "Nenhum serviço com assinatura ausente, inválida ou não verificável foi encontrado.";
+    applyButton.textContent = "Aplicar preset";
+  } else {
+    status.textContent = `Foram encontrados ${serviceSignatureFindings.length} serviço(s) para revisão. A ausência de assinatura não prova que um serviço seja malicioso; selecione somente os que deseja desativar.`;
+    applyButton.textContent = "Aplicar preset e desativar selecionados";
+    serviceSignatureFindings.forEach((finding) => {
+      const item = document.createElement("li");
+      item.className = "service-signature-finding";
+      const label = document.createElement("label");
+      label.className = "service-signature-label";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = finding.name;
+      checkbox.dataset.serviceName = finding.name;
+      checkbox.disabled = Boolean(finding.protected);
+      const details = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = finding.display_name || finding.name;
+      const serviceName = document.createElement("small");
+      serviceName.textContent = finding.name;
+      const statusLine = document.createElement("small");
+      const labels = {
+        unsigned: "Sem assinatura digital",
+        invalid: "Assinatura inválida ou não confiável",
+        inconclusive: "Não foi possível verificar a assinatura",
+        missing_file: "Executável não encontrado",
+        unknown_path: "Caminho do executável não identificado"
+      };
+      statusLine.textContent = `Verificação: ${labels[finding.signature_status] || finding.signature_status}`;
+      const path = document.createElement("small");
+      path.textContent = `Arquivo: ${finding.binary_path || "caminho indisponível"}`;
+      const publisher = document.createElement("small");
+      publisher.textContent = `Publicador: ${finding.publisher || "não identificado"}`;
+      details.append(title, serviceName, statusLine, path, publisher);
+      label.append(checkbox, details);
+      item.appendChild(label);
+      if (finding.protected) {
+        const protectedNote = document.createElement("small");
+        protectedNote.className = "service-signature-protected";
+        protectedNote.textContent = finding.protection_reason || "Serviço protegido pelo QBoa; não pode ser desativado.";
+        item.appendChild(protectedNote);
+      }
+      list.appendChild(item);
+    });
+  }
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 function renderServiceProfilePreview(preview) {
   const items = document.getElementById("service-profile-preview");
   const ignored = document.getElementById("service-profile-ignored");
@@ -1220,6 +1283,9 @@ async function registerEvents() {
   });
 
   document.getElementById("service-profile-select").addEventListener("change", () => {
+    document.getElementById("service-signature-review").hidden = true;
+    document.getElementById("service-signature-findings").replaceChildren();
+    serviceSignatureFindings = [];
     document.getElementById("service-profile-apply-btn").disabled = true;
     document.getElementById("service-profile-preview").replaceChildren();
     document.getElementById("service-profile-ignored").replaceChildren();
@@ -1227,20 +1293,58 @@ async function registerEvents() {
     document.getElementById("service-profile-ignored-title").hidden = true;
   });
 
-  document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
+  document.getElementById("service-profile-apply-btn").addEventListener("click", async (event) => {
+    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
+    const button = event.currentTarget;
+    button.disabled = true;
+    document.getElementById("service-signature-status").textContent = "Verificando assinaturas digitais dos serviços...";
+    document.getElementById("service-signature-review").hidden = false;
+    document.getElementById("service-signature-findings").replaceChildren();
+    try {
+      const findings = await Qboa.auditUnsignedServices();
+      renderServiceSignatureAudit(findings);
+    } catch (error) {
+      document.getElementById("service-signature-status").textContent = `A auditoria falhou; por segurança, o preset não foi aplicado. Detalhe: ${String(error)}`;
+      document.getElementById("service-signature-apply-btn").disabled = true;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById("service-signature-cancel-btn").addEventListener("click", () => {
+    document.getElementById("service-signature-review").hidden = true;
+    document.getElementById("service-signature-findings").replaceChildren();
+    serviceSignatureFindings = [];
+  });
+
+  document.getElementById("service-signature-apply-btn").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
     if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
     const profile = document.getElementById("service-profile-select").value;
+    const selectedToDisable = Array.from(
+      document.querySelectorAll("#service-signature-findings input[type='checkbox']:checked:not(:disabled)")
+    ).map((input) => input.dataset.serviceName).filter(Boolean);
     const aggressive = profile === "aggressive";
-    const message = aggressive
-      ? "O preset Agressivo pode restringir funcionalidades opcionais do Windows. Confira a prévia, confirme que os recursos afetados não são necessários e mantenha um meio de recuperação disponível. Deseja continuar?"
-      : "O QBoa aplicará somente as alterações exibidas na prévia e registrará os tipos de inicialização anteriores para permitir a reversão. Deseja continuar?";
+    const selectedSummary = selectedToDisable.length
+      ? ` Além do preset, serão desativados estes serviços selecionados: ${selectedToDisable.join(", ")}.`
+      : "";
+    const message = (aggressive
+      ? "O preset Agressivo pode restringir funcionalidades opcionais do Windows. Confira a prévia, confirme que os recursos afetados não são necessários e mantenha um meio de recuperação disponível."
+      : "O QBoa aplicará somente as alterações exibidas na prévia e registrará os tipos de inicialização anteriores para permitir a reversão.")
+      + selectedSummary + " Deseja continuar?";
     const title = aggressive ? "Aplicar preset Agressivo?" : "Aplicar preset de serviços?";
     if (!(await askConfirmation(message, title))) return;
+    button.disabled = true;
     try {
-      await Qboa.applyServiceProfile(profile);
-      appendConsole("Preset de serviços aplicado.");
+      await Qboa.applyServiceProfile(profile, selectedToDisable);
+      appendConsole("Preset de serviços aplicado; alterações registradas no snapshot para possível reversão.");
+      document.getElementById("service-signature-review").hidden = true;
+      await loadServiceProfileState();
     } catch (error) {
       appendConsole(String(error));
+      document.getElementById("service-signature-status").textContent = `Não foi possível aplicar as alterações: ${String(error)}`;
+    } finally {
+      button.disabled = false;
     }
   });
 
