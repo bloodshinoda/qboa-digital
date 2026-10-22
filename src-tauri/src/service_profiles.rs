@@ -453,7 +453,7 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     backend: &mut B,
     profile: &ServiceProfileFile,
     selected: ProductProfile,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     apply_profile_with_disabled_services(backend, profile, selected, &[])
 }
 
@@ -462,7 +462,7 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
     profile: &ServiceProfileFile,
     selected: ProductProfile,
     selected_to_disable: &[String],
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     ensure_profile_has_validated_services(profile)?;
     let system = backend.detect_system()?;
     if selected != ProductProfile::Custom
