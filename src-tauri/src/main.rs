@@ -1722,6 +1722,16 @@ async fn apply_service_profile(
     profile: service_profiles::ProductProfile,
     selected_to_disable: Vec<String>,
 ) -> Result<(), String> {
+    if !selected_to_disable.is_empty() {
+        let audit = service_manager::audit_unsigned_services()?;
+        for name in &selected_to_disable {
+            let finding = audit.iter().find(|finding| finding.name.eq_ignore_ascii_case(name))
+                .ok_or_else(|| format!("O serviço {name} não consta mais na auditoria de assinaturas; nenhuma alteração foi aplicada."))?;
+            if finding.protected {
+                return Err(format!("O serviço {name} é protegido pelo QBoa e não pode ser desativado."));
+            }
+        }
+    }
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
     let service_profile = service_profiles::system_profile(&system)?;
