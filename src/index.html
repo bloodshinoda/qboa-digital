@@ -88,6 +88,16 @@
     <ul id="service-profile-preview" class="service-profile-preview"></ul>
     <h3 id="service-profile-ignored-title" hidden>Ignorados</h3>
     <ul id="service-profile-ignored" class="service-profile-preview"></ul>
+    <section id="service-signature-review" class="service-signature-review" hidden aria-labelledby="service-signature-title">
+      <h3 id="service-signature-title">Auditoria de assinaturas digitais</h3>
+      <p id="service-signature-status" aria-live="polite">A auditoria será executada antes da aplicação.</p>
+      <ul id="service-signature-findings" class="service-signature-findings"></ul>
+      <p class="service-profile-hint">Uma assinatura ausente ou inválida não prova que o serviço seja malicioso. Serviços críticos protegidos pelo QBoa não podem ser selecionados.</p>
+      <div class="service-profile-actions">
+        <button id="service-signature-apply-btn" type="button">Aplicar preset</button>
+        <button id="service-signature-cancel-btn" type="button" class="secondary-button">Cancelar</button>
+      </div>
+    </section>
   </section>
 
   <div class="service-inventory-modal hidden" id="service-inventory-modal" aria-hidden="true">
