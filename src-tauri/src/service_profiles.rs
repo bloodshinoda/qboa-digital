@@ -338,11 +338,13 @@ pub(crate) fn preview(
             }
         }
 
-        let incompatibility = if protected_disable(&rule.name, &rule.start_type) {
+        let target_start_type = matrix_target(&service.name, system, &selected)
+            .unwrap_or_else(|| rule.start_type.clone());
+        let incompatibility = if protected_disable(&rule.name, &target_start_type) {
             Some("Serviço protegido não pode ser desativado.")
         } else if !valid_start_type(&service.start_type) {
             Some("Tipo de inicialização atual não pode ser alterado com segurança.")
-        } else if !valid_start_type(&rule.start_type) {
+        } else if !valid_start_type(&target_start_type) {
             Some("Tipo de inicialização inválido.")
         } else {
             None
@@ -354,7 +356,7 @@ pub(crate) fn preview(
             service: service.name.clone(),
             current: service.start_type.clone(),
             proposed: if incompatibility.is_none() {
-                Some(rule.start_type.clone())
+                Some(target_start_type)
             } else {
                 None
             },
@@ -740,6 +742,27 @@ fn matrix_protected(service: &str) -> bool {
     matrix_row(service)
         .and_then(|row| row.get(10).copied())
         .is_some_and(|value| value.trim().eq_ignore_ascii_case("sim"))
+}
+
+fn matrix_target(
+    service: &str,
+    system: &DetectedSystem,
+    selected: &ProductProfile,
+) -> Option<String> {
+    let column = match (&system.os, selected, system.form_factor.as_ref()) {
+        (WindowsVersion::Windows10, ProductProfile::Safe, Some(FormFactor::Desktop)) => 2,
+        (WindowsVersion::Windows10, ProductProfile::Safe, Some(FormFactor::Notebook)) => 3,
+        (WindowsVersion::Windows10, ProductProfile::Aggressive, Some(FormFactor::Desktop))
+            if system.battery_present == Some(false) => 4,
+        // A matriz não define preset agressivo para notebooks nem presets refinados.
+        // Nesses casos, preservamos as regras já existentes do catálogo por edição.
+        _ => return None,
+    };
+    matrix_row(service)
+        .and_then(|row| row.get(column).copied())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
 }
 
 fn valid_start_type(start_type: &str) -> bool {
