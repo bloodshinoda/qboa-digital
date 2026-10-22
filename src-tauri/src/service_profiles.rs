@@ -819,7 +819,7 @@ fn parse_edition(value: &str) -> Option<WindowsEdition> {
         "ProfessionalWorkstation" | "ProfessionalWorkstationN" => {
             Some(WindowsEdition::ProForWorkstations)
         }
-        "Enterprise" | "EnterpriseN" | "EnterpriseG" | "EnterpriseS" | "IoTEnterprise" => {
+        "Enterprise" | "EnterpriseN" | "EnterpriseG" | "EnterpriseS" | "IoTEnterprise" | "IoTEnterpriseS" => {
             Some(WindowsEdition::Enterprise)
         }
         "Education" | "EducationN" | "ProfessionalEducation" => Some(WindowsEdition::Education),
@@ -1247,6 +1247,7 @@ mod tests {
             ("EnterpriseG", WindowsEdition::Enterprise),
             ("EnterpriseS", WindowsEdition::Enterprise),
             ("IoTEnterprise", WindowsEdition::Enterprise),
+            ("IoTEnterpriseS", WindowsEdition::Enterprise),
             ("Education", WindowsEdition::Education),
             ("EducationN", WindowsEdition::Education),
             ("ProfessionalEducation", WindowsEdition::Education),
