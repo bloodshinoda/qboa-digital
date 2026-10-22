@@ -441,13 +441,22 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
         return Err(format!("Perfil não aplicável: {}", preview.message));
     }
 
-    let profile_changes: Vec<(String, String)> = preview.services.iter()
+    let profile_changes: Vec<(String, String)> = preview
+        .services
+        .iter()
         .filter(|item| {
             item.incompatible.is_none()
-                && item.proposed.as_deref()
+                && item
+                    .proposed
+                    .as_deref()
                     .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
         })
-        .map(|item| (item.service.clone(), item.proposed.clone().unwrap_or_default()))
+        .map(|item| {
+            (
+                item.service.clone(),
+                item.proposed.clone().unwrap_or_default(),
+            )
+        })
         .collect();
 
     for name in selected_to_disable {
@@ -455,10 +464,19 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
         if normalized.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
             return Err("A seleção contém um nome de serviço inválido.".to_string());
         }
-        if PROTECTED_SERVICES.iter().any(|protected| protected.eq_ignore_ascii_case(name)) {
-            return Err(format!("Não é permitido desativar o serviço protegido {name}."));
+        if PROTECTED_SERVICES
+            .iter()
+            .any(|protected| protected.eq_ignore_ascii_case(name))
+        {
+            return Err(format!(
+                "Não é permitido desativar o serviço protegido {name}."
+            ));
         }
-        if !system.services.iter().any(|service| service.name.eq_ignore_ascii_case(name)) {
+        if !system
+            .services
+            .iter()
+            .any(|service| service.name.eq_ignore_ascii_case(name))
+        {
             return Err(format!("O serviço selecionado não está instalado: {name}"));
         }
     }
@@ -468,13 +486,21 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
         targets.insert(name.to_ascii_lowercase(), (name, start_type));
     }
     for name in selected_to_disable {
-        targets.insert(name.to_ascii_lowercase(), (name.clone(), "disabled".to_string()));
+        targets.insert(
+            name.to_ascii_lowercase(),
+            (name.clone(), "disabled".to_string()),
+        );
     }
     if targets.is_empty() {
-        return Err("Nenhuma alteração compatível ou serviço selecionado para desativação.".to_string());
+        return Err(
+            "Nenhuma alteração compatível ou serviço selecionado para desativação.".to_string(),
+        );
     }
 
-    let names: Vec<String> = targets.values().map(|(name, _)| name.clone()).collect();
+    let names: Vec<String> = targets
+        .values()
+        .map(|(name, _)| name.clone())
+        .collect();
     let snapshot_services = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &snapshot_services)?;
     backend.save_snapshot(&ServiceSnapshot {
@@ -488,7 +514,9 @@ pub(crate) fn apply_profile_with_disabled_services<B: ServiceProfileBackend>(
     // junto com os serviços escolhidos explicitamente na auditoria.
     for (name, start_type) in targets.values() {
         if protected_disable(name, start_type) {
-            return Err(format!("Não é permitido desativar o serviço protegido {name}."));
+            return Err(format!(
+                "Não é permitido desativar o serviço protegido {name}."
+            ));
         }
         backend.set_start_type(name, start_type)?;
     }
