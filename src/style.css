@@ -884,3 +884,34 @@ button.copy-pix-button:hover:not(:disabled) {
   display: block;
   margin: 0.5rem 0 0 1.8rem;
 }
+
+
+/* Seleção e operações em massa no inventário de serviços */
+.service-bulk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .035);
+}
+.service-bulk-toolbar label { font-weight: 600; }
+.service-bulk-toolbar select {
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 6px;
+  background: #101214;
+  color: #f4f4f4;
+}
+.service-bulk-toolbar button { padding: 8px 12px; }
+.service-bulk-toolbar button:disabled { opacity: .5; cursor: not-allowed; }
+#service-bulk-selection-count { color: var(--qboa-muted, #b8bdc2); font-size: .85rem; }
+.service-inventory-table input[type="checkbox"] { width: 16px; height: 16px; accent-color: #4ade80; }
+.service-inventory-table td:nth-child(2) { min-width: 250px; }
+.service-inventory-table td:nth-child(2) small,
+.service-inventory-table td:nth-child(3) { overflow-wrap: anywhere; }
+.service-inventory-table td:nth-child(3) { min-width: 145px; font-size: .8rem; }
