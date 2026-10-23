@@ -989,13 +989,13 @@ async function loadServiceProfileState() {
     status.textContent = profile.validated
       ? "Perfil validado disponível."
       : profile.heuristic_apply_enabled
-        ? "Perfil histórico com aplicação heurística restrita; confira a prévia. Restaurar padrões continua bloqueado."
+        ? "Catálogo heurístico com aplicação restrita; confira a prévia. A configuração inicial é guardada para restauração."
         : profile.services?.length
           ? "Catálogo candidato disponível para prévia; aplicação bloqueada até validação."
           : "Nenhum perfil validado. Aplicação indisponível.";
     const canApplyProfile = profile.validated || profile.heuristic_apply_enabled;
     document.getElementById("service-profile-apply-btn").disabled = !canApplyProfile;
-    document.getElementById("service-profile-defaults-btn").disabled = !profile.defaults_validated;
+    document.getElementById("service-profile-defaults-btn").disabled = !(profile.services?.length);
     document.getElementById("service-profile-undo-btn").disabled = !canApplyProfile;
   } catch (error) {
     serviceProfileState = null;
@@ -1241,13 +1241,13 @@ async function registerEvents() {
   });
 
   document.getElementById("service-profile-defaults-btn").addEventListener("click", async () => {
-    if (!serviceProfileState?.profile?.defaults_validated) return;
-    if (!(await askConfirmation("Restaurar o padrão do Windows?", "Restaurar serviços do Windows?"))) return;
+    if (!serviceProfileState?.profile?.services?.length) return;
+    if (!(await askConfirmation("Restaurar os tipos de inicialização salvos na primeira execução deste sistema?", "Restaurar configuração inicial?"))) return;
     try {
       await executeServiceProfileOperation(
-        "Restauração dos padrões do Windows",
+        "Restauração da configuração inicial",
         () => Qboa.restoreWindowsServiceDefaults(),
-        "Padrão do Windows restaurado."
+        "Configuração inicial restaurada."
       );
     } catch (error) {
       appendConsole(String(error));
