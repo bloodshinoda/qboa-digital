@@ -116,10 +116,9 @@ try{
  }
  $sys.device_evidence=@($evidence)
 }catch{$warnings.Add('Fabricante/modelo e classificação do equipamento indisponíveis.')}
-# Coleta de hardware em consultas independentes: falhas parciais não descartam o inventário.
 try {
  $board=Get-CimInstance Win32_BaseBoard -ErrorAction Stop | Select-Object -First 1
- $boardName=@([string]$board.Manufacturer,[string]$board.Product)|Where-Object {$_ -and $_.Trim() -and $_ -notmatch '^(?i)to be filled|default string|system product name
+ $parts=@([string]$board.Manufacturer,[string]$board.Product) | Where-Object { $_ -and $_.Trim() -and $_ -notmatch '^(?i)to be filled|default string|system product name
 "#;
     let mut command = Command::new("powershell.exe");
     command.creation_flags(0x08000000).args([
@@ -206,13 +205,12 @@ mod tests {
         assert_eq!(json["capabilities"][0]["confidence"], "low");
     }
 }
-}
- if($boardName.Count -gt 0){$sys.motherboard=($boardName -join ' ').Trim()}
+ }
+ if($parts.Count -gt 0){$sys.motherboard=$parts -join ' '}
 } catch {$warnings.Add('Placa-mãe não identificada.')}
 try {
- $cpus=@(Get-CimInstance Win32_Processor -ErrorAction Stop)
- if($cpus.Count -gt 0){
-   $cpu=$cpus[0];$cpuName=[string]$cpu.Name -replace '\s+\d+-Core Processor
+ $cpu=Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1
+ $cpuName=[string]$cpu.Name -replace '\s+\d+-Core Processor
 "#;
     let mut command = Command::new("powershell.exe");
     command.creation_flags(0x08000000).args([
@@ -379,31 +377,26 @@ mod tests {
     }
 }
 ,''
-   $ghz=if($cpu.MaxClockSpeed){('{0:N2}' -f ($cpu.MaxClockSpeed/1000)).Replace(',','.')+'GHz'}else{$null}
-   $cores=[int]$cpu.NumberOfCores;$threads=[int]$cpu.NumberOfLogicalProcessors
-   $sys.processor=(@($cpuName,($(if($ghz){"- $ghz"})),($(if($cores -gt 0 -and $threads -gt 0){"($cores/$threads)"})))|Where-Object {$_}) -join ' '
- }
+ $sys.processor=('{0} - {1:N2}GHz ({2}/{3})' -f $cpuName,($cpu.MaxClockSpeed/1000),$cpu.NumberOfCores,$cpu.NumberOfLogicalProcessors)
 } catch {$warnings.Add('Processador não identificado.')}
 try {
- $dims=@(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)
- if($dims.Count -gt 0){
-   $total=[math]::Round((($dims|Measure-Object -Property Capacity -Sum).Sum/1GB),0)
-   $typeCode=[int]($dims|Select-Object -First 1).SMBIOSMemoryType
-   $ramType=switch($typeCode){24{'DDR3'}26{'DDR4'}34{'DDR5'}default{$null}}
-   $speeds=@($dims|ForEach-Object {if($_.ConfiguredClockSpeed){[int]$_.ConfiguredClockSpeed}elseif($_.Speed){[int]$_.Speed}}|Where-Object {$_ -gt 0}|Sort-Object -Unique)
-   $speed=if($speeds.Count -eq 1){" $($speeds[0])MHz"}elseif($speeds.Count -gt 1){" velocidades mistas: $(($speeds -join '/'))MHz"}else{''}
-   $moduleGb=@($dims|ForEach-Object {[math]::Round($_.Capacity/1GB,0)}|Sort-Object -Unique)
-   $moduleSummary=if($moduleGb.Count -eq 1){"$($dims.Count)x$($moduleGb[0])GB"}else{"$($dims.Count) módulos"}
-   $brands=@($dims|ForEach-Object {[string]$_.Manufacturer}|Where-Object {$_ -and $_.Trim() -and $_ -notmatch '^(?i)unknown|not specified|to be filled'}|Sort-Object -Unique)
-   $sys.memory="$($total)GB$(if($ramType){" $ramType"})$speed ($moduleSummary$(if($brands.Count){"; marca: $($brands -join ', ')"}))"
+ $mem=@(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)
+ if($mem.Count -gt 0){
+  $total=[math]::Round((($mem | Measure-Object -Property Capacity -Sum).Sum/1GB),0)
+  $kind=switch([int]$mem[0].SMBIOSMemoryType){24 {'DDR3'} 26 {'DDR4'} 34 {'DDR5'} default {'RAM'}}
+  $speeds=@($mem | ForEach-Object {if($_.ConfiguredClockSpeed){[int]$_.ConfiguredClockSpeed}elseif($_.Speed){[int]$_.Speed}} | Where-Object {$_ -gt 0} | Sort-Object -Unique)
+  $speed=if($speeds.Count -eq 1){"$($speeds[0])MHz"}elseif($speeds.Count -gt 1){"$($speeds -join '/')MHz"}else{'velocidade não informada'}
+  $sizes=@($mem | ForEach-Object {[math]::Round($_.Capacity/1GB,0)} | Sort-Object -Unique)
+  $moduleSize=if($sizes.Count -eq 1){"$($sizes[0])GB"}else{'capacidades mistas'}
+  $brands=@($mem | ForEach-Object {[string]$_.Manufacturer} | Where-Object {$_ -and $_.Trim() -and $_ -notmatch '^(?i)unknown|not specified|to be filled'} | Sort-Object -Unique)
+  $brandText=if($brands.Count -gt 0){'; marca: ' + ($brands -join ', ')}else{''}
+  $sys.memory=('{0}GB {1} {2} ({3}x{4}{5})' -f $total,$kind,$speed,$mem.Count,$moduleSize,$brandText)
  }
 } catch {$warnings.Add('Memória RAM não identificada.')}
 try {
- $gpus=@(Get-CimInstance Win32_VideoController -ErrorAction Stop|Where-Object {$_.Name}|Select-Object -ExpandProperty Name -Unique)
- if($gpus.Count -gt 0){
-   if(($gpus -contains 'AMD Radeon(TM) Graphics') -and ([string]$sys.processor -match '5600GT')){$gpus=@($gpus|ForEach-Object {if($_ -eq 'AMD Radeon(TM) Graphics'){'Radeon Vega 7 (AMD Radeon(TM) Graphics)'}else{$_}})}
-   $sys.gpu=$gpus -join '; '
- }
+ $gpus=@(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object {$_.Name} | Select-Object -ExpandProperty Name -Unique)
+ if(($gpus -contains 'AMD Radeon(TM) Graphics') -and ([string]$sys.processor -match '5600GT')){$gpus=@($gpus | ForEach-Object {if($_ -eq 'AMD Radeon(TM) Graphics'){'Radeon Vega 7 (AMD Radeon(TM) Graphics)'}else{$_}})}
+ if($gpus.Count -gt 0){$sys.gpu=$gpus -join '; '}
 } catch {$warnings.Add('GPU não identificada.')}
 ConvertTo-Json -InputObject ([pscustomobject]@{system=$sys;capabilities=@($caps);warnings=@($warnings)}) -Depth 8 -Compress
 "#;
