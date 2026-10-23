@@ -1488,7 +1488,6 @@ mod tests {
                 WindowsEdition::ProForWorkstations,
                 WindowsEdition::Enterprise,
                 WindowsEdition::Education,
-                WindowsEdition::IoTEnterpriseLtsc,
             ] {
                 assert_eq!(
                     profiles
@@ -1499,6 +1498,14 @@ mod tests {
                 );
             }
         }
+        assert_eq!(
+            profiles
+                .iter()
+                .filter(|profile| profile.os == WindowsVersion::Windows11
+                    && profile.edition == WindowsEdition::IoTEnterpriseLtsc)
+                .count(),
+            1
+        );
     }
 
     #[test]
