@@ -150,6 +150,15 @@
     </div>
   </div>
 
+  <div id="execution-toast" class="execution-toast" role="status" aria-live="polite" hidden></div>
+  <div id="execution-summary-modal" class="execution-summary-modal hidden" aria-hidden="true">
+    <section class="execution-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="execution-summary-title">
+      <header class="execution-summary-header"><div><span class="eyebrow">QBoa Digital · resultado</span><h2 id="execution-summary-title">Resumo da execução</h2></div><button id="execution-summary-close" class="secondary-button" type="button">Fechar</button></header>
+      <p id="execution-summary-task" class="execution-summary-task"></p><p id="execution-summary-status" class="execution-summary-status"></p>
+      <h3>Atividades e etapas</h3><pre id="execution-summary-output" class="execution-summary-output"></pre>
+      <div class="execution-summary-actions"><button id="execution-summary-ok" class="primary-button" type="button">Entendi</button></div>
+    </section>
+  </div>
   <div id="confirmation-modal" class="confirmation-modal hidden" aria-hidden="true">
     <div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
       <div class="confirmation-head">
