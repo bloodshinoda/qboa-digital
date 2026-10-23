@@ -9,6 +9,8 @@ let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
 let consoleBuffer = "";
+let executionOutput = [];
+let executionToastTimer = null;
 let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
@@ -518,7 +520,7 @@ function renderConsole() {
     }
     item.textContent = line;
     out.appendChild(item);
-    if (index < lines.length - 1) out.appendChild(document.createTextNode("\\n"));
+    if (index < lines.length - 1) out.appendChild(document.createTextNode("\n"));
   });
   out.scrollTop = out.scrollHeight;
 }
@@ -542,6 +544,39 @@ function startActivity(taskName) {
   };
   update();
   activityTimer = window.setInterval(update, 500);
+}
+
+function isCleanupTask(taskId) {
+  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update"].includes(taskId);
+}
+
+function showExecutionToast(status, title, message) {
+  const toast = document.getElementById("execution-toast");
+  toast.className = `execution-toast ${status}`;
+  toast.replaceChildren();
+  const heading = document.createElement("strong"); heading.textContent = title;
+  const detail = document.createElement("span"); detail.textContent = message;
+  toast.append(heading, detail); toast.hidden = false;
+  if (executionToastTimer) window.clearTimeout(executionToastTimer);
+  executionToastTimer = window.setTimeout(() => { toast.hidden = true; executionToastTimer = null; }, 6500);
+}
+
+function showCleanupResult(taskId, status, detail = "") {
+  const successful = status === "success"; const cancelled = status === "cancelled";
+  const title = successful ? "Limpeza concluída com sucesso" : cancelled ? "Limpeza cancelada" : "A limpeza terminou com falha";
+  const modal = document.getElementById("execution-summary-modal");
+  document.getElementById("execution-summary-title").textContent = title;
+  document.getElementById("execution-summary-task").textContent = taskDisplayName(taskId);
+  document.getElementById("execution-summary-status").textContent = successful ? "Todas as etapas reportadas pela tarefa foram concluídas." : cancelled ? "A execução foi cancelada antes de terminar." : (detail || "O QBoa informou uma falha durante a execução.");
+  const lines = executionOutput.map((line) => String(line).trim()).filter(Boolean);
+  document.getElementById("execution-summary-output").textContent = lines.length ? lines.join("\n") : (detail || "A tarefa não forneceu detalhes adicionais.");
+  modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  showExecutionToast(successful ? "success" : cancelled ? "warning" : "error", title, taskDisplayName(taskId));
+}
+
+function closeExecutionSummary() {
+  const modal = document.getElementById("execution-summary-modal");
+  modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
 }
 
 function taskSuccessMessage(taskName) {
@@ -1012,6 +1047,7 @@ async function registerEvents() {
   void listen("qboa-event", (event) => {
     const payload = event.payload;
     if (payload.event === "task-started") {
+      executionOutput = [];
       activeTaskId = payload.task_id;
       activeExecutionId = payload.execution_id;
       syncExecutionControls();
@@ -1045,6 +1081,7 @@ async function registerEvents() {
 
 
     if (payload.event === "task-output" && payload.message) {
+      executionOutput.push(payload.message);
       appendConsole(payload.message);
     } else if (payload.event === "task-completed") {
       stopActivity();
@@ -1060,6 +1097,10 @@ async function registerEvents() {
     }
 
     if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
+      if (isCleanupTask(payload.task_id)) {
+        const resultStatus = payload.event === "task-completed" ? "success" : payload.event === "task-cancelled" ? "cancelled" : "error";
+        showCleanupResult(payload.task_id, resultStatus, payload.message || "");
+      }
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
@@ -1097,6 +1138,10 @@ async function registerEvents() {
     closeRiskModal();
   });
 
+  document.getElementById("execution-summary-close").addEventListener("click", closeExecutionSummary);
+  document.getElementById("execution-summary-ok").addEventListener("click", closeExecutionSummary);
+  document.getElementById("execution-summary-modal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeExecutionSummary(); });
+
   document.getElementById("confirmation-cancel").addEventListener("click", () => {
     closeConfirmationModal(false);
   });
@@ -1117,7 +1162,10 @@ async function registerEvents() {
     const confirmationModal = document.getElementById("confirmation-modal");
     const riskModal = document.getElementById("risk-modal");
     const serviceInventoryModal = document.getElementById("service-inventory-modal");
-    if (!serviceInventoryModal.classList.contains("hidden")) {
+    const executionSummaryModal = document.getElementById("execution-summary-modal");
+    if (!executionSummaryModal.classList.contains("hidden")) {
+      closeExecutionSummary();
+    } else if (!serviceInventoryModal.classList.contains("hidden")) {
       serviceInventoryModal.classList.add("hidden");
       serviceInventoryModal.setAttribute("aria-hidden", "true");
     } else if (!confirmationModal.classList.contains("hidden")) {
