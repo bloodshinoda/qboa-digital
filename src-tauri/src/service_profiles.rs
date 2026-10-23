@@ -14,6 +14,7 @@ const PROFILE_JSON: [&str; 10] = [
     include_str!("../service-profiles/windows-11/pro-for-workstations.json"),
     include_str!("../service-profiles/windows-11/enterprise.json"),
     include_str!("../service-profiles/windows-11/education.json"),
+    include_str!("../service-profiles/windows-11/iot-enterprise-ltsc.json"),
 ];
 const PROTECTED_SERVICES: &[&str] = &[
     "wuauserv",
@@ -69,6 +70,7 @@ pub(crate) enum WindowsEdition {
     Pro,
     ProForWorkstations,
     Enterprise,
+    IoTEnterpriseLtsc,
     Education,
     Unknown,
 }
@@ -819,8 +821,10 @@ fn parse_edition(value: &str) -> Option<WindowsEdition> {
         "ProfessionalWorkstation" | "ProfessionalWorkstationN" => {
             Some(WindowsEdition::ProForWorkstations)
         }
-        "Enterprise" | "EnterpriseN" | "EnterpriseG" | "EnterpriseS" | "IoTEnterprise"
-        | "IoTEnterpriseS" => Some(WindowsEdition::Enterprise),
+        "Enterprise" | "EnterpriseN" | "EnterpriseG" | "EnterpriseS" | "IoTEnterprise" => {
+            Some(WindowsEdition::Enterprise)
+        }
+        "IoTEnterpriseS" => Some(WindowsEdition::IoTEnterpriseLtsc),
         "Education" | "EducationN" | "ProfessionalEducation" => Some(WindowsEdition::Education),
         _ => None,
     }
@@ -1246,7 +1250,7 @@ mod tests {
             ("EnterpriseG", WindowsEdition::Enterprise),
             ("EnterpriseS", WindowsEdition::Enterprise),
             ("IoTEnterprise", WindowsEdition::Enterprise),
-            ("IoTEnterpriseS", WindowsEdition::Enterprise),
+            ("IoTEnterpriseS", WindowsEdition::IoTEnterpriseLtsc),
             ("Education", WindowsEdition::Education),
             ("EducationN", WindowsEdition::Education),
             ("ProfessionalEducation", WindowsEdition::Education),
