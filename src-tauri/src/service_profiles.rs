@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 
-const PROFILE_JSON: [&str; 10] = [
+const PROFILE_JSON: [&str; 11] = [
     include_str!("../service-profiles/windows-10/home.json"),
     include_str!("../service-profiles/windows-10/pro.json"),
     include_str!("../service-profiles/windows-10/pro-for-workstations.json"),
