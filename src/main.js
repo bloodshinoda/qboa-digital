@@ -788,17 +788,34 @@ function renderServiceProfilePreview(preview) {
     !preview.applicable;
 
   preview.services.forEach((service) => {
+    const current = String(service.current || "").trim().toLowerCase();
+    const proposedValue = String(service.proposed || "").trim();
+    const proposed = proposedValue.toLowerCase();
+
+    // A prévia deve mostrar somente mudanças efetivas; regras sem proposta,
+    // valores iguais e serviços ignorados não entram na lista de alterações.
+    if (!proposedValue || !current || proposed === current || service.ignored) return;
+
     const item = document.createElement("li");
-    const proposed = service.proposed || "Sem alteração";
-    const incompatibility = service.incompatible ? ` — ${service.incompatible}` : "";
-    item.textContent = `${service.service}: ${service.current} → ${proposed}${incompatibility}`;
-    if (service.ignored) {
-      ignored.appendChild(item);
+    item.classList.add("service-preview-change");
+    item.textContent = `${service.service}: ${service.current} → ${proposedValue}`;
+
+    if (proposed === "disabled") {
+      item.classList.add("service-preview-disable");
+    } else if (current === "disabled") {
+      item.classList.add("service-preview-enable");
     } else {
-      items.appendChild(item);
+      item.classList.add("service-preview-modify");
     }
+    items.appendChild(item);
   });
-  ignoredTitle.hidden = ignored.children.length === 0;
+  ignoredTitle.hidden = true;
+  if (!items.children.length) {
+    const item = document.createElement("li");
+    item.className = "service-preview-empty";
+    item.textContent = "Nenhum serviço terá a inicialização alterada neste perfil.";
+    items.appendChild(item);
+  }
 }
 
 function diagnosticCategoryLabel(category) {
