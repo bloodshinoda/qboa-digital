@@ -863,3 +863,10 @@ button.copy-pix-button:hover:not(:disabled) {
 .execution-toast { position:fixed; right:20px; bottom:20px; z-index:1300; display:grid; gap:4px; width:min(360px,calc(100vw - 32px)); padding:14px 16px; border:1px solid rgba(255,255,255,.18); border-left:4px solid #4ade80; border-radius:10px; background:#171a1d; color:#f4f4f4; box-shadow:0 12px 36px rgba(0,0,0,.4); }
 .execution-toast[hidden] { display:none; } .execution-toast span { font-size:.85rem; color:#c9ced2; } .execution-toast.error { border-left-color:#ff7777; } .execution-toast.warning { border-left-color:#f6c66a; }
 @media(max-width:600px) { .execution-summary-modal { padding:8px; } .execution-summary-dialog { padding:16px; } .execution-summary-header { flex-direction:column; } }
+
+
+/* Informações da versão e autoria na aba Sobre. */
+.about-version { display:inline-block; margin-left:8px; padding:4px 8px; border:1px solid rgba(74,222,128,.4); border-radius:999px; color:#4ade80; font-size:.72rem; vertical-align:middle; }
+.about-meta { margin:18px 0; padding:12px 16px; border-left:3px solid #4ade80; border-radius:4px; background:rgba(255,255,255,.04); }
+.about-meta p { margin:5px 0; }
+.about-support { margin-top:18px; font-size:.82rem; opacity:.8; }
