@@ -123,7 +123,334 @@ try {
 } catch {$warnings.Add('Placa-mãe não identificada.')}
 try {
  $cpu=Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1
- $cpuName=[string]$cpu.Name -replace '\s+\d+-Core Processor$','' -replace '\s+\d+-Core$',''
+ $cpuName=[string]$cpu.Name -replace '\s+\d+-Core Processor
+ $sys.processor=('{0} - {1:N2}GHz ({2}/{3})' -f $cpuName,($cpu.MaxClockSpeed/1000),$cpu.NumberOfCores,$cpu.NumberOfLogicalProcessors)
+} catch {$warnings.Add('Processador não identificado.')}
+try {
+ $mem=@(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)
+ if($mem.Count -gt 0){
+  $total=[math]::Round((($mem | Measure-Object -Property Capacity -Sum).Sum/1GB),0)
+  $kind=switch([int]$mem[0].SMBIOSMemoryType){24 {'DDR3'} 26 {'DDR4'} 34 {'DDR5'} default {'RAM'}}
+  $speeds=@($mem | ForEach-Object {if($_.ConfiguredClockSpeed){[int]$_.ConfiguredClockSpeed}elseif($_.Speed){[int]$_.Speed}} | Where-Object {$_ -gt 0} | Sort-Object -Unique)
+  $speed=if($speeds.Count -eq 1){"$($speeds[0])MHz"}elseif($speeds.Count -gt 1){"$($speeds -join '/')MHz"}else{'velocidade não informada'}
+  $sizes=@($mem | ForEach-Object {[math]::Round($_.Capacity/1GB,0)} | Sort-Object -Unique)
+  $moduleSize=if($sizes.Count -eq 1){"$($sizes[0])GB"}else{'capacidades mistas'}
+  $brands=@($mem | ForEach-Object {[string]$_.Manufacturer} | Where-Object {$_ -and $_.Trim() -and $_ -notmatch '^(?i)unknown|not specified|to be filled'} | Sort-Object -Unique)
+  $brandText=if($brands.Count -gt 0){'; marca: ' + ($brands -join ', ')}else{''}
+  $sys.memory=('{0}GB {1} {2} ({3}x{4}{5})' -f $total,$kind,$speed,$mem.Count,$moduleSize,$brandText)
+ }
+} catch {$warnings.Add('Memória RAM não identificada.')}
+try {
+ $gpus=@(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object {$_.Name} | Select-Object -ExpandProperty Name -Unique)
+ if(($gpus -contains 'AMD Radeon(TM) Graphics') -and ([string]$sys.processor -match '5600GT')){$gpus=@($gpus | ForEach-Object {if($_ -eq 'AMD Radeon(TM) Graphics'){'Radeon Vega 7 (AMD Radeon(TM) Graphics)'}else{$_}})}
+ if($gpus.Count -gt 0){$sys.gpu=$gpus -join '; '}
+} catch {$warnings.Add('GPU não identificada.')}
+ConvertTo-Json -InputObject ([pscustomobject]@{system=$sys;capabilities=@($caps);warnings=@($warnings)}) -Depth 8 -Compress
+"#;
+    let mut command = Command::new("powershell.exe");
+    command.creation_flags(0x08000000).args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        SCRIPT,
+    ]);
+    let output = command
+        .output()
+        .map_err(|e| format!("Não foi possível iniciar a coleta de capacidades do Windows: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "A coleta de capacidades do Windows falhou.".into()
+        } else {
+            format!("A coleta de capacidades do Windows falhou: {stderr}")
+        });
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| format!("Resposta do inventário não é UTF-8 válido: {e}"))?;
+    serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Não foi possível interpretar o inventário: {e}"))
+}
+
+pub(crate) fn collect() -> Result<CapabilityInventory, String> {
+    #[cfg(target_os = "windows")]
+    {
+        collect_windows()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("O inventário de capacidades só está disponível no Windows.".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn status_serialization_is_stable() {
+        assert_eq!(
+            serde_json::to_string(&CapabilityStatus::RegisteredNotPresent).unwrap(),
+            "\"registered_not_present\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CapabilityStatus::NotApplicable).unwrap(),
+            "\"not_applicable\""
+        );
+    }
+    #[test]
+    fn inventory_shape_serializes_conservatively() {
+        let report = CapabilityInventory {
+            system: SystemSummary {
+                os_name: Some("Windows".into()),
+                os_version: Some("10.0".into()),
+                os_build: Some("22631".into()),
+                architecture: Some("AMD64".into()),
+                manufacturer: None,
+                model: None,
+                motherboard: None,
+                processor: None,
+                memory: None,
+                gpu: None,
+                device_type: Some("unknown".into()),
+                device_confidence: Some("low".into()),
+                device_evidence: vec![],
+            },
+            capabilities: vec![Capability {
+                id: "bluetooth".into(),
+                label: "Bluetooth".into(),
+                status: CapabilityStatus::NotDetected,
+                confidence: "low".into(),
+                summary: "Nenhum dispositivo enumerado.".into(),
+                sources: vec!["Get-PnpDevice".into()],
+                details: vec![],
+            }],
+            warnings: vec![],
+        };
+        let json = serde_json::to_value(report).unwrap();
+        assert_eq!(json["capabilities"][0]["status"], "not_detected");
+        assert_eq!(json["capabilities"][0]["confidence"], "low");
+    }
+}
+,'' -replace '\s+\d+-Core
+ $sys.processor=('{0} - {1:N2}GHz ({2}/{3})' -f $cpuName,($cpu.MaxClockSpeed/1000),$cpu.NumberOfCores,$cpu.NumberOfLogicalProcessors)
+} catch {$warnings.Add('Processador não identificado.')}
+try {
+ $mem=@(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)
+ if($mem.Count -gt 0){
+  $total=[math]::Round((($mem | Measure-Object -Property Capacity -Sum).Sum/1GB),0)
+  $kind=switch([int]$mem[0].SMBIOSMemoryType){24 {'DDR3'} 26 {'DDR4'} 34 {'DDR5'} default {'RAM'}}
+  $speeds=@($mem | ForEach-Object {if($_.ConfiguredClockSpeed){[int]$_.ConfiguredClockSpeed}elseif($_.Speed){[int]$_.Speed}} | Where-Object {$_ -gt 0} | Sort-Object -Unique)
+  $speed=if($speeds.Count -eq 1){"$($speeds[0])MHz"}elseif($speeds.Count -gt 1){"$($speeds -join '/')MHz"}else{'velocidade não informada'}
+  $sizes=@($mem | ForEach-Object {[math]::Round($_.Capacity/1GB,0)} | Sort-Object -Unique)
+  $moduleSize=if($sizes.Count -eq 1){"$($sizes[0])GB"}else{'capacidades mistas'}
+  $brands=@($mem | ForEach-Object {[string]$_.Manufacturer} | Where-Object {$_ -and $_.Trim() -and $_ -notmatch '^(?i)unknown|not specified|to be filled'} | Sort-Object -Unique)
+  $brandText=if($brands.Count -gt 0){'; marca: ' + ($brands -join ', ')}else{''}
+  $sys.memory=('{0}GB {1} {2} ({3}x{4}{5})' -f $total,$kind,$speed,$mem.Count,$moduleSize,$brandText)
+ }
+} catch {$warnings.Add('Memória RAM não identificada.')}
+try {
+ $gpus=@(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object {$_.Name} | Select-Object -ExpandProperty Name -Unique)
+ if(($gpus -contains 'AMD Radeon(TM) Graphics') -and ([string]$sys.processor -match '5600GT')){$gpus=@($gpus | ForEach-Object {if($_ -eq 'AMD Radeon(TM) Graphics'){'Radeon Vega 7 (AMD Radeon(TM) Graphics)'}else{$_}})}
+ if($gpus.Count -gt 0){$sys.gpu=$gpus -join '; '}
+} catch {$warnings.Add('GPU não identificada.')}
+ConvertTo-Json -InputObject ([pscustomobject]@{system=$sys;capabilities=@($caps);warnings=@($warnings)}) -Depth 8 -Compress
+"#;
+    let mut command = Command::new("powershell.exe");
+    command.creation_flags(0x08000000).args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        SCRIPT,
+    ]);
+    let output = command
+        .output()
+        .map_err(|e| format!("Não foi possível iniciar a coleta de capacidades do Windows: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "A coleta de capacidades do Windows falhou.".into()
+        } else {
+            format!("A coleta de capacidades do Windows falhou: {stderr}")
+        });
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| format!("Resposta do inventário não é UTF-8 válido: {e}"))?;
+    serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Não foi possível interpretar o inventário: {e}"))
+}
+
+pub(crate) fn collect() -> Result<CapabilityInventory, String> {
+    #[cfg(target_os = "windows")]
+    {
+        collect_windows()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("O inventário de capacidades só está disponível no Windows.".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn status_serialization_is_stable() {
+        assert_eq!(
+            serde_json::to_string(&CapabilityStatus::RegisteredNotPresent).unwrap(),
+            "\"registered_not_present\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CapabilityStatus::NotApplicable).unwrap(),
+            "\"not_applicable\""
+        );
+    }
+    #[test]
+    fn inventory_shape_serializes_conservatively() {
+        let report = CapabilityInventory {
+            system: SystemSummary {
+                os_name: Some("Windows".into()),
+                os_version: Some("10.0".into()),
+                os_build: Some("22631".into()),
+                architecture: Some("AMD64".into()),
+                manufacturer: None,
+                model: None,
+                motherboard: None,
+                processor: None,
+                memory: None,
+                gpu: None,
+                device_type: Some("unknown".into()),
+                device_confidence: Some("low".into()),
+                device_evidence: vec![],
+            },
+            capabilities: vec![Capability {
+                id: "bluetooth".into(),
+                label: "Bluetooth".into(),
+                status: CapabilityStatus::NotDetected,
+                confidence: "low".into(),
+                summary: "Nenhum dispositivo enumerado.".into(),
+                sources: vec!["Get-PnpDevice".into()],
+                details: vec![],
+            }],
+            warnings: vec![],
+        };
+        let json = serde_json::to_value(report).unwrap();
+        assert_eq!(json["capabilities"][0]["status"], "not_detected");
+        assert_eq!(json["capabilities"][0]["confidence"], "low");
+    }
+}
+,'' -replace '\s+with Radeon Graphics
+ $sys.processor=('{0} - {1:N2}GHz ({2}/{3})' -f $cpuName,($cpu.MaxClockSpeed/1000),$cpu.NumberOfCores,$cpu.NumberOfLogicalProcessors)
+} catch {$warnings.Add('Processador não identificado.')}
+try {
+ $mem=@(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)
+ if($mem.Count -gt 0){
+  $total=[math]::Round((($mem | Measure-Object -Property Capacity -Sum).Sum/1GB),0)
+  $kind=switch([int]$mem[0].SMBIOSMemoryType){24 {'DDR3'} 26 {'DDR4'} 34 {'DDR5'} default {'RAM'}}
+  $speeds=@($mem | ForEach-Object {if($_.ConfiguredClockSpeed){[int]$_.ConfiguredClockSpeed}elseif($_.Speed){[int]$_.Speed}} | Where-Object {$_ -gt 0} | Sort-Object -Unique)
+  $speed=if($speeds.Count -eq 1){"$($speeds[0])MHz"}elseif($speeds.Count -gt 1){"$($speeds -join '/')MHz"}else{'velocidade não informada'}
+  $sizes=@($mem | ForEach-Object {[math]::Round($_.Capacity/1GB,0)} | Sort-Object -Unique)
+  $moduleSize=if($sizes.Count -eq 1){"$($sizes[0])GB"}else{'capacidades mistas'}
+  $brands=@($mem | ForEach-Object {[string]$_.Manufacturer} | Where-Object {$_ -and $_.Trim() -and $_ -notmatch '^(?i)unknown|not specified|to be filled'} | Sort-Object -Unique)
+  $brandText=if($brands.Count -gt 0){'; marca: ' + ($brands -join ', ')}else{''}
+  $sys.memory=('{0}GB {1} {2} ({3}x{4}{5})' -f $total,$kind,$speed,$mem.Count,$moduleSize,$brandText)
+ }
+} catch {$warnings.Add('Memória RAM não identificada.')}
+try {
+ $gpus=@(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object {$_.Name} | Select-Object -ExpandProperty Name -Unique)
+ if(($gpus -contains 'AMD Radeon(TM) Graphics') -and ([string]$sys.processor -match '5600GT')){$gpus=@($gpus | ForEach-Object {if($_ -eq 'AMD Radeon(TM) Graphics'){'Radeon Vega 7 (AMD Radeon(TM) Graphics)'}else{$_}})}
+ if($gpus.Count -gt 0){$sys.gpu=$gpus -join '; '}
+} catch {$warnings.Add('GPU não identificada.')}
+ConvertTo-Json -InputObject ([pscustomobject]@{system=$sys;capabilities=@($caps);warnings=@($warnings)}) -Depth 8 -Compress
+"#;
+    let mut command = Command::new("powershell.exe");
+    command.creation_flags(0x08000000).args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        SCRIPT,
+    ]);
+    let output = command
+        .output()
+        .map_err(|e| format!("Não foi possível iniciar a coleta de capacidades do Windows: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "A coleta de capacidades do Windows falhou.".into()
+        } else {
+            format!("A coleta de capacidades do Windows falhou: {stderr}")
+        });
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| format!("Resposta do inventário não é UTF-8 válido: {e}"))?;
+    serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Não foi possível interpretar o inventário: {e}"))
+}
+
+pub(crate) fn collect() -> Result<CapabilityInventory, String> {
+    #[cfg(target_os = "windows")]
+    {
+        collect_windows()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("O inventário de capacidades só está disponível no Windows.".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn status_serialization_is_stable() {
+        assert_eq!(
+            serde_json::to_string(&CapabilityStatus::RegisteredNotPresent).unwrap(),
+            "\"registered_not_present\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CapabilityStatus::NotApplicable).unwrap(),
+            "\"not_applicable\""
+        );
+    }
+    #[test]
+    fn inventory_shape_serializes_conservatively() {
+        let report = CapabilityInventory {
+            system: SystemSummary {
+                os_name: Some("Windows".into()),
+                os_version: Some("10.0".into()),
+                os_build: Some("22631".into()),
+                architecture: Some("AMD64".into()),
+                manufacturer: None,
+                model: None,
+                motherboard: None,
+                processor: None,
+                memory: None,
+                gpu: None,
+                device_type: Some("unknown".into()),
+                device_confidence: Some("low".into()),
+                device_evidence: vec![],
+            },
+            capabilities: vec![Capability {
+                id: "bluetooth".into(),
+                label: "Bluetooth".into(),
+                status: CapabilityStatus::NotDetected,
+                confidence: "low".into(),
+                summary: "Nenhum dispositivo enumerado.".into(),
+                sources: vec!["Get-PnpDevice".into()],
+                details: vec![],
+            }],
+            warnings: vec![],
+        };
+        let json = serde_json::to_value(report).unwrap();
+        assert_eq!(json["capabilities"][0]["status"], "not_detected");
+        assert_eq!(json["capabilities"][0]["confidence"], "low");
+    }
+}
+,''
  $sys.processor=('{0} - {1:N2}GHz ({2}/{3})' -f $cpuName,($cpu.MaxClockSpeed/1000),$cpu.NumberOfCores,$cpu.NumberOfLogicalProcessors)
 } catch {$warnings.Add('Processador não identificado.')}
 try {
