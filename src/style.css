@@ -343,14 +343,14 @@ button {
   margin: 12px 0;
 }
 
-.service-profile-preview {
+#service-profile-preview {
   display: grid;
   gap: 6px;
   list-style: none;
   padding: 0;
 }
 
-.service-profile-preview li {
+#service-profile-preview li {
   overflow-wrap: anywhere;
 }
 
@@ -814,25 +814,25 @@ button.copy-pix-button:hover:not(:disabled) {
 #console-output .service-summary-manual { color: #f6c66a; }
 
 /* Prévia do perfil: somente mudanças efetivas, com cores de saída/entrada. */
-.service-profile-preview .service-preview-change {
+#service-profile-preview .service-preview-change {
   padding: 5px 8px;
   border-left: 3px solid currentColor;
   border-radius: 3px;
   background: rgba(255, 255, 255, .04);
 }
-.service-profile-preview .service-preview-disable {
+#service-profile-preview .service-preview-disable {
   color: #ff7777;
   border-left-color: #ff7777;
 }
-.service-profile-preview .service-preview-enable {
+#service-profile-preview .service-preview-enable {
   color: #6ee7a0;
   border-left-color: #6ee7a0;
 }
-.service-profile-preview .service-preview-modify {
+#service-profile-preview .service-preview-modify {
   color: #f6c66a;
   border-left-color: #f6c66a;
 }
-.service-profile-preview .service-preview-empty {
+#service-profile-preview .service-preview-empty {
   color: rgba(255, 255, 255, .72);
   list-style: none;
 }
