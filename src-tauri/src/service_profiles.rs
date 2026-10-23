@@ -171,6 +171,25 @@ pub(crate) trait ServiceProfileBackend {
     fn set_start_type(&mut self, name: &str, start_type: &str) -> Result<(), String>;
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String>;
     fn save_snapshot(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String>;
+    fn load_baseline(&mut self) -> Result<Option<ServiceSnapshot>, String>;
+    fn save_baseline(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String>;
+}
+
+pub(crate) fn capture_initial_baseline<B: ServiceProfileBackend>(
+    backend: &mut B,
+    system: &DetectedSystem,
+) -> Result<(), String> {
+    if let Some(baseline) = backend.load_baseline()? {
+        if baseline.os == system.os && baseline.edition == system.edition {
+            return Ok(());
+        }
+    }
+    backend.save_baseline(&ServiceSnapshot {
+        os: system.os,
+        build: system.build.clone(),
+        edition: system.edition,
+        services: system.services.clone(),
+    })
 }
 
 pub(crate) fn product_profiles() -> Vec<ProductProfile> {
@@ -281,11 +300,7 @@ pub(crate) fn preview(
             profile: selected,
             applicable: false,
             validated: profile.validated,
-            message: if profile.defaults_validated {
-                "Padrão é uma referência; use Restaurar padrão do Windows para aplicar a baseline validada.".to_string()
-            } else {
-                "Padrão é apenas referência. A baseline desta versão ainda não foi validada e não será aplicada.".to_string()
-            },
+            message: "Padrão é a configuração de serviços coletada na primeira execução deste sistema; use Restaurar configuração inicial para recuperá-la.".to_string(),
             services: Vec::new(),
             ignored: Vec::new(),
         };
@@ -485,31 +500,39 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
     backend: &mut B,
     profile: &ServiceProfileFile,
 ) -> Result<(), String> {
-    ensure_profile_has_validated_services(profile)?;
-    if !profile.defaults_validated {
-        return Err(
-            "A baseline de padrões do Windows ainda não foi validada para esta versão.".to_string(),
-        );
-    }
     let system = backend.detect_system()?;
-    if !profile_incompatibilities(&system, profile).is_empty() {
-        return Err("Perfil não corresponde ao Windows detectado.".to_string());
+    let baseline = backend
+        .load_baseline()?
+        .ok_or_else(|| "A configuração inicial ainda não foi coletada. Abra Serviços para registrá-la antes de restaurar.".to_string())?;
+    if baseline.os != system.os || baseline.edition != system.edition {
+        return Err("A configuração inicial salva não corresponde a esta edição do Windows.".to_string());
     }
-    let mut defaults = Vec::new();
-    for rule in &profile.services {
-        if !rule_applies_to_system(rule, &system) {
-            continue;
-        }
-        let start_type = rule
-            .windows_default_start_type
-            .as_deref()
-            .ok_or_else(|| format!("Baseline ausente para {}.", rule.name))?;
-        if !valid_start_type(start_type) || protected_disable(&rule.name, start_type) {
-            return Err(format!("Baseline inválido para {}.", rule.name));
-        }
-        defaults.push((rule.name.clone(), start_type.to_string()));
+
+    let allowed_names: HashSet<String> = profile
+        .services
+        .iter()
+        .map(|rule| rule.name.to_ascii_lowercase())
+        .collect();
+    let installed_names: HashSet<String> = system
+        .services
+        .iter()
+        .map(|service| service.name.to_ascii_lowercase())
+        .collect();
+    let targets: Vec<InstalledService> = baseline
+        .services
+        .into_iter()
+        .filter(|service| {
+            allowed_names.contains(&service.name.to_ascii_lowercase())
+                && installed_names.contains(&service.name.to_ascii_lowercase())
+                && valid_start_type(&service.start_type)
+                && !protected_disable(&service.name, &service.start_type)
+        })
+        .collect();
+    if targets.is_empty() {
+        return Err("Nenhum serviço do catálogo possui uma configuração inicial restaurável.".to_string());
     }
-    let names: Vec<String> = defaults.iter().map(|(name, _)| name.clone()).collect();
+
+    let names: Vec<String> = targets.iter().map(|service| service.name.clone()).collect();
     let current = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &current)?;
     backend.save_snapshot(&ServiceSnapshot {
@@ -518,8 +541,8 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
         edition: system.edition,
         services: current,
     })?;
-    for (name, start_type) in defaults {
-        backend.set_start_type(&name, &start_type)?;
+    for service in targets {
+        backend.set_start_type(&service.name, &service.start_type)?;
     }
     Ok(())
 }
@@ -676,6 +699,7 @@ fn protected_disable(service: &str, start_type: &str) -> bool {
 #[cfg(target_os = "windows")]
 pub(crate) struct WindowsServiceProfileBackend {
     snapshot_path: PathBuf,
+    baseline_path: PathBuf,
 }
 
 #[cfg(target_os = "windows")]
@@ -688,6 +712,12 @@ impl Default for WindowsServiceProfileBackend {
                 .join("Qboa Digital")
                 .join("service-profile")
                 .join("last-application.json"),
+            baseline_path: std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+                .join("Qboa Digital")
+                .join("service-profile")
+                .join("initial-baseline.json"),
         }
     }
 }
@@ -799,6 +829,35 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
             .map_err(|error| format!("Não foi possível sincronizar snapshot: {error}"))?;
         std::fs::rename(&temporary, &self.snapshot_path)
             .map_err(|error| format!("Não foi possível salvar snapshot: {error}"))
+    }
+
+    fn load_baseline(&mut self) -> Result<Option<ServiceSnapshot>, String> {
+        if !self.baseline_path.exists() {
+            return Ok(None);
+        }
+        let data = std::fs::read_to_string(&self.baseline_path)
+            .map_err(|error| format!("Não foi possível ler configuração inicial: {error}"))?;
+        serde_json::from_str(&data)
+            .map(Some)
+            .map_err(|error| format!("Configuração inicial inválida: {error}"))
+    }
+
+    fn save_baseline(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String> {
+        let parent = self.baseline_path.parent()
+            .ok_or_else(|| "Caminho da configuração inicial inválido.".to_string())?;
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Não foi possível criar pasta da configuração inicial: {error}"))?;
+        let temporary = self.baseline_path.with_extension("tmp");
+        let data = serde_json::to_vec_pretty(snapshot)
+            .map_err(|error| format!("Não foi possível serializar configuração inicial: {error}"))?;
+        let mut file = std::fs::File::create(&temporary)
+            .map_err(|error| format!("Não foi possível criar arquivo temporário da configuração inicial: {error}"))?;
+        std::io::Write::write_all(&mut file, &data)
+            .map_err(|error| format!("Não foi possível gravar configuração inicial: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("Não foi possível sincronizar configuração inicial: {error}"))?;
+        std::fs::rename(&temporary, &self.baseline_path)
+            .map_err(|error| format!("Não foi possível salvar configuração inicial: {error}"))
     }
 }
 
@@ -920,6 +979,12 @@ impl ServiceProfileBackend for WindowsServiceProfileBackend {
     fn save_snapshot(&mut self, _snapshot: &ServiceSnapshot) -> Result<(), String> {
         Err("Operação de serviços só está disponível no Windows.".to_string())
     }
+    fn load_baseline(&mut self) -> Result<Option<ServiceSnapshot>, String> {
+        Err("Operação de serviços só está disponível no Windows.".to_string())
+    }
+    fn save_baseline(&mut self, _snapshot: &ServiceSnapshot) -> Result<(), String> {
+        Err("Operação de serviços só está disponível no Windows.".to_string())
+    }
 }
 
 #[cfg(test)]
@@ -930,6 +995,7 @@ mod tests {
         system: DetectedSystem,
         snapshot: Option<ServiceSnapshot>,
         saved: Vec<ServiceSnapshot>,
+        baseline: Option<ServiceSnapshot>,
         changes: Vec<(String, String)>,
     }
 
@@ -965,6 +1031,13 @@ mod tests {
         fn save_snapshot(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String> {
             self.saved.push(snapshot.clone());
             self.snapshot = Some(snapshot.clone());
+            Ok(())
+        }
+        fn load_baseline(&mut self) -> Result<Option<ServiceSnapshot>, String> {
+            Ok(self.baseline.clone())
+        }
+        fn save_baseline(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String> {
+            self.baseline = Some(snapshot.clone());
             Ok(())
         }
     }
@@ -1022,6 +1095,7 @@ mod tests {
             system: system(os, edition),
             snapshot: None,
             saved: Vec::new(),
+            baseline: None,
             changes: Vec::new(),
         }
     }
@@ -1448,23 +1522,31 @@ mod tests {
     fn restore_windows_defaults_snapshots_before_restoring() {
         let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
         profile.validated = true;
-        profile.defaults_validated = true;
         profile.services.push(ServiceRule {
             name: "ExampleSvc".to_string(),
-            start_type: "Manual".to_string(),
+            start_type: "Disabled".to_string(),
             windows_default_start_type: Some("Automatic".to_string()),
             form_factor: None,
             requires_no_battery: false,
             profiles: vec![ProductProfile::Safe],
         });
         let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
-        backend.system.services[0].start_type = "Manual".to_string();
+        backend.system.services[0].start_type = "Disabled".to_string();
+        backend.baseline = Some(ServiceSnapshot {
+            os: WindowsVersion::Windows10,
+            build: "19045".to_string(),
+            edition: WindowsEdition::Home,
+            services: vec![InstalledService {
+                name: "ExampleSvc".to_string(),
+                start_type: "Manual".to_string(),
+            }],
+        });
 
         assert!(restore_windows_defaults(&mut backend, &profile).is_ok());
-        assert_eq!(backend.saved[0].services[0].start_type, "Manual");
+        assert_eq!(backend.saved[0].services[0].start_type, "Disabled");
         assert_eq!(
             backend.changes,
-            vec![("ExampleSvc".to_string(), "Automatic".to_string())]
+            vec![("ExampleSvc".to_string(), "Manual".to_string())]
         );
     }
 
