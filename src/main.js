@@ -404,7 +404,10 @@ function renderCapabilityInventory(report) {
   const confidenceLabels = { high: "alta", medium: "média", low: "baixa" };
   const systemLines = [
     [summary.os_name, summary.os_version ? `versão ${summary.os_version}` : null, summary.os_build ? `build ${summary.os_build}` : null].filter(Boolean).join(" · "),
-    [summary.manufacturer, summary.model].filter(Boolean).join(" "),
+    summary.motherboard ? `Placa mãe: ${summary.motherboard}` : [summary.manufacturer, summary.model].filter(Boolean).join(" "),
+    summary.processor ? `Processador: ${summary.processor}` : null,
+    summary.memory ? `Memória: ${summary.memory}` : null,
+    summary.gpu ? `GPU: ${summary.gpu}` : null,
     summary.architecture ? `Arquitetura: ${summary.architecture}` : null,
     `Tipo de equipamento: ${deviceTypeLabels[summary.device_type] || deviceTypeLabels.unknown} (confiança ${confidenceLabels[summary.device_confidence] || "baixa"})`
   ].filter(Boolean);
@@ -964,7 +967,9 @@ async function loadServiceProfileState() {
     const formFactor = system.form_factor
       ? ` · ${system.form_factor}`
       : " · formato do equipamento não identificado; regras específicas de hardware serão ignoradas";
-    details.textContent = `${system.os} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
+    details.textContent = system.edition_id === "IoTEnterpriseS"
+      ? `Windows 11 IoT Enterprise LTSC ${system.version} (${system.build})`
+      : `${system.os === "windows11" ? "Windows 11" : "Windows 10"} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
     status.textContent = profile.validated
       ? "Perfil validado disponível."
       : profile.heuristic_apply_enabled
