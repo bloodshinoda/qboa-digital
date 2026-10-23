@@ -505,7 +505,9 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
         .load_baseline()?
         .ok_or_else(|| "A configuração inicial ainda não foi coletada. Abra Serviços para registrá-la antes de restaurar.".to_string())?;
     if baseline.os != system.os || baseline.edition != system.edition {
-        return Err("A configuração inicial salva não corresponde a esta edição do Windows.".to_string());
+        return Err(
+            "A configuração inicial salva não corresponde a esta edição do Windows.".to_string(),
+        );
     }
 
     let allowed_names: HashSet<String> = profile
@@ -529,7 +531,9 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
         })
         .collect();
     if targets.is_empty() {
-        return Err("Nenhum serviço do catálogo possui uma configuração inicial restaurável.".to_string());
+        return Err(
+            "Nenhum serviço do catálogo possui uma configuração inicial restaurável.".to_string(),
+        );
     }
 
     let names: Vec<String> = targets.iter().map(|service| service.name.clone()).collect();
@@ -843,19 +847,25 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     }
 
     fn save_baseline(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String> {
-        let parent = self.baseline_path.parent()
+        let parent = self
+            .baseline_path
+            .parent()
             .ok_or_else(|| "Caminho da configuração inicial inválido.".to_string())?;
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("Não foi possível criar pasta da configuração inicial: {error}"))?;
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!("Não foi possível criar pasta da configuração inicial: {error}")
+        })?;
         let temporary = self.baseline_path.with_extension("tmp");
-        let data = serde_json::to_vec_pretty(snapshot)
-            .map_err(|error| format!("Não foi possível serializar configuração inicial: {error}"))?;
-        let mut file = std::fs::File::create(&temporary)
-            .map_err(|error| format!("Não foi possível criar arquivo temporário da configuração inicial: {error}"))?;
+        let data = serde_json::to_vec_pretty(snapshot).map_err(|error| {
+            format!("Não foi possível serializar configuração inicial: {error}")
+        })?;
+        let mut file = std::fs::File::create(&temporary).map_err(|error| {
+            format!("Não foi possível criar arquivo temporário da configuração inicial: {error}")
+        })?;
         std::io::Write::write_all(&mut file, &data)
             .map_err(|error| format!("Não foi possível gravar configuração inicial: {error}"))?;
-        file.sync_all()
-            .map_err(|error| format!("Não foi possível sincronizar configuração inicial: {error}"))?;
+        file.sync_all().map_err(|error| {
+            format!("Não foi possível sincronizar configuração inicial: {error}")
+        })?;
         std::fs::rename(&temporary, &self.baseline_path)
             .map_err(|error| format!("Não foi possível salvar configuração inicial: {error}"))
     }
@@ -1126,9 +1136,7 @@ mod tests {
 
         let preview = preview(&detected, &catalog, ProductProfile::Safe);
         assert!(preview.applicable);
-        assert!(preview
-            .message
-            .contains("Perfil heurístico"));
+        assert!(preview.message.contains("Perfil heurístico"));
         assert!(preview
             .services
             .iter()
