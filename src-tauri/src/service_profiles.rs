@@ -617,6 +617,7 @@ fn edition_label(edition: &WindowsEdition) -> &'static str {
         WindowsEdition::Pro => "Pro",
         WindowsEdition::ProForWorkstations => "Pro for Workstations",
         WindowsEdition::Enterprise => "Enterprise",
+        WindowsEdition::IoTEnterpriseLtsc => "IoT Enterprise LTSC",
         WindowsEdition::Education => "Education",
         WindowsEdition::Unknown => "desconhecida",
     }
@@ -989,6 +990,7 @@ mod tests {
                 WindowsEdition::Pro => "Professional",
                 WindowsEdition::ProForWorkstations => "ProfessionalWorkstation",
                 WindowsEdition::Enterprise => "Enterprise",
+                WindowsEdition::IoTEnterpriseLtsc => "IoTEnterpriseS",
                 WindowsEdition::Education => "Education",
                 WindowsEdition::Unknown => "UnknownEdition",
             }
@@ -1468,11 +1470,13 @@ mod tests {
     #[test]
     fn profile_templates_have_empty_unvalidated_matrices() {
         let profiles = profile_files().unwrap();
-        assert_eq!(profiles.len(), 10);
+        assert_eq!(profiles.len(), 11);
         assert!(profiles.iter().all(|profile| !profile.validated));
         for profile in &profiles {
-            let has_heuristic_catalog = profile.os == WindowsVersion::Windows10
-                && matches!(profile.edition, WindowsEdition::Home | WindowsEdition::Pro);
+            let has_heuristic_catalog = (profile.os == WindowsVersion::Windows10
+                && matches!(profile.edition, WindowsEdition::Home | WindowsEdition::Pro))
+                || (profile.os == WindowsVersion::Windows11
+                    && profile.edition == WindowsEdition::IoTEnterpriseLtsc);
             assert_eq!(profile.heuristic_apply_enabled, has_heuristic_catalog);
             assert_eq!(!profile.services.is_empty(), has_heuristic_catalog);
             assert!(!profile.defaults_validated);
@@ -1484,6 +1488,7 @@ mod tests {
                 WindowsEdition::ProForWorkstations,
                 WindowsEdition::Enterprise,
                 WindowsEdition::Education,
+                WindowsEdition::IoTEnterpriseLtsc,
             ] {
                 assert_eq!(
                     profiles
