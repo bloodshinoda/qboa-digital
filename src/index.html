@@ -111,15 +111,16 @@
       <button id="capability-refresh-btn" type="button">Atualizar inventário</button>
     </div>
     <p id="capability-status" aria-live="polite">O inventário ainda não foi coletado nesta sessão.</p>
+    <div class="capability-summary-actions"><button id="copy-capability-summary" class="secondary-button" type="button">Copiar resumo</button><span id="capability-copy-status" aria-live="polite"></span></div>
     <div id="capability-system" class="capability-system"></div>
     <div id="capability-list" class="capability-list"></div>
     <ul id="capability-warnings" class="capability-warnings"></ul>
   </section>
 
-  <section class="console" id="console">
-    <div class="console-title">Registro de atividades</div>
+  <details class="console" id="console">
+    <summary class="console-title">Registro de atividades</summary>
     <pre id="console-output"></pre>
-  </section>
+  </details>
 
   <div class="toolbar">
     <label class="shutdown-option">
