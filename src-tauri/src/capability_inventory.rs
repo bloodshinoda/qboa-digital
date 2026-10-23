@@ -124,7 +124,7 @@ try {
 try {
  $cpu=Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1
  $cpuName=[string]$cpu.Name -replace '\s+\d+-Core Processor
- $sys.processor=('{0} - {1:N2}GHz ({2}/{3})' -f $cpuName,($cpu.MaxClockSpeed/1000),$cpu.NumberOfCores,$cpu.NumberOfLogicalProcessors)
+ $sys.processor=('{0} - {1:N2}GHz ({2}/{3})' -f $cpuName,($cpu.MaxClockSpeed/1000),$cpu.NumberOfCores,$cpu.NumberOfLogicalProcessors).Replace(',','.')
 } catch {$warnings.Add('Processador não identificado.')}
 try {
  $mem=@(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)
@@ -142,7 +142,7 @@ try {
 } catch {$warnings.Add('Memória RAM não identificada.')}
 try {
  $gpus=@(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object {$_.Name} | Select-Object -ExpandProperty Name -Unique)
- if(($gpus -contains 'AMD Radeon(TM) Graphics') -and ([string]$sys.processor -match '5600GT')){$gpus=@($gpus | ForEach-Object {if($_ -eq 'AMD Radeon(TM) Graphics'){'Radeon Vega 7 (AMD Radeon(TM) Graphics)'}else{$_}})}
+ if(($gpus -contains 'AMD Radeon(TM) Graphics') -and ([string]$sys.processor -match '5600GT')){$gpus=@($gpus | ForEach-Object {if($_ -eq 'AMD Radeon(TM) Graphics'){'Radeon Vega 7'}else{$_}})}
  if($gpus.Count -gt 0){$sys.gpu=$gpus -join '; '}
 } catch {$warnings.Add('GPU não identificada.')}
 ConvertTo-Json -InputObject ([pscustomobject]@{system=$sys;capabilities=@($caps);warnings=@($warnings)}) -Depth 8 -Compress
