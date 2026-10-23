@@ -203,7 +203,7 @@ impl TaskRegistry {
             LegacyTask {
                 id: "limpeza_media".to_string(),
                 name: "Limpeza média".to_string(),
-                description: "Executa a limpeza padrão e o Disk Cleanup do Windows.".to_string(),
+                description: "Executa a limpeza padrão, o Disk Cleanup e remove atalhos quebrados e associações inválidas confirmadas.".to_string(),
                 category: TaskCategory::Cleanup,
                 risk: TaskRisk::Moderate,
                 requires_admin: false,
@@ -219,7 +219,7 @@ impl TaskRegistry {
             LegacyTask {
                 id: "limpeza_pesada".to_string(),
                 name: "Limpeza pesada".to_string(),
-                description: "Executa limpeza profunda com remoção extra de arquivos temporários."
+                description: "Executa limpeza profunda, corrige atalhos e associações inválidas e remove entradas órfãs confirmadas."
                     .to_string(),
                 category: TaskCategory::Cleanup,
                 risk: TaskRisk::Advanced,

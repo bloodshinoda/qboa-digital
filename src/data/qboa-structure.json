@@ -11,7 +11,11 @@
           "desc": "Remove temporários, caches descartáveis e lixeira.",
           "risk": "safe",
           "reversible": false,
-          "preset": ["express", "normal", "turbo"]
+          "preset": [
+            "express",
+            "normal",
+            "turbo"
+          ]
         },
         {
           "id": "limpeza_media",
@@ -19,7 +23,10 @@
           "desc": "Executa a limpeza padrão e o Disk Cleanup do Windows.",
           "risk": "moderate",
           "reversible": false,
-          "preset": ["normal", "turbo"]
+          "preset": [
+            "normal",
+            "turbo"
+          ]
         },
         {
           "id": "limpeza_pesada",
@@ -27,7 +34,9 @@
           "desc": "Remove temporários adicionais do sistema e registra proteção.",
           "risk": "advanced",
           "reversible": false,
-          "preset": ["turbo"]
+          "preset": [
+            "turbo"
+          ]
         },
         {
           "id": "limpeza_windows_update",
@@ -35,22 +44,21 @@
           "desc": "Limpa arquivos temporários de atualização do Windows.",
           "risk": "moderate",
           "reversible": false,
-          "preset": ["normal", "turbo"]
-        }
-      ]
-    },
-    {
-      "id": "desengordurar",
-      "title": "Desengordurar",
-      "icon": "⚙️",
-      "items": [
+          "preset": [
+            "normal",
+            "turbo"
+          ]
+        },
         {
           "id": "desengordurar_telemetria",
           "name": "Desativar telemetria",
           "desc": "Interrompe diagnósticos e coleta de dados do Windows.",
           "risk": "moderate",
           "reversible": true,
-          "preset": ["normal", "turbo"]
+          "preset": [
+            "normal",
+            "turbo"
+          ]
         },
         {
           "id": "desengordurar_tarefas",
@@ -58,7 +66,10 @@
           "desc": "Desativa jobs agendados de coleta e compatibilidade.",
           "risk": "moderate",
           "reversible": true,
-          "preset": ["normal", "turbo"]
+          "preset": [
+            "normal",
+            "turbo"
+          ]
         },
         {
           "id": "desengordurar_telemetria_avancada",
@@ -66,7 +77,9 @@
           "desc": "Desativa serviços, políticas e recursos do Windows AI/Recall.",
           "risk": "advanced",
           "reversible": true,
-          "preset": ["turbo"]
+          "preset": [
+            "turbo"
+          ]
         }
       ]
     },
@@ -81,7 +94,10 @@
           "desc": "Verifica a imagem do sistema sem aplicar correções.",
           "risk": "safe",
           "reversible": false,
-          "preset": ["normal", "turbo"]
+          "preset": [
+            "normal",
+            "turbo"
+          ]
         },
         {
           "id": "diagnostico_dism_restore",
@@ -89,7 +105,9 @@
           "desc": "Tenta reparar componentes do Windows.",
           "risk": "advanced",
           "reversible": false,
-          "preset": ["turbo"]
+          "preset": [
+            "turbo"
+          ]
         },
         {
           "id": "diagnostico_sfc",
@@ -97,7 +115,10 @@
           "desc": "Verifica a integridade dos arquivos do sistema.",
           "risk": "moderate",
           "reversible": false,
-          "preset": ["normal", "turbo"]
+          "preset": [
+            "normal",
+            "turbo"
+          ]
         },
         {
           "id": "diagnostico_informacoes",
@@ -105,7 +126,11 @@
           "desc": "Resumo do ambiente, sistema e hardware.",
           "risk": "safe",
           "reversible": false,
-          "preset": ["express", "normal", "turbo"]
+          "preset": [
+            "express",
+            "normal",
+            "turbo"
+          ]
         }
       ]
     }

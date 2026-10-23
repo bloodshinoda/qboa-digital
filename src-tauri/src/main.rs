@@ -1,9 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod capability_inventory;
 mod cleanup_findings;
 mod diagnostics;
 mod registry_executor;
 mod safety;
+mod service_manager;
 mod service_profiles;
 mod system_compat;
 mod task_registry;
@@ -19,7 +21,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use safety::{ChangeRecord, SafetyManager};
@@ -442,7 +444,7 @@ fn cleanup_standard(
     execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
-    apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
+    apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
 ) -> Result<String, String> {
     let output = run_powershell(
         include_str!("../scripts/cleanup_standard.ps1"),
@@ -450,10 +452,12 @@ fn cleanup_standard(
         on_output,
         is_cancelled,
     )?;
-    apply_registry(task_id)?;
+    let registry_keys_removed = apply_registry(task_id)?;
     let summary = "Limpeza padrão concluída: temporários, caches, MRUs e lixeira.";
+    let registry_metrics = format!("QBOA_METRICS files=0 bytes=0 registry={registry_keys_removed}");
     on_output(summary);
-    Ok(format!("{output}\n{summary}"))
+    on_output(&registry_metrics);
+    Ok(format!("{output}\n{summary}\n{registry_metrics}"))
 }
 
 fn cleanup_heavy_temp(
@@ -464,9 +468,25 @@ fn cleanup_heavy_temp(
     run_powershell(
         r#"
 $paths = @("$env:TEMP", "$env:WINDIR\Temp", "$env:WINDIR\Minidump", "$env:WINDIR\LiveKernelReports");
-foreach ($p in $paths) { if (Test-Path $p) { Get-ChildItem $p -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; } }
-Clear-RecycleBin -Force -ErrorAction SilentlyContinue;
-Write-Output 'Limpeza pesada concluída.';
+$removed = 0; $removedFiles = 0; [long]$freedBytes = 0; $failed = 0;
+foreach ($p in $paths) {
+  if (Test-Path -LiteralPath $p) {
+    foreach ($item in @(Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue)) {
+      try {
+        if ($item.PSIsContainer) { $files = @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue) }
+        else { $files = @($item) }
+        $size = ($files | Measure-Object -Property Length -Sum).Sum
+        Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
+        $removedFiles += $files.Count
+        if ($size) { $freedBytes += [long]$size }
+        $removed++
+      } catch { $failed++ ; Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message) }
+    }
+  }
+}
+try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+Write-Output ("Limpeza pesada: {0} item(ns)/pasta(s) removido(s), {1} falha(s)." -f $removed, $failed)
+Write-Output ("QBOA_METRICS files={0} bytes={1} registry=0" -f $removedFiles, $freedBytes)
 "#,
         execution_id,
         on_output,
@@ -485,14 +505,19 @@ $ErrorActionPreference = 'Stop';
 $path = Join-Path $env:WINDIR 'SoftwareDistribution\Download';
 if (-not (Test-Path -LiteralPath $path)) {
   Write-Output 'Cache de download do Windows Update não existe; nada a limpar.';
+  Write-Output 'QBOA_METRICS files=0 bytes=0 registry=0';
   exit 0;
 }
 $items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop);
-$removed = 0;
-$failed = 0;
+$removed = 0; $removedFiles = 0; [long]$freedBytes = 0; $failed = 0;
 foreach ($item in $items) {
   try {
+    $tree = @($item) + @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue);
+    $files = @($tree | Where-Object { -not $_.PSIsContainer });
+    $size = ($files | Measure-Object -Property Length -Sum).Sum;
     Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
+    $removedFiles += $files.Count;
+    if ($size) { $freedBytes += [long]$size; }
     $removed++;
   } catch {
     $failed++;
@@ -500,6 +525,7 @@ foreach ($item in $items) {
   }
 }
 Write-Output ("Windows Update: {0} item(ns) removido(s), {1} falha(s)." -f $removed, $failed);
+Write-Output ("QBOA_METRICS files={0} bytes={1} registry=0" -f $removedFiles, $freedBytes);
 if ($failed -gt 0) { exit 2 }
 "#,
         execution_id,
@@ -613,12 +639,177 @@ fn apply_registry_task(
     ))
 }
 
+#[cfg(target_os = "windows")]
+fn apply_cleanup_findings(
+    profile: &str,
+    on_output: &mut dyn FnMut(&str),
+) -> cleanup_findings::CleanupExecutionReport {
+    let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
+    match cleanup_findings::cleanup_profile(&mut backend, profile) {
+        Ok(report) => {
+            on_output(&format!(
+                "Varredura integrada ({profile}): {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).",
+                report.files_removed, report.registry_entries_removed, report.failures
+            ));
+            for failure in &report.failure_details {
+                on_output(&format!("Falha ao corrigir achado: {failure}"));
+            }
+            on_output(&format!(
+                "QBOA_METRICS files={} bytes={} registry={}",
+                report.files_removed, report.bytes_freed, report.registry_entries_removed
+            ));
+            report
+        }
+        Err(error) => {
+            on_output(&format!(
+                "A varredura integrada não pôde ser concluída: {error}. A limpeza principal continuará."
+            ));
+            cleanup_findings::CleanupExecutionReport {
+                failures: 1,
+                ..Default::default()
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_cleanup_findings(
+    _profile: &str,
+    _on_output: &mut dyn FnMut(&str),
+) -> cleanup_findings::CleanupExecutionReport {
+    cleanup_findings::CleanupExecutionReport::default()
+}
+
+fn findings_summary(report: &cleanup_findings::CleanupExecutionReport) -> String {
+    format!(
+        "Varredura integrada: {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).\nQBOA_METRICS files={} bytes={} registry={}",
+        report.files_removed,
+        report.registry_entries_removed,
+        report.failures,
+        report.files_removed,
+        report.bytes_freed,
+        report.registry_entries_removed
+    )
+}
+
+fn count_mru_registry_keys(snapshot_location: &str) -> u64 {
+    let Ok(contents) = std::fs::read(snapshot_location) else {
+        return 0;
+    };
+    let Ok(snapshot) = serde_json::from_slice::<serde_json::Value>(&contents) else {
+        return 0;
+    };
+    let Some(entries) = snapshot
+        .get("registry")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return 0;
+    };
+    let roots = [
+        r"software\microsoft\windows\currentversion\explorer\recentdocs",
+        r"software\microsoft\windows\currentversion\explorer\runmru",
+        r"software\microsoft\windows\currentversion\explorer\typedpaths",
+    ];
+    let mut paths = std::collections::HashSet::new();
+    for entry in entries {
+        let hive = entry
+            .get("hive")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let path = entry
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let normalized = path.to_ascii_lowercase();
+        if hive.eq_ignore_ascii_case("CurrentUser")
+            && roots
+                .iter()
+                .any(|root| normalized == *root || normalized.starts_with(&format!("{root}\\")))
+        {
+            paths.insert(normalized);
+        }
+    }
+    paths.len() as u64
+}
+
+fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64, u64) {
+    let mut files = 0u64;
+    let mut bytes = 0u64;
+    let mut registry = 0u64;
+    let mut failures = 0u64;
+    let mut seen_failure_lines = std::collections::HashSet::new();
+    for line in output.lines() {
+        if line.contains("QBOA_METRICS") {
+            for field in line.split_whitespace() {
+                if let Some(value) = field.strip_prefix("files=") {
+                    files = files.saturating_add(value.parse().unwrap_or(0));
+                } else if let Some(value) = field.strip_prefix("bytes=") {
+                    bytes = bytes.saturating_add(value.parse().unwrap_or(0));
+                } else if let Some(value) = field.strip_prefix("registry=") {
+                    registry = registry.saturating_add(value.parse().unwrap_or(0));
+                }
+            }
+        }
+        if line.contains("falha(s)") && seen_failure_lines.insert(line.trim().to_string()) {
+            let parts = line.split_whitespace().collect::<Vec<_>>();
+            let count = parts
+                .iter()
+                .position(|part| part.contains("falha(s)"))
+                .and_then(|index| index.checked_sub(1))
+                .and_then(|index| {
+                    parts[index]
+                        .trim_matches(|ch: char| !ch.is_ascii_digit())
+                        .parse::<u64>()
+                        .ok()
+                })
+                .unwrap_or(0);
+            failures = failures.saturating_add(count);
+        }
+    }
+    (files, bytes, registry, failures)
+}
+
+fn format_cleanup_summary(
+    files: u64,
+    bytes: u64,
+    registry: u64,
+    failures: u64,
+    elapsed_label: &str,
+) -> String {
+    let registry_label = if registry == 1 {
+        "chave/entrada de Registro excluída"
+    } else {
+        "chaves/entradas de Registro excluídas"
+    };
+    format!(
+        "\n\n=================\nRESUMO DA EXECUÇÃO\n=================\n\n- {files} arquivos removidos\n- {registry} {registry_label}\n- {:.1} MB liberados (estimativa)\n- Tempo de execução: {elapsed_label}\n\n- Total de erros durante execução: {failures}",
+        bytes as f64 / 1_000_000.0
+    )
+}
+
+fn clean_final_cleanup_output(output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            !line.contains("QBOA_METRICS")
+                && !line.starts_with("Limpeza padrão:")
+                && !line.starts_with("Limpeza leve:")
+                && !line.starts_with("Limpeza média:")
+                && !line.starts_with("Limpeza pesada:")
+                && !line.starts_with("Lixeira não esvaziada:")
+                && !line.starts_with("Varredura integrada:")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn execute_task(
     task: &Task,
     execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
-    apply_registry: &mut dyn FnMut(&str) -> Result<(), String>,
+    apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
 ) -> Result<String, String> {
     match task.id.as_str() {
         "limpeza_leve" => cleanup_standard(
@@ -633,7 +824,7 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa manterá o DISM padrão, sem inventar uma origem de reparo.");
             }
-            on_output("[Etapa 1/4] Limpando temporários, caches e lixeira...");
+            on_output("[Etapa 1/5] Limpando temporários, caches e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -641,7 +832,7 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output("[Etapa 2/4] Executando a Limpeza de Disco do Windows (cleanmgr)...");
+            on_output("[Etapa 2/5] Executando a Limpeza de Disco do Windows (cleanmgr)...");
             let part_2 = run_system_command(
                 "cleanmgr",
                 &["/verylowdisk"],
@@ -649,10 +840,14 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            on_output("[Etapa 3/4] Processando o cache temporário do Windows Update...");
+            on_output("[Etapa 3/5] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output(
-                "[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
+                "[Etapa 4/5] Removendo atalhos quebrados e associações inválidas confirmadas...",
+            );
+            let findings = apply_cleanup_findings("complete", on_output);
+            on_output(
+                "[Etapa 5/5] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
             );
             let part_4 = run_system_command(
                 "dism",
@@ -661,13 +856,17 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            Ok(format!("{part_1}\n{part_2}\n{part_3}\n{part_4}"))
+            Ok(format!(
+                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}",
+                findings_summary(&findings)
+            ))
         }
         "limpeza_pesada" => {
             let conservative_repair = report_system_compatibility(on_output);
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa preservará a base de componentes e não executará /ResetBase, pois isso impede a desinstalação de atualizações instaladas.");
             }
+            on_output("[Etapa 1/8] Limpando temporários, caches e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -675,9 +874,15 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
+            on_output(
+                "[Etapa 2/8] Limpando diretórios temporários avançados e relatórios de falha...",
+            );
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
+            on_output("[Etapa 3/8] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 4/7] Verificando a integridade da imagem do Windows...");
+            on_output("[Etapa 4/8] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
+            let findings = apply_cleanup_findings("deep", on_output);
+            on_output("[Etapa 5/8] Verificando a integridade da imagem do Windows...");
             let part_4 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/ScanHealth"],
@@ -686,10 +891,10 @@ fn execute_task(
                 is_cancelled,
             )?;
             let part_5 = if conservative_repair {
-                on_output("[Etapa 5/7] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
+                on_output("[Etapa 6/8] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
                 "DISM /ResetBase ignorado por política conservadora.".to_string()
             } else {
-                on_output("[Etapa 5/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
+                on_output("[Etapa 6/8] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
                 run_system_command(
                     "dism",
                     &[
@@ -703,7 +908,7 @@ fn execute_task(
                     is_cancelled,
                 )?
             };
-            on_output("[Etapa 6/7] Reparando a imagem do Windows com DISM RestoreHealth...");
+            on_output("[Etapa 7/8] Reparando a imagem do Windows com DISM RestoreHealth...");
             let part_6 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/RestoreHealth"],
@@ -711,11 +916,12 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            on_output("[Etapa 7/7] Verificando arquivos protegidos com SFC...");
+            on_output("[Etapa 8/8] Verificando arquivos protegidos com SFC...");
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
-                "{part_1}\n{part_2}\n{part_3}\n{part_4}\n{part_5}\n{part_6}\n{part_7}"
+                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}",
+                findings_summary(&findings)
             ))
         }
         "desengordurar_telemetria" => {
@@ -977,7 +1183,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         let task_id_for_output = task_id_for_spawn.clone();
         let execution_id_for_output = execution_id_for_spawn.clone();
         let task_risk_for_output = task_risk_for_spawn.clone();
-        let mut on_output = move |line: &str| {
+        let mut streamed_output = String::new();
+        let mut on_output = |line: &str| {
+            streamed_output.push_str(line);
+            streamed_output.push('\n');
             emit_event(
                 &app_for_output,
                 "task-output",
@@ -999,7 +1208,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
         let mut registry_change = None;
         let mut apply_registry = |registry_task_id: &str| {
             if task_for_spawn.executor != task_registry::ExecutorType::Registry {
-                return Ok(());
+                return Ok(0);
             }
             match apply_registry_task(
                 registry_task_id,
@@ -1008,7 +1217,15 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             ) {
                 Ok(change) => {
                     registry_change = Some(change);
-                    Ok(())
+                    let count = if matches!(
+                        registry_task_id,
+                        "limpeza_leve" | "limpeza_media" | "limpeza_pesada"
+                    ) {
+                        count_mru_registry_keys(snapshot_location.as_deref().unwrap_or_default())
+                    } else {
+                        0
+                    };
+                    Ok(count)
                 }
                 Err(error) => {
                     write_execution_log(
@@ -1020,6 +1237,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             }
         };
 
+        let execution_started = Instant::now();
         let execution = execute_task(
             &task_for_spawn,
             &execution_id_for_spawn,
@@ -1028,9 +1246,35 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             &mut apply_registry,
         );
         drop(apply_registry);
+        drop(on_output);
         match execution {
             Ok(output) => {
-                write_execution_log(&execution_id_for_spawn, "task-executor-completed");
+                let (files_removed, bytes_freed, registry_entries_removed, failures) =
+                    parse_cleanup_metrics(&output);
+                let elapsed = execution_started.elapsed();
+                let elapsed_seconds = elapsed.as_secs();
+                let elapsed_label = if elapsed_seconds >= 60 {
+                    format!("{} min {} s", elapsed_seconds / 60, elapsed_seconds % 60)
+                } else {
+                    format!("{:.1} s", elapsed.as_secs_f64())
+                };
+                let summary = format_cleanup_summary(
+                    files_removed,
+                    bytes_freed,
+                    registry_entries_removed,
+                    failures,
+                    &elapsed_label,
+                );
+                let cleaned_output = clean_final_cleanup_output(&output);
+                let output = if cleaned_output.trim().is_empty() {
+                    summary.clone()
+                } else {
+                    format!("{cleaned_output}\n\n{summary}")
+                };
+                write_execution_log(
+                    &execution_id_for_spawn,
+                    &format!("task-executor-completed {summary}"),
+                );
                 let journal_result = if let Some(change) = registry_change.take() {
                     safety_state()
                         .lock()
@@ -1126,9 +1370,32 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
                 }
             }
             Err(err) => {
+                let (files_removed, bytes_freed, registry_entries_removed, _failures) =
+                    parse_cleanup_metrics(&streamed_output);
+                let elapsed = execution_started.elapsed();
+                let elapsed_seconds = elapsed.as_secs();
+                let elapsed_label = if elapsed_seconds >= 60 {
+                    format!("{} min {} s", elapsed_seconds / 60, elapsed_seconds % 60)
+                } else {
+                    format!("{:.1} s", elapsed.as_secs_f64())
+                };
+                let summary = format!(
+                    "Resumo parcial da execução — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo até a interrupção/falha: {elapsed_label}.",
+                    bytes_freed as f64 / 1_000_000_000.0
+                );
+                emit_event(
+                    &app_for_spawn,
+                    "task-output",
+                    &task_id_for_spawn,
+                    &execution_id_for_spawn,
+                    &summary,
+                    true,
+                    None,
+                    &task_risk_for_spawn,
+                );
                 write_execution_log(
                     &execution_id_for_spawn,
-                    &format!("task-executor-failed error={err}"),
+                    &format!("task-executor-failed error={err}; {summary}"),
                 );
                 let cancelled = safety_state()
                     .lock()
@@ -1386,12 +1653,6 @@ async fn get_session_history() -> Result<Vec<safety::ChangeRecord>, String> {
 }
 
 #[tauri::command]
-async fn get_cleanup_findings() -> Result<Vec<cleanup_findings::CleanupFinding>, String> {
-    let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
-    cleanup_findings::detect(&mut backend)
-}
-
-#[tauri::command]
 async fn run_diagnostic_check(
     mode: diagnostics::DiagnosticMode,
 ) -> Result<diagnostics::DiagnosticReport, String> {
@@ -1400,9 +1661,8 @@ async fn run_diagnostic_check(
 }
 
 #[tauri::command]
-async fn delete_cleanup_finding(finding_id: String, confirmed: bool) -> Result<(), String> {
-    let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
-    cleanup_findings::delete_by_id(&mut backend, &finding_id, confirmed)
+async fn get_capability_inventory() -> Result<capability_inventory::CapabilityInventory, String> {
+    capability_inventory::collect()
 }
 
 #[derive(Clone, Serialize)]
@@ -1413,9 +1673,24 @@ struct ServiceProfileState {
 }
 
 #[tauri::command]
+async fn list_windows_services() -> Result<Vec<service_manager::ServiceEntry>, String> {
+    service_manager::list_services()
+}
+
+#[tauri::command]
+async fn manage_windows_service(
+    name: String,
+    action: String,
+    start_type: Option<String>,
+) -> Result<String, String> {
+    service_manager::manage_service(&name, &action, start_type.as_deref())
+}
+
+#[tauri::command]
 async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
+    service_profiles::capture_initial_baseline(&mut backend, &system)?;
     let profile = service_profiles::system_profile(&system)?;
     Ok(ServiceProfileState {
         system,
@@ -1494,9 +1769,10 @@ fn main() {
             create_restore_point,
             rollback_session,
             get_session_history,
-            get_cleanup_findings,
             run_diagnostic_check,
-            delete_cleanup_finding,
+            get_capability_inventory,
+            list_windows_services,
+            manage_windows_service,
             get_service_profile_state,
             preview_service_profile,
             apply_service_profile,

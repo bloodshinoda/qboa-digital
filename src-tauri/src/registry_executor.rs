@@ -118,7 +118,21 @@ pub(crate) fn execute_registry_task<B: RegistryBackend>(
         }
     } else if let Some(trees) = trees {
         let mut before = backend.read_tree_values(&trees)?;
-        let mut captured = snapshot.registry.clone();
+        let mut captured: Vec<RegistrySnapshot> = snapshot
+            .registry
+            .iter()
+            .filter(|entry| {
+                trees.iter().any(|tree| {
+                    if !entry.hive.eq_ignore_ascii_case(&tree.hive) {
+                        return false;
+                    }
+                    let path = entry.path.to_ascii_lowercase();
+                    let root = tree.path.to_ascii_lowercase();
+                    path == root || path.starts_with(&format!("{root}\\"))
+                })
+            })
+            .cloned()
+            .collect();
         sort_registry_values(&mut before);
         sort_registry_values(&mut captured);
         if before != captured {

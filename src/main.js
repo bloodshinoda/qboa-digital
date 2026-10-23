@@ -9,12 +9,13 @@ let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
 let consoleBuffer = "";
+let executionOutput = [];
+let executionToastTimer = null;
 let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
-let selectedTweakTaskIds = new Set();
-let debloatProfileQueue = null;
+let windowsServices = [];
 let browserCleanupDecision = null;
 let showAllSessionChanges = false;
 
@@ -43,24 +44,20 @@ const Qboa = {
     return invoke("run_preset", { presetId });
   },
 
-  async getDebloatProfileTasks(profile, selectedIds) {
-    return invoke("get_debloat_profile_tasks", { profile, selectedIds });
-  },
-
   async getSessionHistory() {
     return invoke("get_session_history");
-  },
-
-  async getCleanupFindings() {
-    return invoke("get_cleanup_findings");
   },
 
   async runDiagnosticCheck(mode) {
     return invoke("run_diagnostic_check", { mode });
   },
 
-  async deleteCleanupFinding(findingId) {
-    return invoke("delete_cleanup_finding", { findingId, confirmed: true });
+  async listWindowsServices() { return invoke("list_windows_services"); },
+
+  async manageWindowsService(name, action, startType = null) { return invoke("manage_windows_service", { name, action, startType }); },
+
+  async getCapabilityInventory() {
+    return invoke("get_capability_inventory");
   },
 
   async getServiceProfileState() {
@@ -127,7 +124,7 @@ function renderTabs() {
 
   const serviceTab = document.createElement("button");
   serviceTab.className = "tab" + (activeSection === "servicos" ? " active" : "");
-  serviceTab.textContent = "Serviços";
+  serviceTab.textContent = "🛠️ Serviços";
   serviceTab.addEventListener("click", async () => {
     activeSection = "servicos";
     renderTabs();
@@ -137,49 +134,78 @@ function renderTabs() {
   });
   tabsEl.appendChild(serviceTab);
 
-  const contributionTab = document.createElement("button");
-  contributionTab.className = "tab" + (activeSection === "contribuir" ? " active" : "");
-  contributionTab.textContent = "♡ Contribuir";
-  contributionTab.addEventListener("click", () => {
-    activeSection = "contribuir";
+  const capabilityTab = document.createElement("button");
+  capabilityTab.className = "tab" + (activeSection === "capacidades" ? " active" : "");
+  capabilityTab.textContent = "🧩 Capacidades";
+  capabilityTab.addEventListener("click", () => {
+    activeSection = "capacidades";
     renderTabs();
-    document.getElementById("section-summary").textContent = "Contribua com código, testes, ideias ou Pix.";
+    document.getElementById("section-summary").textContent = "Inventário de hardware, firmware e recursos do Windows";
+    renderCards();
+    void loadCapabilityInventory();
+  });
+  tabsEl.appendChild(capabilityTab);
+
+  const contributionTab = document.createElement("button");
+  contributionTab.className = "tab" + (activeSection === "sobre" ? " active" : "");
+  contributionTab.textContent = "ℹ️ Sobre";
+  contributionTab.addEventListener("click", () => {
+    activeSection = "sobre";
+    renderTabs();
+    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.0";
     renderCards();
   });
   tabsEl.appendChild(contributionTab);
+}
+
+function syncExecutionControls() {
+  const running = Boolean(activeTaskId);
+  const presetButton = document.getElementById("preset-run-btn");
+  const cancelButton = document.getElementById("cancel-task-btn");
+
+  cancelButton.hidden = !running;
+  cancelButton.disabled = !running;
+  presetButton.disabled = running || activeSection === "servicos";
 }
 
 function renderCards() {
   const cardsEl = document.getElementById("cards");
   const dashboard = document.querySelector(".dashboard");
   const recoveryPanel = document.querySelector(".recovery-panel");
-  const profileControls = document.getElementById("debloat-profile-controls");
   const serviceProfilePanel = document.getElementById("service-profile-panel");
-  profileControls.hidden = activeSection !== "desengordurar";
+  const capabilityPanel = document.getElementById("capability-inventory-panel");
   serviceProfilePanel.hidden = activeSection !== "servicos";
-  dashboard.hidden = activeSection === "servicos";
-  document.getElementById("preset-run-btn").disabled = activeSection === "servicos";
+  capabilityPanel.hidden = activeSection !== "capacidades";
+  dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
+  document.querySelector(".levels").hidden = activeSection !== "limpeza";
+  syncExecutionControls();
   cardsEl.innerHTML = "";
-  if (activeSection === "servicos") return;
-  if (activeSection === "contribuir") {
+  if (activeSection === "servicos" || activeSection === "capacidades") { if (activeSection === "servicos" && !windowsServices.length) void loadWindowsServices(); return; }
+  if (activeSection === "sobre") {
     dashboard.classList.add("contribution-view");
     recoveryPanel.hidden = true;
     cardsEl.innerHTML = `
-      <article class="contribution-panel">
+      <article class="contribution-panel about-panel">
         <div class="contribution-copy">
-          <span class="eyebrow">Apoie o projeto</span>
-          <h2>Ajude o Qboa Digital a continuar evoluindo</h2>
-          <p>Você pode contribuir com código, ideias, testes ou uma contribuição via Pix.</p>
+          <span class="eyebrow">Sobre o aplicativo</span>
+          <h2>QBoa Digital <span class="about-version">3.1.0</span></h2>
+          <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
+          <div class="about-meta">
+            <p><strong>Versão:</strong> 3.1.0</p>
+            <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
+            <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
+          </div>
           <div class="contribution-actions">
-            <a class="contribution-link" href="https://github.com/bloodshinoda/qboa-digital" target="_blank" rel="noreferrer">Participar no GitHub</a>
+            <a class="contribution-link" href="https://github.com/bloodshinoda/qboa-digital" target="_blank" rel="noreferrer">Repositório no GitHub</a>
             <button class="copy-pix-button" type="button" data-pix="00020126330014BR.GOV.BCB.PIX0111072603319765204000053039865802BR62070503***63041548">Copiar código Pix</button>
           </div>
+          <p class="about-support">O QBoa Digital é um projeto independente. Contribuições ajudam a manter o desenvolvimento, os testes e a evolução do aplicativo.</p>
           <p id="pix-copy-status" class="pix-copy-status" aria-live="polite"></p>
         </div>
         <div class="pix-block">
           <img src="./data/pix-qrcode.png" alt="QR Code para contribuição via Pix" class="pix-qrcode" />
-          <strong>Contribua via Pix</strong>
-          <span>Abra o aplicativo do seu banco e escaneie o código.</span>
+          <strong>Apoie via Pix</strong>
+          <span>Escaneie o QR Code com o aplicativo do seu banco.</span>
         </div>
       </article>
     `;
@@ -211,27 +237,228 @@ function renderCards() {
       risk.textContent = riskLabel;
       card.appendChild(risk);
     }
-    if (
-      activeSection === "desengordurar" &&
-      document.getElementById("debloat-profile-select").value === "personalizado"
-    ) {
-      const selection = document.createElement("label");
-      selection.className = "custom-profile-selection";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = selectedTweakTaskIds.has(item.id);
-      checkbox.addEventListener("click", (event) => event.stopPropagation());
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) selectedTweakTaskIds.add(item.id);
-        else selectedTweakTaskIds.delete(item.id);
-      });
-      selection.append(checkbox, document.createTextNode("Incluir no perfil Personalizado"));
-      selection.addEventListener("click", (event) => event.stopPropagation());
-      card.appendChild(selection);
-    }
     card.addEventListener("click", () => runTask(item, card));
     cardsEl.appendChild(card);
   });
+}
+
+function serviceStatusLabel(status) {
+  return ({ running: "Em execução", stopped: "Parado", startpending: "Iniciando", stoppending: "Parando", paused: "Pausado" })[String(status).toLowerCase()] || status;
+}
+
+function serviceStartTypeLabel(startType) {
+  return ({ automatic: "Automático", manual: "Manual", disabled: "Desativado", unknown: "Desconhecido" })[String(startType).toLowerCase()] || startType;
+}
+
+async function loadWindowsServices() {
+  const status = document.getElementById("service-inventory-status");
+  const refresh = document.getElementById("service-inventory-refresh");
+  refresh.disabled = true;
+  status.textContent = "Consultando serviços do Windows...";
+  try {
+    windowsServices = await Qboa.listWindowsServices();
+    status.textContent = `${windowsServices.length} serviço(s) encontrado(s). Serviços protegidos não podem ser parados, reiniciados ou desativados.`;
+    renderWindowsServices();
+  } catch (error) {
+    windowsServices = [];
+    renderWindowsServices();
+    status.textContent = String(error);
+  } finally {
+    refresh.disabled = false;
+  }
+}
+
+function renderWindowsServices() {
+  const body = document.getElementById("service-inventory-rows");
+  const filter = document.getElementById("service-inventory-filter").value.trim().toLocaleLowerCase();
+  const hideMicrosoft = document.getElementById("service-inventory-hide-microsoft").checked;
+  body.replaceChildren();
+  const filtered = windowsServices.filter((service) =>
+    (!hideMicrosoft || !service.is_microsoft) &&
+    (service.name.toLocaleLowerCase().includes(filter) ||
+     service.display_name.toLocaleLowerCase().includes(filter))
+  );
+  document.getElementById("service-inventory-status").textContent =
+    `${filtered.length} de ${windowsServices.length} serviço(s) exibido(s).` +
+    (hideMicrosoft ? " Serviços Microsoft ocultos." : "");
+  filtered.forEach((service) => {
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    const name = document.createElement("strong");
+    name.textContent = service.display_name;
+    const key = document.createElement("small");
+    key.textContent = service.name;
+    nameCell.append(name, key);
+    if (service.protected) {
+      const protectedLabel = document.createElement("span");
+      protectedLabel.className = "service-protected-label";
+      protectedLabel.textContent = "Protegido";
+      nameCell.appendChild(protectedLabel);
+      nameCell.title = service.protection_reason || "Serviço crítico protegido pelo QBoa.";
+    }
+    const stateCell = document.createElement("td");
+    stateCell.textContent = serviceStatusLabel(service.status);
+    const startCell = document.createElement("td");
+    const startSelect = document.createElement("select");
+    startSelect.setAttribute("aria-label", `Inicialização de ${service.name}`);
+    [["automatic", "Automático"], ["manual", "Manual"], ["disabled", "Desativado"]].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      startSelect.appendChild(option);
+    });
+    startSelect.value = ["automatic", "manual", "disabled"].includes(service.start_type) ? service.start_type : "manual";
+    startSelect.disabled = service.start_type === "unknown";
+    startSelect.addEventListener("change", async () => {
+      const next = startSelect.value;
+      const old = service.start_type;
+      if (next === old) return;
+      if (next === "disabled" && service.protected) {
+        appendConsole(`Alteração bloqueada: ${service.name} é protegido pelo QBoa.`);
+        startSelect.value = old;
+        return;
+      }
+      if (!(await askConfirmation(`Alterar a inicialização de ${service.display_name} para ${serviceStartTypeLabel(next)}?`, "Alterar serviço?"))) {
+        startSelect.value = old;
+        return;
+      }
+      startSelect.disabled = true;
+      try {
+        appendConsole(await Qboa.manageWindowsService(service.name, "set_start_type", next));
+        await loadWindowsServices();
+      } catch (error) {
+        appendConsole(String(error));
+        startSelect.value = old;
+      } finally {
+        startSelect.disabled = false;
+      }
+    });
+    startCell.appendChild(startSelect);
+    const actionsCell = document.createElement("td");
+    const addAction = (label, action, disabled, confirmation) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "service-action-button secondary-button";
+      button.textContent = label;
+      button.disabled = disabled;
+      button.addEventListener("click", async () => {
+        if (confirmation && !(await askConfirmation(confirmation, `${label} serviço?`))) return;
+        button.disabled = true;
+        try {
+          appendConsole(await Qboa.manageWindowsService(service.name, action));
+          await loadWindowsServices();
+        } catch (error) {
+          appendConsole(String(error));
+        } finally {
+          button.disabled = false;
+        }
+      });
+      actionsCell.appendChild(button);
+    };
+    addAction("Iniciar", "start", service.status.toLowerCase() === "running", `Iniciar o serviço ${service.display_name}?`);
+    addAction("Parar", "stop", service.protected || service.status.toLowerCase() !== "running", `Parar o serviço ${service.display_name}?`);
+    addAction("Reiniciar", "restart", service.protected || service.status.toLowerCase() !== "running", `Reiniciar o serviço ${service.display_name}?`);
+    row.append(nameCell, stateCell, startCell, actionsCell);
+    body.appendChild(row);
+  });
+  if (!filtered.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 4;
+    cell.textContent = windowsServices.length ? "Nenhum serviço corresponde ao filtro." : "Nenhum serviço carregado.";
+    row.appendChild(cell);
+    body.appendChild(row);
+  }
+}
+
+
+const capabilityStatusLabels = {
+  detected: "Detectado / habilitado",
+  disabled: "Detectado, mas desabilitado",
+  registered_not_present: "Registrado, não presente",
+  not_detected: "Não detectado",
+  unknown: "Desconhecido",
+  not_applicable: "Não aplicável"
+};
+
+async function loadCapabilityInventory() {
+  const button = document.getElementById("capability-refresh-btn");
+  const status = document.getElementById("capability-status");
+  button.disabled = true;
+  status.textContent = "Coletando evidências do Windows…";
+  try {
+    const report = await Qboa.getCapabilityInventory();
+    renderCapabilityInventory(report);
+    status.textContent = `Inventário concluído: ${report.capabilities.length} capacidades avaliadas. A coleta não altera configurações.`;
+  } catch (error) {
+    status.textContent = `Não foi possível coletar o inventário: ${String(error)}`;
+    document.getElementById("capability-system").replaceChildren();
+    document.getElementById("capability-list").replaceChildren();
+    document.getElementById("capability-warnings").replaceChildren();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function copyCapabilitySummary() {
+  const status = document.getElementById("capability-copy-status");
+  const system = document.getElementById("capability-system");
+  const lines = Array.from(system.querySelectorAll("p")).map((item) => item.textContent.trim()).filter(Boolean);
+  if (!lines.length) {
+    status.textContent = "Colete o inventário antes de copiar o resumo.";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(lines.join("\n"));
+    status.textContent = "Resumo copiado para a área de transferência.";
+  } catch (error) {
+    status.textContent = "Não foi possível copiar automaticamente. Verifique a permissão da área de transferência.";
+  }
+}
+
+function renderCapabilityInventory(report) {
+  const system = document.getElementById("capability-system");
+  const list = document.getElementById("capability-list");
+  const warnings = document.getElementById("capability-warnings");
+  system.replaceChildren();
+  list.replaceChildren();
+  warnings.replaceChildren();
+  const summary = report.system || {};
+  const deviceTypeLabels = { desktop: "Desktop", mobile: "Notebook / dispositivo móvel", virtual_machine: "Máquina virtual", unknown: "Desconhecido" };
+  const confidenceLabels = { high: "alta", medium: "média", low: "baixa" };
+  const systemLines = [
+    [summary.os_name, summary.os_version ? `versão ${summary.os_version}` : null, summary.os_build ? `build ${summary.os_build}` : null].filter(Boolean).join(" · "),
+    summary.motherboard ? `Placa mãe: ${summary.motherboard}` : [summary.manufacturer, summary.model].filter(Boolean).join(" "),
+    summary.processor ? `Processador: ${summary.processor}` : null,
+    summary.memory ? `Memória: ${summary.memory}` : null,
+    summary.gpu ? `GPU: ${summary.gpu}` : null,
+    summary.architecture ? `Arquitetura: ${summary.architecture}` : null,
+    `Tipo de equipamento: ${deviceTypeLabels[summary.device_type] || deviceTypeLabels.unknown} (confiança ${confidenceLabels[summary.device_confidence] || "baixa"})`
+  ].filter(Boolean);
+  systemLines.forEach((line) => { const p = document.createElement("p"); p.textContent = line; system.appendChild(p); });
+  (summary.device_evidence || []).forEach((evidence) => { const p = document.createElement("p"); p.className = "device-evidence"; p.textContent = `Evidência: ${evidence}`; system.appendChild(p); });
+  (report.capabilities || []).filter((capability) => !(summary.device_type === "desktop" && summary.device_confidence === "high" && capability.id === "battery")).forEach((capability) => {
+    const article = document.createElement("article");
+    article.className = "capability-card";
+    const heading = document.createElement("div");
+    heading.className = "capability-card-heading";
+    const title = document.createElement("h3"); title.textContent = capability.label;
+    const badge = document.createElement("span"); badge.className = `capability-state state-${capability.status}`;
+    badge.textContent = capabilityStatusLabels[capability.status] || capability.status;
+    heading.append(title, badge);
+    const description = document.createElement("p"); description.textContent = capability.summary;
+    const confidence = document.createElement("small"); confidence.textContent = `Confiança: ${confidenceLabels[capability.confidence] || "não informada"} · Fonte: ${(capability.sources || []).join(", ") || "não informada"}`;
+    article.append(heading, description, confidence);
+    if ((capability.details || []).length) {
+      const details = document.createElement("details");
+      const disclosure = document.createElement("summary"); disclosure.textContent = "Ver evidências";
+      const evidence = document.createElement("ul");
+      capability.details.forEach((detail) => { const item = document.createElement("li"); item.textContent = detail; evidence.appendChild(item); });
+      details.append(disclosure, evidence); article.appendChild(details);
+    }
+    list.appendChild(article);
+  });
+  (report.warnings || []).forEach((warning) => { const item = document.createElement("li"); item.textContent = warning; warnings.appendChild(item); });
 }
 
 function humanizeLogMessage(message) {
@@ -280,9 +507,27 @@ function writeStatus(text) {
 
 function renderConsole() {
   const out = document.getElementById("console-output");
-  out.textContent = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
+  const content = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
     .filter(Boolean)
     .join("\n");
+  const lines = content.split("\n");
+  out.replaceChildren();
+  lines.forEach((line, index) => {
+    const item = document.createElement("span");
+    item.className = "console-line";
+    if (line === "RESUMO DA EXECUÇÃO") item.classList.add("service-summary-heading");
+    else if (/^DESABILITADOS \(/.test(line)) item.classList.add("service-summary-disabled");
+    else if (/^REATIVADOS \(/.test(line)) item.classList.add("service-summary-enabled");
+    else if (/^ALTERADOS PARA AUTOMÁTICO \(/.test(line)) item.classList.add("service-summary-enabled");
+    else if (/^ALTERADOS PARA MANUAL \(/.test(line)) item.classList.add("service-summary-manual");
+    else if (/^  - /.test(line) && lines.slice(0, index).reverse().find((prior) => /^(DESABILITADOS|REATIVADOS|ALTERADOS PARA AUTOMÁTICO|ALTERADOS PARA MANUAL) \(/.test(prior))) {
+      const section = lines.slice(0, index).reverse().find((prior) => /^(DESABILITADOS|REATIVADOS|ALTERADOS PARA AUTOMÁTICO|ALTERADOS PARA MANUAL) \(/.test(prior));
+      item.classList.add(section.startsWith("DESABILITADOS") ? "service-summary-disabled" : section.startsWith("REATIVADOS") || section.startsWith("ALTERADOS PARA AUTOMÁTICO") ? "service-summary-enabled" : "service-summary-manual");
+    }
+    item.textContent = line;
+    out.appendChild(item);
+    if (index < lines.length - 1) out.appendChild(document.createTextNode("\n"));
+  });
   out.scrollTop = out.scrollHeight;
 }
 
@@ -307,6 +552,39 @@ function startActivity(taskName) {
   activityTimer = window.setInterval(update, 500);
 }
 
+function isCleanupTask(taskId) {
+  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update"].includes(taskId);
+}
+
+function showExecutionToast(status, title, message) {
+  const toast = document.getElementById("execution-toast");
+  toast.className = `execution-toast ${status}`;
+  toast.replaceChildren();
+  const heading = document.createElement("strong"); heading.textContent = title;
+  const detail = document.createElement("span"); detail.textContent = message;
+  toast.append(heading, detail); toast.hidden = false;
+  if (executionToastTimer) window.clearTimeout(executionToastTimer);
+  executionToastTimer = window.setTimeout(() => { toast.hidden = true; executionToastTimer = null; }, 6500);
+}
+
+function showCleanupResult(taskId, status, detail = "") {
+  const successful = status === "success"; const cancelled = status === "cancelled";
+  const title = successful ? "Limpeza concluída com sucesso" : cancelled ? "Limpeza cancelada" : "A limpeza terminou com falha";
+  const modal = document.getElementById("execution-summary-modal");
+  document.getElementById("execution-summary-title").textContent = title;
+  document.getElementById("execution-summary-task").textContent = taskDisplayName(taskId);
+  document.getElementById("execution-summary-status").textContent = successful ? "Todas as etapas reportadas pela tarefa foram concluídas." : cancelled ? "A execução foi cancelada antes de terminar." : (detail || "O QBoa informou uma falha durante a execução.");
+  const lines = executionOutput.map((line) => String(line).trim()).filter(Boolean);
+  document.getElementById("execution-summary-output").textContent = lines.length ? lines.join("\n") : (detail || "A tarefa não forneceu detalhes adicionais.");
+  modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  showExecutionToast(successful ? "success" : cancelled ? "warning" : "error", title, taskDisplayName(taskId));
+}
+
+function closeExecutionSummary() {
+  const modal = document.getElementById("execution-summary-modal");
+  modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
+}
+
 function taskSuccessMessage(taskName) {
   return `${taskName} concluída com sucesso.`;
 }
@@ -323,8 +601,8 @@ function requiresConfirmation(item) {
   return item.risk === "moderate" || item.risk === "advanced";
 }
 
-function showRiskModal(item, cardEl, profileQueue = false) {
-  pendingTask = { item, cardEl, profileQueue };
+function showRiskModal(item, cardEl) {
+  pendingTask = { item, cardEl };
   const modal = document.getElementById("risk-modal");
   const message = document.getElementById("risk-message");
 
@@ -430,73 +708,12 @@ async function executeTask(item, cardEl) {
 }
 
 async function runTask(item, cardEl) {
-  if (debloatProfileQueue) {
-    appendConsole("Aguarde a conclusão do perfil de Desengordurar.");
-    return;
-  }
   if (requiresConfirmation(item)) {
     showRiskModal(item, cardEl);
     return;
   }
 
   await executeTask(item, cardEl);
-}
-
-function stopDebloatProfileQueue(message) {
-  if (!debloatProfileQueue) return;
-  debloatProfileQueue = null;
-  document.getElementById("debloat-profile-run-btn").disabled = false;
-  document.getElementById("debloat-profile-status").textContent = message;
-}
-
-async function runNextDebloatProfileTask() {
-  if (!debloatProfileQueue || activeTaskId) return;
-  if (!debloatProfileQueue.items.length) {
-    stopDebloatProfileQueue("Perfil concluído.");
-    return;
-  }
-
-  const item = debloatProfileQueue.items.shift();
-  debloatProfileQueue.currentTaskId = item.id;
-  const card = document.querySelector(`[data-task-id="${item.id}"]`);
-  if (requiresConfirmation(item)) {
-    showRiskModal(item, card, true);
-    document.getElementById("debloat-profile-status").textContent =
-      `Confirme a tarefa ${item.name} para continuar.`;
-    return;
-  }
-  if (!(await executeTask(item, card))) {
-    stopDebloatProfileQueue(`Perfil interrompido em ${item.name}.`);
-  }
-}
-
-async function startDebloatProfile() {
-  const button = document.getElementById("debloat-profile-run-btn");
-  const status = document.getElementById("debloat-profile-status");
-  if (activeTaskId || debloatProfileQueue) {
-    status.textContent = "Aguarde a tarefa atual terminar.";
-    return;
-  }
-  const profile = document.getElementById("debloat-profile-select").value;
-  const selectedIds = profile === "personalizado" ? [...selectedTweakTaskIds] : [];
-  if (profile === "personalizado" && selectedIds.length === 0) {
-    status.textContent = "Marque ao menos uma tarefa para o perfil Personalizado.";
-    return;
-  }
-  button.disabled = true;
-  status.textContent = "Preparando perfil...";
-  try {
-    const ids = await Qboa.getDebloatProfileTasks(profile, selectedIds);
-    const debloatItems = structure.sections.find((section) => section.id === "desengordurar").items;
-    const items = ids.map((id) => debloatItems.find((item) => item.id === id));
-    if (items.some((item) => !item)) throw new Error("O catálogo retornou uma tarefa desconhecida.");
-    debloatProfileQueue = { items, currentTaskId: null };
-    status.textContent = "Executando tarefas do perfil.";
-    await runNextDebloatProfileTask();
-  } catch (error) {
-    button.disabled = false;
-    status.textContent = String(error);
-  }
 }
 
 function presetDisplayName(level) {
@@ -535,7 +752,7 @@ function bindLevels() {
   });
 
   document.getElementById("preset-run-btn").addEventListener("click", async () => {
-    if (activeTaskId || debloatProfileQueue) {
+    if (activeTaskId) {
       appendConsole("Já existe uma tarefa em execução.");
       return;
     }
@@ -563,12 +780,6 @@ function bindLevels() {
     }
   });
 
-  document.getElementById("debloat-profile-select").addEventListener("change", () => {
-    if (activeSection === "desengordurar") renderCards();
-  });
-  document.getElementById("debloat-profile-run-btn").addEventListener("click", () => {
-    void startDebloatProfile();
-  });
 }
 
 async function refreshHistory() {
@@ -623,76 +834,6 @@ async function refreshHistory() {
     console.error("Não foi possível ler o histórico da sessão.", error);
   }
 }
-function findingCategoryLabel(category) {
-  return {
-    broken_shortcut: "Atalho quebrado",
-    invalid_association: "Associação inválida",
-    orphan_uninstall: "Desinstalação órfã"
-  }[category] || "Achado";
-}
-
-function findingRiskLabel(risk) {
-  return {
-    low: "Baixo",
-    moderate: "Moderado",
-    high: "Alto"
-  }[risk] || risk;
-}
-
-function findingProfileLabels(profiles) {
-  return profiles.map((profile) => ({
-    basic: "Básico",
-    complete: "Completo",
-    deep: "Profundo"
-  }[profile] || profile)).join(", ");
-}
-
-async function refreshCleanupFindings() {
-  const list = document.getElementById("cleanup-findings");
-  list.replaceChildren();
-  const findings = await Qboa.getCleanupFindings();
-  if (!findings.length) {
-    const empty = document.createElement("li");
-    empty.textContent = "Nenhum problema encontrado.";
-    list.appendChild(empty);
-    return;
-  }
-
-  findings.forEach((finding) => {
-    const item = document.createElement("li");
-    item.className = "cleanup-finding";
-    const details = document.createElement("div");
-    const heading = document.createElement("strong");
-    heading.textContent = `${findingCategoryLabel(finding.category)} · ${findingRiskLabel(finding.risk)}`;
-    const path = document.createElement("p");
-    path.textContent = finding.path;
-    const reason = document.createElement("p");
-    reason.textContent = finding.reason;
-    const profiles = document.createElement("small");
-    profiles.textContent = `Perfis: ${findingProfileLabels(finding.profiles)}`;
-    details.append(heading, path, reason, profiles);
-
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.textContent = "Excluir";
-    remove.addEventListener("click", async () => {
-      if (!finding.id || !(await askConfirmation(`Excluir este achado?\n${finding.path}`, "Excluir achado?"))) return;
-      remove.disabled = true;
-      try {
-        await Qboa.deleteCleanupFinding(finding.id);
-        await refreshCleanupFindings();
-        appendConsole("Achado excluído.");
-      } catch (error) {
-        remove.disabled = false;
-        appendConsole(String(error));
-      }
-    });
-
-    item.append(details, remove);
-    list.appendChild(item);
-  });
-}
-
 function renderServiceProfilePreview(preview) {
   const items = document.getElementById("service-profile-preview");
   const ignored = document.getElementById("service-profile-ignored");
@@ -703,21 +844,38 @@ function renderServiceProfilePreview(preview) {
   document.getElementById("service-profile-preview-status").textContent = preview.message;
   document.getElementById("service-profile-apply-btn").disabled =
     !serviceProfileState?.system?.supported ||
-    !serviceProfileState?.profile?.validated ||
+    !(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled) ||
     !preview.applicable;
 
   preview.services.forEach((service) => {
+    const current = String(service.current || "").trim().toLowerCase();
+    const proposedValue = String(service.proposed || "").trim();
+    const proposed = proposedValue.toLowerCase();
+
+    // A prévia deve mostrar somente mudanças efetivas; regras sem proposta,
+    // valores iguais e serviços ignorados não entram na lista de alterações.
+    if (!proposedValue || !current || proposed === current || service.ignored) return;
+
     const item = document.createElement("li");
-    const proposed = service.proposed || "Sem alteração";
-    const incompatibility = service.incompatible ? ` — ${service.incompatible}` : "";
-    item.textContent = `${service.service}: ${service.current} → ${proposed}${incompatibility}`;
-    if (service.ignored) {
-      ignored.appendChild(item);
+    item.classList.add("service-preview-change");
+    item.textContent = `${service.service}: ${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(proposedValue)}`;
+
+    if (proposed === "disabled") {
+      item.classList.add("service-preview-disable");
+    } else if (current === "disabled") {
+      item.classList.add("service-preview-enable");
     } else {
-      items.appendChild(item);
+      item.classList.add("service-preview-modify");
     }
+    items.appendChild(item);
   });
-  ignoredTitle.hidden = ignored.children.length === 0;
+  ignoredTitle.hidden = true;
+  if (!items.children.length) {
+    const item = document.createElement("li");
+    item.className = "service-preview-empty";
+    item.textContent = "Nenhum serviço terá a inicialização alterada neste perfil.";
+    items.appendChild(item);
+  }
 }
 
 function diagnosticCategoryLabel(category) {
@@ -790,6 +948,60 @@ async function runDiagnostic(mode) {
   }
 }
 
+
+function serviceStartTypeSummary(beforeState, afterState, operation) {
+  const before = beforeState?.system?.services;
+  const after = afterState?.system?.services;
+  if (!Array.isArray(before) || !Array.isArray(after)) return null;
+
+  const previous = new Map(before.map((service) => [String(service.name).toLowerCase(), service]));
+  const disabled = [];
+  const enabled = [];
+  const automatic = [];
+  const manual = [];
+
+  after.forEach((service) => {
+    const old = previous.get(String(service.name).toLowerCase());
+    if (!old || String(old.start_type).toLowerCase() === String(service.start_type).toLowerCase()) return;
+    const currentType = String(service.start_type).toLowerCase();
+    const previousType = String(old.start_type).toLowerCase();
+    if (currentType === "disabled") disabled.push(service.name);
+    else if (previousType === "disabled") enabled.push(`${service.name} (${serviceStartTypeLabel(service.start_type)})`);
+    else if (currentType === "automatic") automatic.push(service.name);
+    else if (currentType === "manual") manual.push(service.name);
+  });
+
+  const changed = disabled.length + enabled.length + automatic.length + manual.length;
+  const lines = [
+    "=================",
+    "RESUMO DA EXECUÇÃO",
+    "=================",
+    `Operação: ${operation}`,
+    ...(disabled.length ? [`DESABILITADOS (${disabled.length})`, ...disabled.map((name) => `  - ${name}`)] : []),
+    ...(enabled.length ? [`REATIVADOS (${enabled.length})`, ...enabled.map((name) => `  - ${name}`)] : []),
+    ...(automatic.length ? [`ALTERADOS PARA AUTOMÁTICO (${automatic.length})`, ...automatic.map((name) => `  - ${name}`)] : []),
+    ...(manual.length ? [`ALTERADOS PARA MANUAL (${manual.length})`, ...manual.map((name) => `  - ${name}`)] : []),
+    changed ? `Total de serviços alterados: ${changed}` : "Nenhum serviço teve a inicialização alterada."
+  ];
+  return lines.join("\n");
+}
+
+async function executeServiceProfileOperation(operation, action, fallbackMessage) {
+  const beforeState = await Qboa.getServiceProfileState().catch(() => null);
+  await action();
+  const afterState = await Qboa.getServiceProfileState().catch(() => null);
+  const summary = serviceStartTypeSummary(beforeState, afterState, operation);
+  if (summary) {
+    consoleBuffer = consoleBuffer.trimEnd()
+      ? `${consoleBuffer.trimEnd()}\n\n\n${summary}`
+      : summary;
+    renderConsole();
+  } else {
+    appendConsole(fallbackMessage);
+  }
+  await loadServiceProfileState();
+}
+
 async function loadServiceProfileState() {
   const status = document.getElementById("service-profile-status");
   const details = document.getElementById("service-system-details");
@@ -809,16 +1021,29 @@ async function loadServiceProfileState() {
       controls.forEach((control) => { control.disabled = true; });
       return;
     }
-    const formFactor = system.form_factor ? ` · ${system.form_factor}` : "";
-    details.textContent = `${system.os} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
+    const formFactor = system.form_factor
+      ? ` · ${system.form_factor}`
+      : " · formato do equipamento não identificado; regras específicas de hardware serão ignoradas";
+    details.textContent = system.edition_id === "IoTEnterpriseS"
+      ? `Windows 11 IoT Enterprise LTSC ${system.version} (${system.build})`
+      : `${system.os === "windows11" ? "Windows 11" : "Windows 10"} ${system.version} (${system.build}) · ${system.edition}${formFactor}`;
     status.textContent = profile.validated
       ? "Perfil validado disponível."
-      : "Nenhum perfil validado. Aplicação indisponível.";
-    controls.forEach((control) => { control.disabled = !profile.validated; });
+      : profile.heuristic_apply_enabled
+        ? "Catálogo heurístico com aplicação restrita; confira a prévia. A configuração inicial é guardada para restauração."
+        : profile.services?.length
+          ? "Catálogo candidato disponível para prévia; aplicação bloqueada até validação."
+          : "Nenhum perfil validado. Aplicação indisponível.";
+    const canApplyProfile = profile.validated || profile.heuristic_apply_enabled;
+    document.getElementById("service-profile-apply-btn").disabled = !canApplyProfile;
+    document.getElementById("service-profile-defaults-btn").disabled = !(profile.services?.length);
+    document.getElementById("service-profile-undo-btn").disabled = !canApplyProfile;
   } catch (error) {
     serviceProfileState = null;
-    status.textContent = "Não foi possível consultar os serviços do Windows.";
+    const detail = String(error);
+    status.textContent = `Falha ao consultar os serviços do Windows: ${detail}`;
     details.textContent = "";
+    appendConsole(`Falha ao carregar o estado do perfil de serviços: ${detail}`);
   }
 }
 
@@ -828,8 +1053,10 @@ async function registerEvents() {
   void listen("qboa-event", (event) => {
     const payload = event.payload;
     if (payload.event === "task-started") {
+      executionOutput = [];
       activeTaskId = payload.task_id;
       activeExecutionId = payload.execution_id;
+      syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
@@ -850,9 +1077,7 @@ async function registerEvents() {
               activeExecutionId = null;
               if (activeTaskId === payload.task_id) activeTaskId = null;
             }
-            if (debloatProfileQueue?.currentTaskId === payload.task_id) {
-              stopDebloatProfileQueue("Perfil interrompido porque o ponto de restauração não foi criado.");
-            }
+            syncExecutionControls();
           }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
@@ -862,6 +1087,7 @@ async function registerEvents() {
 
 
     if (payload.event === "task-output" && payload.message) {
+      executionOutput.push(payload.message);
       appendConsole(payload.message);
     } else if (payload.event === "task-completed") {
       stopActivity();
@@ -877,18 +1103,15 @@ async function registerEvents() {
     }
 
     if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
+      if (isCleanupTask(payload.task_id)) {
+        const resultStatus = payload.event === "task-completed" ? "success" : payload.event === "task-cancelled" ? "cancelled" : "error";
+        showCleanupResult(payload.task_id, resultStatus, payload.message || "");
+      }
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
+      syncExecutionControls();
       refreshHistory();
-      if (debloatProfileQueue?.currentTaskId === payload.task_id) {
-        debloatProfileQueue.currentTaskId = null;
-        if (payload.event === "task-completed") {
-          void runNextDebloatProfileTask();
-        } else {
-          stopDebloatProfileQueue(`Perfil interrompido em ${taskDisplayName(payload.task_id)}.`);
-        }
-      }
     }
   }).catch((error) => {
     console.error("Não foi possível registrar os eventos do Qboa:", error);
@@ -898,6 +1121,7 @@ async function registerEvents() {
 
 (async function init() {
   await loadStructure();
+  syncExecutionControls();
   renderTabs();
   renderSectionSummary();
   renderCards();
@@ -917,11 +1141,12 @@ async function registerEvents() {
   });
 
   document.getElementById("risk-cancel").addEventListener("click", () => {
-    if (pendingTask?.profileQueue) {
-      stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
-    }
     closeRiskModal();
   });
+
+  document.getElementById("execution-summary-close").addEventListener("click", closeExecutionSummary);
+  document.getElementById("execution-summary-ok").addEventListener("click", closeExecutionSummary);
+  document.getElementById("execution-summary-modal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeExecutionSummary(); });
 
   document.getElementById("confirmation-cancel").addEventListener("click", () => {
     closeConfirmationModal(false);
@@ -935,9 +1160,6 @@ async function registerEvents() {
   });
   document.getElementById("risk-modal").addEventListener("click", (event) => {
     if (event.target === event.currentTarget) {
-      if (pendingTask?.profileQueue) {
-        stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
-      }
       closeRiskModal();
     }
   });
@@ -945,12 +1167,16 @@ async function registerEvents() {
     if (event.key !== "Escape") return;
     const confirmationModal = document.getElementById("confirmation-modal");
     const riskModal = document.getElementById("risk-modal");
-    if (!confirmationModal.classList.contains("hidden")) {
+    const serviceInventoryModal = document.getElementById("service-inventory-modal");
+    const executionSummaryModal = document.getElementById("execution-summary-modal");
+    if (!executionSummaryModal.classList.contains("hidden")) {
+      closeExecutionSummary();
+    } else if (!serviceInventoryModal.classList.contains("hidden")) {
+      serviceInventoryModal.classList.add("hidden");
+      serviceInventoryModal.setAttribute("aria-hidden", "true");
+    } else if (!confirmationModal.classList.contains("hidden")) {
       closeConfirmationModal(false);
     } else if (!riskModal.classList.contains("hidden")) {
-      if (pendingTask?.profileQueue) {
-        stopDebloatProfileQueue("Perfil cancelado antes da confirmação.");
-      }
       closeRiskModal();
     }
   });
@@ -969,15 +1195,9 @@ async function registerEvents() {
 
     try {
       const started = await executeTask(task.item, task.cardEl);
-      if (!started && task.profileQueue) {
-        stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
-      }
     } catch (error) {
       appendConsole(`Falha ao iniciar ${task.item.name}: ${String(error)}`);
       if (task.cardEl) task.cardEl.classList.remove("running");
-      if (task.profileQueue) {
-        stopDebloatProfileQueue(`Perfil interrompido em ${task.item.name}.`);
-      }
     } finally {
       confirmButton.disabled = false;
       closeRiskModal();
@@ -998,24 +1218,34 @@ async function registerEvents() {
     }
   });
 
-  document.getElementById("detect-cleanup-btn").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    button.disabled = true;
-    try {
-      await refreshCleanupFindings();
-      appendConsole("Verificação concluída.");
-    } catch (error) {
-      appendConsole(String(error));
-    } finally {
-      button.disabled = false;
-    }
-  });
-
   document.getElementById("diagnostic-quick-btn").addEventListener("click", () => {
     void runDiagnostic("quick");
   });
   document.getElementById("diagnostic-complete-btn").addEventListener("click", () => {
     void runDiagnostic("complete");
+  });
+
+  document.getElementById("copy-capability-summary").addEventListener("click", () => { void copyCapabilitySummary(); });
+  document.getElementById("capability-refresh-btn").addEventListener("click", () => {
+    void loadCapabilityInventory();
+  });
+
+  const serviceInventoryModal = document.getElementById("service-inventory-modal");
+  const closeServiceInventory = () => {
+    serviceInventoryModal.classList.add("hidden");
+    serviceInventoryModal.setAttribute("aria-hidden", "true");
+  };
+  document.getElementById("service-inventory-filter").addEventListener("input", renderWindowsServices);
+  document.getElementById("service-inventory-hide-microsoft").addEventListener("change", renderWindowsServices);
+  document.getElementById("open-service-inventory").addEventListener("click", () => {
+    serviceInventoryModal.classList.remove("hidden");
+    serviceInventoryModal.setAttribute("aria-hidden", "false");
+    document.getElementById("close-service-inventory").focus();
+    if (!windowsServices.length) void loadWindowsServices();
+  });
+  document.getElementById("close-service-inventory").addEventListener("click", closeServiceInventory);
+  serviceInventoryModal.addEventListener("click", (event) => {
+    if (event.target === serviceInventoryModal) closeServiceInventory();
   });
 
   document.getElementById("service-profile-preview-btn").addEventListener("click", async (event) => {
@@ -1028,7 +1258,9 @@ async function registerEvents() {
       const preview = await Qboa.previewServiceProfile(profile);
       renderServiceProfilePreview(preview);
     } catch (error) {
-      document.getElementById("service-profile-preview-status").textContent = String(error);
+      const detail = String(error);
+      document.getElementById("service-profile-preview-status").textContent = detail;
+      appendConsole(`Falha ao gerar prévia do perfil de serviços: ${detail}`);
     } finally {
       button.disabled = false;
     }
@@ -1043,34 +1275,48 @@ async function registerEvents() {
   });
 
   document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
-    if (!serviceProfileState?.profile?.validated) return;
+    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
     const profile = document.getElementById("service-profile-select").value;
-    if (profile === "custom" || !(await askConfirmation("Aplicar este perfil de serviços?", "Aplicar perfil de serviços?"))) return;
+    const aggressive = profile === "aggressive";
+    const message = aggressive
+      ? "O preset Agressivo pode restringir funcionalidades opcionais do Windows. Confira a prévia, confirme que os recursos afetados não são necessários e mantenha um meio de recuperação disponível. Deseja continuar?"
+      : "O QBoa aplicará somente as alterações exibidas na prévia e registrará os tipos de inicialização anteriores para permitir a reversão. Deseja continuar?";
+    const title = aggressive ? "Aplicar preset Agressivo?" : "Aplicar preset de serviços?";
+    if (!(await askConfirmation(message, title))) return;
     try {
-      await Qboa.applyServiceProfile(profile);
-      appendConsole("Perfil de serviços aplicado.");
+      await executeServiceProfileOperation(
+        `Aplicação do perfil ${document.getElementById("service-profile-select").selectedOptions[0]?.textContent || profile}`,
+        () => Qboa.applyServiceProfile(profile),
+        "Preset de serviços aplicado."
+      );
     } catch (error) {
       appendConsole(String(error));
     }
   });
 
   document.getElementById("service-profile-defaults-btn").addEventListener("click", async () => {
-    if (!serviceProfileState?.profile?.validated) return;
-    if (!(await askConfirmation("Restaurar o padrão do Windows?", "Restaurar serviços do Windows?"))) return;
+    if (!serviceProfileState?.profile?.services?.length) return;
+    if (!(await askConfirmation("Restaurar os tipos de inicialização salvos na primeira execução deste sistema?", "Restaurar configuração inicial?"))) return;
     try {
-      await Qboa.restoreWindowsServiceDefaults();
-      appendConsole("Padrão do Windows restaurado.");
+      await executeServiceProfileOperation(
+        "Restauração da configuração inicial",
+        () => Qboa.restoreWindowsServiceDefaults(),
+        "Configuração inicial restaurada."
+      );
     } catch (error) {
       appendConsole(String(error));
     }
   });
 
   document.getElementById("service-profile-undo-btn").addEventListener("click", async () => {
-    if (!serviceProfileState?.profile?.validated) return;
+    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
     if (!(await askConfirmation("Desfazer minhas alterações?", "Desfazer alterações?"))) return;
     try {
-      await Qboa.undoServiceProfileChanges();
-      appendConsole("Alterações desfeitas.");
+      await executeServiceProfileOperation(
+        "Reversão das alterações de serviços",
+        () => Qboa.undoServiceProfileChanges(),
+        "Alterações desfeitas."
+      );
     } catch (error) {
       appendConsole(String(error));
     }

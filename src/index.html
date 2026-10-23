@@ -10,32 +10,19 @@
   <header class="app-header">
     <div class="brand-block">
       <img class="brand-logo" src="./data/logo-header.png" alt="Qboa Digital" />
-      <div class="app-subtitle">Limpeza • Desengordurar • Diagnóstico</div>
+      <div class="app-subtitle">Limpeza • Diagnóstico</div>
     </div>
     <div class="levels">
       <button class="level" data-level="express">Rápido</button>
       <button class="level" data-level="normal" aria-pressed="true">Equilibrado</button>
       <button class="level" data-level="turbo">Completo</button>
-      <button id="preset-run-btn" class="preset-button">Executar perfil</button>
+      <button id="preset-run-btn" class="preset-button">Executar limpeza</button>
     </div>
   </header>
 
   <div class="section-summary" id="section-summary"></div>
 
   <nav class="tabs" id="tabs"></nav>
-
-  <section id="debloat-profile-controls" class="debloat-profile-controls" hidden>
-    <label for="debloat-profile-select">Perfil de Desengordurar</label>
-    <select id="debloat-profile-select">
-      <option value="conservador">Conservador</option>
-      <option value="equilibrado">Equilibrado</option>
-      <option value="agressivo">Agressivo</option>
-      <option value="personalizado">Personalizado</option>
-    </select>
-    <button id="debloat-profile-run-btn" type="button">Executar perfil</button>
-    <span id="debloat-profile-status" aria-live="polite"></span>
-  </section>
-
   <main class="dashboard">
     <section class="cards-panel">
       <div class="cards" id="cards"></div>
@@ -55,11 +42,6 @@
         </ul>
       </div>
       <div class="recovery-box">
-        <h3>Verificação de limpeza</h3>
-        <button id="detect-cleanup-btn" type="button">Detectar problemas</button>
-        <ul id="cleanup-findings" class="cleanup-findings"></ul>
-      </div>
-      <div class="recovery-box">
         <h3>Diagnóstico pontual</h3>
         <div class="diagnostic-actions">
           <button id="diagnostic-quick-btn" type="button">Verificação rápida</button>
@@ -72,20 +54,21 @@
   </main>
 
   <section class="service-profile-panel" id="service-profile-panel" hidden>
-    <h2>Alterar perfil de serviços do Windows</h2>
+    <div class="service-profile-heading"><h2>Alterar perfil de serviços do Windows</h2><button id="open-service-inventory" type="button" class="secondary-button">🧾 Serviços instalados</button></div>
     <p id="service-profile-status">Nenhum perfil validado. Aplicação indisponível.</p>
     <p id="service-system-details"></p>
-    <label for="service-profile-select">Perfil de produto</label>
+    <label for="service-profile-select">Preset de serviços</label>
     <select id="service-profile-select">
-      <option value="recommended">Padrão recomendado</option>
-      <option value="safe">Seguro</option>
-      <option value="tweaked">Personalizado avançado</option>
-      <option value="custom">Personalizado</option>
+      <option value="recommended">Padrão — referência do Windows</option>
+      <option value="safe">Seguro — alterações conservadoras</option>
+      <option value="refined">Refinado — otimização adaptada ao hardware</option>
+      <option value="aggressive">Agressivo — alterações avançadas</option>
     </select>
+    <p class="service-profile-hint">O QBoa aplica regras validadas ou heurísticas restritas quando o estado atual coincide com o baseline e o hardware exigido é confirmado. Confira a prévia; padrões não validados não serão restaurados.</p>
     <div class="service-profile-actions">
       <button id="service-profile-preview-btn" type="button">Prévia</button>
       <button id="service-profile-apply-btn" type="button" disabled>Aplicar perfil</button>
-      <button id="service-profile-defaults-btn" type="button" disabled>Restaurar padrão do Windows</button>
+      <button id="service-profile-defaults-btn" type="button" disabled>Restaurar configuração inicial</button>
       <button id="service-profile-undo-btn" type="button" disabled>Desfazer minhas alterações</button>
     </div>
     <p id="service-profile-preview-status"></p>
@@ -94,17 +77,57 @@
     <ul id="service-profile-ignored" class="service-profile-preview"></ul>
   </section>
 
-  <section class="console" id="console">
-    <div class="console-title">Registro de atividades</div>
-    <pre id="console-output"></pre>
+  <div class="service-inventory-modal hidden" id="service-inventory-modal" aria-hidden="true">
+  <section class="service-inventory-panel" id="service-inventory-panel" role="dialog" aria-modal="true" aria-labelledby="service-inventory-title">
+    <div class="service-inventory-heading">
+      <div>
+        <h2 id="service-inventory-title">Serviços instalados</h2>
+        <p>Consulte o estado e gerencie serviços individualmente. Serviços críticos ficam protegidos.</p>
+      </div>
+      <div class="service-inventory-modal-actions"><button id="service-inventory-refresh" type="button" class="secondary-button">Atualizar lista</button><button id="close-service-inventory" type="button" class="secondary-button">✕ Fechar</button></div>
+    </div>
+    <label for="service-inventory-filter">Filtrar por nome</label>
+    <input id="service-inventory-filter" type="search" placeholder="Nome ou serviço..." autocomplete="off">
+    <label class="service-inventory-toggle" for="service-inventory-hide-microsoft">
+      <input id="service-inventory-hide-microsoft" type="checkbox">
+      <span>Ocultar serviços Microsoft</span>
+    </label>
+    <p id="service-inventory-status" aria-live="polite">Aguardando consulta aos serviços do Windows.</p>
+    <div class="service-inventory-table-wrap">
+      <table class="service-inventory-table">
+        <thead><tr><th>Serviço</th><th>Estado</th><th>Inicialização</th><th>Ações</th></tr></thead>
+        <tbody id="service-inventory-rows"></tbody>
+      </table>
+    </div>
   </section>
+</div>
+
+  <section class="capability-inventory-panel" id="capability-inventory-panel" hidden>
+    <div class="capability-heading">
+      <div>
+        <h2>Inventário de capacidades</h2>
+        <p>Coleta somente de leitura. Um recurso não detectado não significa necessariamente que o hardware esteja ausente.</p>
+      </div>
+      <button id="capability-refresh-btn" type="button">Atualizar inventário</button>
+    </div>
+    <p id="capability-status" aria-live="polite">O inventário ainda não foi coletado nesta sessão.</p>
+    <div class="capability-summary-actions"><button id="copy-capability-summary" class="secondary-button" type="button">Copiar resumo</button><span id="capability-copy-status" aria-live="polite"></span></div>
+    <div id="capability-system" class="capability-system"></div>
+    <div id="capability-list" class="capability-list"></div>
+    <ul id="capability-warnings" class="capability-warnings"></ul>
+  </section>
+
+  <details class="console" id="console">
+    <summary class="console-title">Registro de atividades</summary>
+    <pre id="console-output"></pre>
+  </details>
 
   <div class="toolbar">
     <label class="shutdown-option">
       <input id="shutdown-on-complete" type="checkbox" />
       <span>Desligar ao concluir</span>
     </label>
-    <button id="cancel-task-btn" class="secondary-button">Cancelar tarefa</button>
+    <button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Cancelar tarefa</button>
   </div>
 
   <div id="risk-modal" class="risk-modal hidden" aria-hidden="true">
@@ -127,6 +150,15 @@
     </div>
   </div>
 
+  <div id="execution-toast" class="execution-toast" role="status" aria-live="polite" hidden></div>
+  <div id="execution-summary-modal" class="execution-summary-modal hidden" aria-hidden="true">
+    <section class="execution-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="execution-summary-title">
+      <header class="execution-summary-header"><div><span class="eyebrow">QBoa Digital · resultado</span><h2 id="execution-summary-title">Resumo da execução</h2></div><button id="execution-summary-close" class="secondary-button" type="button">Fechar</button></header>
+      <p id="execution-summary-task" class="execution-summary-task"></p><p id="execution-summary-status" class="execution-summary-status"></p>
+      <h3>Atividades e etapas</h3><pre id="execution-summary-output" class="execution-summary-output"></pre>
+      <div class="execution-summary-actions"><button id="execution-summary-ok" class="primary-button" type="button">Entendi</button></div>
+    </section>
+  </div>
   <div id="confirmation-modal" class="confirmation-modal hidden" aria-hidden="true">
     <div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
       <div class="confirmation-head">

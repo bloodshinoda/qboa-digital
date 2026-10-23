@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 
 const ASSOCIATION_EXTENSIONS: &[&str] = &[
@@ -135,6 +137,58 @@ pub(crate) fn delete_by_id<B: CleanupFindingBackend>(
         .find(|detected| detected.finding.id == finding_id)
         .ok_or_else(|| format!("Achado não encontrado ou já corrigido: {finding_id}"))?;
     backend.delete(&detected.action)
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CleanupExecutionReport {
+    pub files_removed: u64,
+    pub registry_entries_removed: u64,
+    pub bytes_freed: u64,
+    pub failures: u64,
+    pub failure_details: Vec<String>,
+}
+
+pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
+    backend: &mut B,
+    profile: &str,
+) -> Result<CleanupExecutionReport, String> {
+    let detected = detect_actions(backend)?;
+    let mut report = CleanupExecutionReport::default();
+    for candidate in detected {
+        if !candidate
+            .finding
+            .profiles
+            .iter()
+            .any(|value| value == profile)
+        {
+            continue;
+        }
+        let file_size = match &candidate.action {
+            FindingAction::DeleteShortcut(path) => std::fs::metadata(path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0),
+            _ => 0,
+        };
+        match backend.delete(&candidate.action) {
+            Ok(()) => match candidate.action {
+                FindingAction::DeleteShortcut(_) => {
+                    report.files_removed += 1;
+                    report.bytes_freed = report.bytes_freed.saturating_add(file_size);
+                }
+                FindingAction::DeleteAssociation { .. }
+                | FindingAction::DeleteUninstallEntry { .. } => {
+                    report.registry_entries_removed += 1;
+                }
+            },
+            Err(error) => {
+                report.failures += 1;
+                report
+                    .failure_details
+                    .push(format!("{}: {error}", candidate.finding.path));
+            }
+        }
+    }
+    Ok(report)
 }
 
 fn detect_actions<B: CleanupFindingBackend>(
@@ -580,6 +634,27 @@ fn delete_association(
     if !ASSOCIATION_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()) {
         return Err("Extensão fora da lista verificada.".to_string());
     }
+    let mut verifier = WindowsCleanupFindingBackend;
+    let current = verifier
+        .associations()?
+        .into_iter()
+        .find(|item| {
+            item.extension.eq_ignore_ascii_case(extension)
+                && &item.source == source
+                && item.prog_id.eq_ignore_ascii_case(prog_id)
+        })
+        .ok_or_else(|| "A associação mudou desde a detecção.".to_string())?;
+    match current.state {
+        AssociationState::MissingClass => {}
+        AssociationState::Executable(path) => {
+            if verifier.path_exists(&path)? {
+                return Err("A associação não está mais comprovadamente inválida.".to_string());
+            }
+        }
+        AssociationState::Uncertain => {
+            return Err("A associação não está mais comprovadamente inválida.".to_string());
+        }
+    }
     let encoded_extension = base64_encode(extension.as_bytes());
     let encoded_prog_id = base64_encode(prog_id.as_bytes());
     let source_name = match source {
@@ -651,15 +726,19 @@ fn run_powershell(script: &str) -> Result<String, String> {
             .flat_map(u16::to_le_bytes)
             .collect::<Vec<_>>(),
     );
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-EncodedCommand",
-            &encoded_script,
-        ])
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        &encoded_script,
+    ]);
+    // A verificação inspeciona atalhos e pode iniciar o PowerShell repetidamente.
+    // Impede que cada processo abra uma janela visível sobre a interface do QBoa.
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = command
         .output()
         .map_err(|error| format!("Não foi possível iniciar a verificação: {error}"))?;
     if !output.status.success() {
@@ -976,6 +1055,40 @@ mod tests {
                 r"C:\Users\test\Desktop\broken.lnk"
             ))]
         );
+    }
+
+    #[test]
+    fn cleanup_profile_applies_only_findings_allowed_by_profile() {
+        let mut backend = FakeBackend {
+            shortcuts: vec![ShortcutObservation {
+                path: PathBuf::from(r"C:\Users\test\Desktop\broken.lnk"),
+                state: ShortcutState::BrokenTarget,
+            }],
+            associations: vec![AssociationObservation {
+                extension: ".pdf".to_string(),
+                source: AssociationSource::MachineClasses,
+                prog_id: "Missing.Pdf".to_string(),
+                state: AssociationState::MissingClass,
+            }],
+            uninstall_entries: vec![UninstallObservation {
+                hive: "LocalMachine".to_string(),
+                key_path: r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Example"
+                    .to_string(),
+                display_name: "Example".to_string(),
+                evidence_paths: vec![PathBuf::from(r"C:\Program Files\Example\app.exe")],
+            }],
+            ..FakeBackend::default()
+        };
+
+        let report = cleanup_profile(&mut backend, "complete").unwrap();
+        assert_eq!(report.files_removed, 1);
+        assert_eq!(report.registry_entries_removed, 1);
+        assert_eq!(report.failures, 0);
+        assert_eq!(backend.deleted.len(), 2);
+        assert!(!backend
+            .deleted
+            .iter()
+            .any(|action| matches!(action, FindingAction::DeleteUninstallEntry { .. })));
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 
-const PROFILE_JSON: [&str; 10] = [
+const PROFILE_JSON: [&str; 11] = [
     include_str!("../service-profiles/windows-10/home.json"),
     include_str!("../service-profiles/windows-10/pro.json"),
     include_str!("../service-profiles/windows-10/pro-for-workstations.json"),
@@ -14,12 +14,46 @@ const PROFILE_JSON: [&str; 10] = [
     include_str!("../service-profiles/windows-11/pro-for-workstations.json"),
     include_str!("../service-profiles/windows-11/enterprise.json"),
     include_str!("../service-profiles/windows-11/education.json"),
+    include_str!("../service-profiles/windows-11/iot-enterprise-ltsc.json"),
 ];
-const PROTECTED_SERVICES: &[&str] = &["wuauserv", "WinDefend", "Dhcp", "RpcSs", "PlugPlay"];
+const PROTECTED_SERVICES: &[&str] = &[
+    "wuauserv",
+    "WinDefend",
+    "Dhcp",
+    "RpcSs",
+    "PlugPlay",
+    "DcomLaunch",
+    "EventLog",
+    "SamSs",
+    "LSM",
+    "BITS",
+    "CryptSvc",
+    "TrustedInstaller",
+    "RpcEptMapper",
+    "BFE",
+    "MpsSvc",
+    "Power",
+    "Schedule",
+    "Winmgmt",
+    "gpsvc",
+    "BrokerInfrastructure",
+    "ProfSvc",
+    "UserManager",
+    "nsi",
+    "LanmanWorkstation",
+    "AudioSrv",
+    "AudioEndpointBuilder",
+    "Dnscache",
+    "NlaSvc",
+    "KeyIso",
+    "CoreMessagingRegistrar",
+    "SgrmBroker",
+    "SystemEventsBroker",
+];
 const APPLYABLE_PROFILES: &[ProductProfile] = &[
-    ProductProfile::Recommended,
     ProductProfile::Safe,
-    ProductProfile::Tweaked,
+    ProductProfile::Refined,
+    ProductProfile::Aggressive,
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -36,6 +70,8 @@ pub(crate) enum WindowsEdition {
     Pro,
     ProForWorkstations,
     Enterprise,
+    #[serde(rename = "iot_enterprise_ltsc")]
+    IoTEnterpriseLtsc,
     Education,
     Unknown,
 }
@@ -53,7 +89,8 @@ pub(crate) enum FormFactor {
 pub(crate) enum ProductProfile {
     Recommended,
     Safe,
-    Tweaked,
+    Refined,
+    Aggressive,
     Custom,
 }
 
@@ -63,6 +100,10 @@ pub(crate) struct ServiceRule {
     pub start_type: String,
     pub windows_default_start_type: Option<String>,
     pub profiles: Vec<ProductProfile>,
+    #[serde(default)]
+    pub form_factor: Option<FormFactor>,
+    #[serde(default)]
+    pub requires_no_battery: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -71,6 +112,10 @@ pub(crate) struct ServiceProfileFile {
     pub edition: WindowsEdition,
     pub form_factor: FormFactor,
     pub validated: bool,
+    #[serde(default)]
+    pub defaults_validated: bool,
+    #[serde(default)]
+    pub heuristic_apply_enabled: bool,
     pub services: Vec<ServiceRule>,
 }
 
@@ -89,6 +134,7 @@ pub(crate) struct DetectedSystem {
     pub edition_id: String,
     pub supported: bool,
     pub form_factor: Option<FormFactor>,
+    pub battery_present: Option<bool>,
     pub services: Vec<InstalledService>,
 }
 
@@ -125,14 +171,33 @@ pub(crate) trait ServiceProfileBackend {
     fn set_start_type(&mut self, name: &str, start_type: &str) -> Result<(), String>;
     fn load_snapshot(&mut self) -> Result<Option<ServiceSnapshot>, String>;
     fn save_snapshot(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String>;
+    fn load_baseline(&mut self) -> Result<Option<ServiceSnapshot>, String>;
+    fn save_baseline(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String>;
+}
+
+pub(crate) fn capture_initial_baseline<B: ServiceProfileBackend>(
+    backend: &mut B,
+    system: &DetectedSystem,
+) -> Result<(), String> {
+    if let Some(baseline) = backend.load_baseline()? {
+        if baseline.os == system.os && baseline.edition == system.edition {
+            return Ok(());
+        }
+    }
+    backend.save_baseline(&ServiceSnapshot {
+        os: system.os.clone(),
+        build: system.build.clone(),
+        edition: system.edition.clone(),
+        services: system.services.clone(),
+    })
 }
 
 pub(crate) fn product_profiles() -> Vec<ProductProfile> {
     vec![
         ProductProfile::Recommended,
         ProductProfile::Safe,
-        ProductProfile::Tweaked,
-        ProductProfile::Custom,
+        ProductProfile::Refined,
+        ProductProfile::Aggressive,
     ]
 }
 
@@ -157,6 +222,8 @@ pub(crate) fn system_profile(system: &DetectedSystem) -> Result<ServiceProfileFi
             edition: WindowsEdition::Unknown,
             form_factor: FormFactor::Any,
             validated: false,
+            defaults_validated: false,
+            heuristic_apply_enabled: false,
             services: Vec::new(),
         }),
         None => Err("Não há perfil para este Windows.".to_string()),
@@ -175,10 +242,21 @@ fn powershell_output_result(
     stdout: &[u8],
     _stderr: &[u8],
 ) -> Result<String, String> {
+    const ERROR_MARKER: &str = "__QBOA_POWERSHELL_ERROR__:";
+    let output = String::from_utf8_lossy(stdout);
     if succeeded {
-        Ok(String::from_utf8_lossy(stdout).trim().to_string())
+        Ok(output.trim().to_string())
+    } else if let Some((_, detail)) = output.split_once(ERROR_MARKER) {
+        let detail = detail.lines().next().unwrap_or_default().trim();
+        if detail.is_empty() {
+            Err("O PowerShell falhou ao consultar os serviços do Windows.".to_string())
+        } else {
+            Err(format!(
+                "Falha no PowerShell ao consultar os serviços do Windows: {detail}"
+            ))
+        }
     } else {
-        Err("Não foi possível consultar os serviços do Windows.".to_string())
+        Err("Não foi possível consultar os serviços do Windows. O PowerShell terminou com erro; consulte o log técnico do QBoa.".to_string())
     }
 }
 
@@ -187,7 +265,7 @@ pub(crate) fn preview(
     profile: &ServiceProfileFile,
     selected: ProductProfile,
 ) -> ServicePreview {
-    if !system.supported || !profile.validated || profile.services.is_empty() {
+    if !system.supported || profile.services.is_empty() {
         let services = system
             .services
             .iter()
@@ -205,18 +283,25 @@ pub(crate) fn preview(
                 system.edition_id
             )
         } else {
-            format!(
-                "Edição {} detectada ({}). Perfil ainda não validado; nada será alterado.",
-                edition_label(&system.edition),
-                system.edition_id
-            )
+            "Catálogo de serviços ainda não disponível para esta edição.".to_string()
         };
         return ServicePreview {
             profile: selected,
             applicable: false,
-            validated: false,
+            validated: profile.validated,
             message,
             services,
+            ignored: Vec::new(),
+        };
+    }
+
+    if selected == ProductProfile::Recommended {
+        return ServicePreview {
+            profile: selected,
+            applicable: false,
+            validated: profile.validated,
+            message: "Padrão é a configuração de serviços coletada na primeira execução deste sistema; use Restaurar configuração inicial para recuperá-la.".to_string(),
+            services: Vec::new(),
             ignored: Vec::new(),
         };
     }
@@ -228,7 +313,9 @@ pub(crate) fn preview(
         profile
             .services
             .iter()
-            .filter(|rule| rule.profiles.contains(&selected))
+            .filter(|rule| {
+                rule.profiles.contains(&selected) && rule_applies_to_system(rule, system)
+            })
             .map(|rule| (rule.name.to_ascii_lowercase(), rule))
             .collect()
     };
@@ -252,6 +339,28 @@ pub(crate) fn preview(
             });
             continue;
         };
+
+        // Heurística conservadora para builds diferentes: se o estado atual não
+        // coincide com a baseline histórica do catálogo, não presumimos que a
+        // regra continue válida nesta versão ou que o serviço não tenha sido
+        // personalizado pelo usuário.
+        if let Some(baseline) = rule.windows_default_start_type.as_deref() {
+            if !service.start_type.eq_ignore_ascii_case(baseline) {
+                let reason =
+                    "O estado atual difere da configuração de referência; regra ignorada por segurança."
+                        .to_string();
+                ignored.push(service.name.clone());
+                items.push(ServicePreviewItem {
+                    service: service.name.clone(),
+                    current: service.start_type.clone(),
+                    proposed: None,
+                    incompatible: Some(reason),
+                    ignored: true,
+                });
+                continue;
+            }
+        }
+
         let incompatibility = if protected_disable(&rule.name, &rule.start_type) {
             Some("Serviço protegido não pode ser desativado.")
         } else if !valid_start_type(&service.start_type) {
@@ -267,39 +376,59 @@ pub(crate) fn preview(
         items.push(ServicePreviewItem {
             service: service.name.clone(),
             current: service.start_type.clone(),
-            proposed: Some(rule.start_type.clone()),
+            proposed: if incompatibility.is_none() {
+                Some(rule.start_type.clone())
+            } else {
+                None
+            },
             incompatible: incompatibility.map(str::to_string),
-            ignored: false,
+            ignored: incompatibility.is_some(),
         });
     }
     for rule in rules.values() {
         if !installed.contains(&rule.name.to_ascii_lowercase()) {
             let reason = "Serviço não instalado.";
-            reasons.push(reason);
             items.push(ServicePreviewItem {
                 service: rule.name.clone(),
                 current: "não instalado".to_string(),
-                proposed: Some(rule.start_type.clone()),
+                proposed: None,
                 incompatible: Some(reason.to_string()),
-                ignored: false,
+                ignored: true,
             });
+            ignored.push(rule.name.clone());
         }
     }
     items.sort_by(|a, b| a.service.cmp(&b.service));
     ignored.sort();
+    ignored.dedup();
+    let has_changes = items.iter().any(|item| {
+        item.incompatible.is_none()
+            && item
+                .proposed
+                .as_deref()
+                .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
+    });
     let applicable = reasons.is_empty()
+        && (profile.validated || profile.heuristic_apply_enabled)
+        && has_changes
         && selected != ProductProfile::Custom
         && APPLYABLE_PROFILES.contains(&selected);
-    let message = if reasons.is_empty() {
-        if applicable {
-            "Prévia pronta.".to_string()
-        } else {
-            "Perfil personalizado não aplica lista.".to_string()
-        }
-    } else {
+    let message = if !reasons.is_empty() {
         reasons.sort_unstable();
         reasons.dedup();
         reasons.join(" ")
+    } else if !has_changes && !profile.validated {
+        "Nenhuma alteração compatível detectada. Catálogo histórico ainda bloqueado até validação em Windows real.".to_string()
+    } else if !has_changes {
+        "Nenhuma alteração compatível para aplicar neste sistema.".to_string()
+    } else if !profile.validated && profile.heuristic_apply_enabled {
+        "Perfil heurístico: só serão aplicadas regras cujo estado atual coincide com a configuração de referência; regras de hardware incerto serão ignoradas.".to_string()
+    } else if !profile.validated {
+        "Prévia heurística. Aplicação bloqueada até validação em Windows real.".to_string()
+    } else if applicable {
+        "Prévia pronta.".to_string()
+    } else {
+        "Perfil personalizado não aplica lista.".to_string()
     };
     ServicePreview {
         profile: selected,
@@ -317,14 +446,16 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     selected: ProductProfile,
 ) -> Result<(), String> {
     ensure_profile_has_validated_services(profile)?;
+    let system = backend.detect_system()?;
     if selected != ProductProfile::Custom
         && profile.services.iter().any(|rule| {
-            rule.profiles.contains(&selected) && protected_disable(&rule.name, &rule.start_type)
+            rule.profiles.contains(&selected)
+                && rule_applies_to_system(rule, &system)
+                && protected_disable(&rule.name, &rule.start_type)
         })
     {
         return Err("Perfil solicita desativar um serviço protegido.".to_string());
     }
-    let system = backend.detect_system()?;
     let preview = preview(&system, profile, selected);
     if !preview.applicable {
         return Err(format!("Perfil não aplicável: {}", preview.message));
@@ -333,9 +464,18 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
     let names: Vec<String> = preview
         .services
         .iter()
-        .filter(|item| item.proposed.is_some() && item.incompatible.is_none())
+        .filter(|item| {
+            item.incompatible.is_none()
+                && item
+                    .proposed
+                    .as_deref()
+                    .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
+        })
         .map(|item| item.service.clone())
         .collect();
+    if names.is_empty() {
+        return Err("Nenhuma alteração compatível para aplicar neste sistema.".to_string());
+    }
     let snapshot_services = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &snapshot_services)?;
     backend.save_snapshot(&ServiceSnapshot {
@@ -344,11 +484,13 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
         edition: system.edition,
         services: snapshot_services,
     })?;
-    for item in preview
-        .services
-        .iter()
-        .filter(|item| item.proposed.is_some() && item.incompatible.is_none())
-    {
+    for item in preview.services.iter().filter(|item| {
+        item.incompatible.is_none()
+            && item
+                .proposed
+                .as_deref()
+                .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
+    }) {
         backend.set_start_type(&item.service, item.proposed.as_deref().unwrap_or_default())?;
     }
     Ok(())
@@ -358,23 +500,43 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
     backend: &mut B,
     profile: &ServiceProfileFile,
 ) -> Result<(), String> {
-    ensure_profile_has_validated_services(profile)?;
     let system = backend.detect_system()?;
-    if !profile_incompatibilities(&system, profile).is_empty() {
-        return Err("Perfil não corresponde ao Windows detectado.".to_string());
+    let baseline = backend
+        .load_baseline()?
+        .ok_or_else(|| "A configuração inicial ainda não foi coletada. Abra Serviços para registrá-la antes de restaurar.".to_string())?;
+    if baseline.os != system.os || baseline.edition != system.edition {
+        return Err(
+            "A configuração inicial salva não corresponde a esta edição do Windows.".to_string(),
+        );
     }
-    let mut defaults = Vec::new();
-    for rule in &profile.services {
-        let start_type = rule
-            .windows_default_start_type
-            .as_deref()
-            .ok_or_else(|| format!("Baseline ausente para {}.", rule.name))?;
-        if !valid_start_type(start_type) || protected_disable(&rule.name, start_type) {
-            return Err(format!("Baseline inválido para {}.", rule.name));
-        }
-        defaults.push((rule.name.clone(), start_type.to_string()));
+
+    let allowed_names: HashSet<String> = profile
+        .services
+        .iter()
+        .map(|rule| rule.name.to_ascii_lowercase())
+        .collect();
+    let installed_names: HashSet<String> = system
+        .services
+        .iter()
+        .map(|service| service.name.to_ascii_lowercase())
+        .collect();
+    let targets: Vec<InstalledService> = baseline
+        .services
+        .into_iter()
+        .filter(|service| {
+            allowed_names.contains(&service.name.to_ascii_lowercase())
+                && installed_names.contains(&service.name.to_ascii_lowercase())
+                && valid_start_type(&service.start_type)
+                && !protected_disable(&service.name, &service.start_type)
+        })
+        .collect();
+    if targets.is_empty() {
+        return Err(
+            "Nenhum serviço do catálogo possui uma configuração inicial restaurável.".to_string(),
+        );
     }
-    let names: Vec<String> = defaults.iter().map(|(name, _)| name.clone()).collect();
+
+    let names: Vec<String> = targets.iter().map(|service| service.name.clone()).collect();
     let current = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &current)?;
     backend.save_snapshot(&ServiceSnapshot {
@@ -383,8 +545,8 @@ pub(crate) fn restore_windows_defaults<B: ServiceProfileBackend>(
         edition: system.edition,
         services: current,
     })?;
-    for (name, start_type) in defaults {
-        backend.set_start_type(&name, &start_type)?;
+    for service in targets {
+        backend.set_start_type(&service.name, &service.start_type)?;
     }
     Ok(())
 }
@@ -427,10 +589,54 @@ pub(crate) fn undo_last_application<B: ServiceProfileBackend>(
 }
 
 fn ensure_profile_has_validated_services(profile: &ServiceProfileFile) -> Result<(), String> {
-    if !profile.validated || profile.services.is_empty() {
-        return Err("Perfil ainda não validado.".to_string());
+    if (!profile.validated && !profile.heuristic_apply_enabled) || profile.services.is_empty() {
+        return Err("Perfil ainda não validado para aplicação.".to_string());
     }
     Ok(())
+}
+
+fn rule_applies_to_system(rule: &ServiceRule, system: &DetectedSystem) -> bool {
+    if let Some(required_form_factor) = &rule.form_factor {
+        if system.form_factor.as_ref() != Some(required_form_factor) {
+            return false;
+        }
+    }
+    if rule.requires_no_battery && system.battery_present != Some(false) {
+        return false;
+    }
+    true
+}
+
+fn classify_form_factor(
+    pc_system_type: Option<u16>,
+    chassis_types: &[u16],
+    has_battery: bool,
+) -> Option<FormFactor> {
+    const MOBILE_CHASSIS: &[u16] = &[8, 9, 10, 11, 14, 30, 31, 32];
+    const DESKTOP_CHASSIS: &[u16] = &[3, 4, 5, 6, 7, 15, 16, 23, 24];
+
+    let mobile_evidence = matches!(pc_system_type, Some(2 | 8))
+        || chassis_types
+            .iter()
+            .any(|kind| MOBILE_CHASSIS.contains(kind));
+    let desktop_evidence = matches!(pc_system_type, Some(1 | 3))
+        || chassis_types
+            .iter()
+            .any(|kind| DESKTOP_CHASSIS.contains(kind));
+
+    // Qualquer conflito explícito entre fontes invalida a classificação.
+    if mobile_evidence && desktop_evidence {
+        return None;
+    }
+    if mobile_evidence {
+        return Some(FormFactor::Notebook);
+    }
+    if desktop_evidence && !has_battery {
+        return Some(FormFactor::Desktop);
+    }
+
+    // Sinais conflitantes ou insuficientes não devem disparar regras específicas de hardware.
+    None
 }
 
 fn edition_label(edition: &WindowsEdition) -> &'static str {
@@ -439,6 +645,7 @@ fn edition_label(edition: &WindowsEdition) -> &'static str {
         WindowsEdition::Pro => "Pro",
         WindowsEdition::ProForWorkstations => "Pro for Workstations",
         WindowsEdition::Enterprise => "Enterprise",
+        WindowsEdition::IoTEnterpriseLtsc => "IoT Enterprise LTSC",
         WindowsEdition::Education => "Education",
         WindowsEdition::Unknown => "desconhecida",
     }
@@ -472,9 +679,6 @@ fn profile_incompatibilities(
     if system.edition != profile.edition {
         reasons.push("Edição do Windows incompatível.");
     }
-    if !profile.validated {
-        reasons.push("Perfil ainda não validado.");
-    }
     if profile.form_factor != FormFactor::Any {
         match &system.form_factor {
             Some(detected) if detected == &profile.form_factor => {}
@@ -499,6 +703,7 @@ fn protected_disable(service: &str, start_type: &str) -> bool {
 #[cfg(target_os = "windows")]
 pub(crate) struct WindowsServiceProfileBackend {
     snapshot_path: PathBuf,
+    baseline_path: PathBuf,
 }
 
 #[cfg(target_os = "windows")]
@@ -511,6 +716,12 @@ impl Default for WindowsServiceProfileBackend {
                 .join("Qboa Digital")
                 .join("service-profile")
                 .join("last-application.json"),
+            baseline_path: std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+                .join("Qboa Digital")
+                .join("service-profile")
+                .join("initial-baseline.json"),
         }
     }
 }
@@ -530,20 +741,20 @@ $buildNumber = 0
 $version = if ($buildNumber -ge 22000) { 'Windows11' } else { 'Windows10' }
 $displayVersion = [string]$key.GetValue('DisplayVersion', '')
 if (-not $displayVersion) { $displayVersion = [string]$key.GetValue('ReleaseId', '') }
-$services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-Object {
-    $serviceKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services\$($_.ServiceName)")
-    if ($serviceKey) {
-        $start = switch ([int]$serviceKey.GetValue('Start', -1)) {
-            2 { 'Automatic' }
-            3 { 'Manual' }
-            4 { 'Disabled' }
-            default { [string]$serviceKey.GetValue('Start', 'Unknown') }
-        }
-        [pscustomobject]@{ name=$_.ServiceName; start_type=$start }
-        $serviceKey.Dispose()
+$batteryDevices = @(Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue)
+$computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+$pcSystemType = if ($computerSystem -and $null -ne $computerSystem.PCSystemType) { [int]$computerSystem.PCSystemType } else { $null }
+$chassisTypes = @(Get-CimInstance Win32_SystemEnclosure -ErrorAction SilentlyContinue | ForEach-Object { $_.Chassis } | ForEach-Object { [int]$_ })
+$services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
+    $start = switch ([string]$_.StartMode) {
+        'Auto' { 'Automatic' }
+        'Manual' { 'Manual' }
+        'Disabled' { 'Disabled' }
+        default { [string]$_.StartMode }
     }
-}
-[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; services=@($services) } | ConvertTo-Json -Depth 5 -Compress
+    [pscustomobject]@{ name=[string]$_.Name; start_type=$start }
+})
+[pscustomobject]@{ version=$version; display_version=$displayVersion; build=$build; edition_id=$editionId; pc_system_type=$pcSystemType; chassis_types=@($chassisTypes); has_battery=($batteryDevices.Count -gt 0); services=@($services) } | ConvertTo-Json -Depth 5 -Compress
 "#;
         let data: WindowsSystemData = run_powershell_json(script)?;
         let os = match data.version.as_str() {
@@ -559,7 +770,12 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
             edition,
             edition_id: data.edition_id,
             supported,
-            form_factor: None,
+            form_factor: classify_form_factor(
+                data.pc_system_type,
+                &data.chassis_types,
+                data.has_battery,
+            ),
+            battery_present: Some(data.has_battery),
             services: data.services,
         })
     }
@@ -618,6 +834,41 @@ $services = [System.ServiceProcess.ServiceController]::GetServices() | ForEach-O
         std::fs::rename(&temporary, &self.snapshot_path)
             .map_err(|error| format!("Não foi possível salvar snapshot: {error}"))
     }
+
+    fn load_baseline(&mut self) -> Result<Option<ServiceSnapshot>, String> {
+        if !self.baseline_path.exists() {
+            return Ok(None);
+        }
+        let data = std::fs::read_to_string(&self.baseline_path)
+            .map_err(|error| format!("Não foi possível ler configuração inicial: {error}"))?;
+        serde_json::from_str(&data)
+            .map(Some)
+            .map_err(|error| format!("Configuração inicial inválida: {error}"))
+    }
+
+    fn save_baseline(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String> {
+        let parent = self
+            .baseline_path
+            .parent()
+            .ok_or_else(|| "Caminho da configuração inicial inválido.".to_string())?;
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!("Não foi possível criar pasta da configuração inicial: {error}")
+        })?;
+        let temporary = self.baseline_path.with_extension("tmp");
+        let data = serde_json::to_vec_pretty(snapshot).map_err(|error| {
+            format!("Não foi possível serializar configuração inicial: {error}")
+        })?;
+        let mut file = std::fs::File::create(&temporary).map_err(|error| {
+            format!("Não foi possível criar arquivo temporário da configuração inicial: {error}")
+        })?;
+        std::io::Write::write_all(&mut file, &data)
+            .map_err(|error| format!("Não foi possível gravar configuração inicial: {error}"))?;
+        file.sync_all().map_err(|error| {
+            format!("Não foi possível sincronizar configuração inicial: {error}")
+        })?;
+        std::fs::rename(&temporary, &self.baseline_path)
+            .map_err(|error| format!("Não foi possível salvar configuração inicial: {error}"))
+    }
 }
 
 #[derive(Deserialize)]
@@ -626,6 +877,9 @@ struct WindowsSystemData {
     display_version: String,
     build: String,
     edition_id: String,
+    pc_system_type: Option<u16>,
+    chassis_types: Vec<u16>,
+    has_battery: bool,
     services: Vec<InstalledService>,
 }
 
@@ -641,6 +895,7 @@ fn parse_edition(value: &str) -> Option<WindowsEdition> {
         "Enterprise" | "EnterpriseN" | "EnterpriseG" | "EnterpriseS" | "IoTEnterprise" => {
             Some(WindowsEdition::Enterprise)
         }
+        "IoTEnterpriseS" => Some(WindowsEdition::IoTEnterpriseLtsc),
         "Education" | "EducationN" | "ProfessionalEducation" => Some(WindowsEdition::Education),
         _ => None,
     }
@@ -659,13 +914,14 @@ fn run_powershell(script: &str) -> Result<String, String> {
     use std::process::Command;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let wrapped_script = format!(
+        "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;try {{ {script} }} catch {{ [Console]::Out.WriteLine('__QBOA_POWERSHELL_ERROR__:' + $_.Exception.Message); exit 1 }}"
+    );
     let encoded = base64_encode(
-        &format!(
-            "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
-        )
-        .encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect::<Vec<_>>(),
+        &wrapped_script
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
     );
     let output = Command::new("powershell")
         .args([
@@ -733,6 +989,12 @@ impl ServiceProfileBackend for WindowsServiceProfileBackend {
     fn save_snapshot(&mut self, _snapshot: &ServiceSnapshot) -> Result<(), String> {
         Err("Operação de serviços só está disponível no Windows.".to_string())
     }
+    fn load_baseline(&mut self) -> Result<Option<ServiceSnapshot>, String> {
+        Err("Operação de serviços só está disponível no Windows.".to_string())
+    }
+    fn save_baseline(&mut self, _snapshot: &ServiceSnapshot) -> Result<(), String> {
+        Err("Operação de serviços só está disponível no Windows.".to_string())
+    }
 }
 
 #[cfg(test)]
@@ -743,6 +1005,7 @@ mod tests {
         system: DetectedSystem,
         snapshot: Option<ServiceSnapshot>,
         saved: Vec<ServiceSnapshot>,
+        baseline: Option<ServiceSnapshot>,
         changes: Vec<(String, String)>,
     }
 
@@ -780,6 +1043,13 @@ mod tests {
             self.snapshot = Some(snapshot.clone());
             Ok(())
         }
+        fn load_baseline(&mut self) -> Result<Option<ServiceSnapshot>, String> {
+            Ok(self.baseline.clone())
+        }
+        fn save_baseline(&mut self, snapshot: &ServiceSnapshot) -> Result<(), String> {
+            self.baseline = Some(snapshot.clone());
+            Ok(())
+        }
     }
 
     fn profile(os: WindowsVersion, edition: WindowsEdition) -> ServiceProfileFile {
@@ -788,6 +1058,8 @@ mod tests {
             edition,
             form_factor: FormFactor::Any,
             validated: false,
+            defaults_validated: false,
+            heuristic_apply_enabled: false,
             services: Vec::new(),
         }
     }
@@ -802,6 +1074,7 @@ mod tests {
                 WindowsEdition::Pro => "Professional",
                 WindowsEdition::ProForWorkstations => "ProfessionalWorkstation",
                 WindowsEdition::Enterprise => "Enterprise",
+                WindowsEdition::IoTEnterpriseLtsc => "IoTEnterpriseS",
                 WindowsEdition::Education => "Education",
                 WindowsEdition::Unknown => "UnknownEdition",
             }
@@ -809,6 +1082,7 @@ mod tests {
             supported: edition != WindowsEdition::Unknown,
             edition,
             form_factor: Some(FormFactor::Desktop),
+            battery_present: Some(false),
             services: vec![
                 InstalledService {
                     name: "ExampleSvc".to_string(),
@@ -831,8 +1105,122 @@ mod tests {
             system: system(os, edition),
             snapshot: None,
             saved: Vec::new(),
+            baseline: None,
             changes: Vec::new(),
         }
+    }
+
+    #[test]
+    fn historical_windows10_catalog_allows_only_heuristic_compatible_changes() {
+        let detected = system(WindowsVersion::Windows10, WindowsEdition::Home);
+        let mut catalog = profile_files()
+            .unwrap()
+            .into_iter()
+            .find(|profile| {
+                profile.os == WindowsVersion::Windows10 && profile.edition == WindowsEdition::Home
+            })
+            .unwrap();
+
+        assert!(!catalog.validated);
+        assert!(!catalog.defaults_validated);
+        assert!(catalog.heuristic_apply_enabled);
+        assert!(!catalog.services.is_empty());
+        catalog.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: Some("Automatic".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
+
+        let preview = preview(&detected, &catalog, ProductProfile::Safe);
+        assert!(preview.applicable);
+        assert!(preview.message.contains("Perfil heurístico"));
+        assert!(preview
+            .services
+            .iter()
+            .any(|service| service.proposed.is_some()));
+    }
+
+    #[test]
+    fn historical_baseline_mismatch_is_ignored_instead_of_applied() {
+        let mut catalog = profile(WindowsVersion::Windows10, WindowsEdition::Home);
+        catalog.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Disabled".to_string(),
+            windows_default_start_type: Some("Manual".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
+        let detected = system(WindowsVersion::Windows10, WindowsEdition::Home);
+        let preview = preview(&detected, &catalog, ProductProfile::Safe);
+        let service = preview
+            .services
+            .iter()
+            .find(|item| item.service == "ExampleSvc")
+            .unwrap();
+
+        assert!(service.proposed.is_none());
+        assert!(service.ignored);
+        assert!(service
+            .incompatible
+            .as_deref()
+            .unwrap()
+            .contains("configuração de referência"));
+    }
+
+    #[test]
+    fn only_four_public_service_presets_are_available() {
+        assert_eq!(
+            product_profiles(),
+            vec![
+                ProductProfile::Recommended,
+                ProductProfile::Safe,
+                ProductProfile::Refined,
+                ProductProfile::Aggressive,
+            ]
+        );
+    }
+
+    #[test]
+    fn hardware_form_factor_detection_rejects_unknown_values() {
+        assert_eq!(
+            classify_form_factor(Some(1), &[3], false),
+            Some(FormFactor::Desktop)
+        );
+        assert_eq!(
+            classify_form_factor(Some(2), &[9], true),
+            Some(FormFactor::Notebook)
+        );
+        assert_eq!(classify_form_factor(Some(1), &[3], true), None);
+        assert_eq!(classify_form_factor(Some(2), &[3, 9], true), None);
+        assert_eq!(classify_form_factor(None, &[], false), None);
+    }
+
+    #[test]
+    fn desktop_battery_rules_are_skipped_when_hardware_is_not_confirmed() {
+        let rule = ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: None,
+            profiles: vec![ProductProfile::Refined],
+            form_factor: Some(FormFactor::Desktop),
+            requires_no_battery: true,
+        };
+        let mut desktop = system(WindowsVersion::Windows11, WindowsEdition::Pro);
+        desktop.battery_present = Some(false);
+        assert!(rule_applies_to_system(&rule, &desktop));
+
+        let mut notebook = system(WindowsVersion::Windows11, WindowsEdition::Pro);
+        notebook.form_factor = Some(FormFactor::Notebook);
+        notebook.battery_present = Some(true);
+        assert!(!rule_applies_to_system(&rule, &notebook));
+
+        let mut unknown = system(WindowsVersion::Windows11, WindowsEdition::Pro);
+        unknown.battery_present = None;
+        assert!(!rule_applies_to_system(&rule, &unknown));
     }
 
     #[test]
@@ -893,7 +1281,7 @@ mod tests {
         assert!(!preview.applicable);
         assert_eq!(
             preview.message,
-            "Edição Pro for Workstations detectada (ProfessionalWorkstation). Perfil ainda não validado; nada será alterado."
+            "Catálogo de serviços ainda não disponível para esta edição."
         );
         assert_eq!(preview.services.len(), backend.system.services.len());
         assert!(preview.services.iter().all(|service| {
@@ -947,6 +1335,7 @@ mod tests {
             ("EnterpriseG", WindowsEdition::Enterprise),
             ("EnterpriseS", WindowsEdition::Enterprise),
             ("IoTEnterprise", WindowsEdition::Enterprise),
+            ("IoTEnterpriseS", WindowsEdition::IoTEnterpriseLtsc),
             ("Education", WindowsEdition::Education),
             ("EducationN", WindowsEdition::Education),
             ("ProfessionalEducation", WindowsEdition::Education),
@@ -960,7 +1349,7 @@ mod tests {
     fn powershell_clixml_stderr_is_never_returned_to_the_interface() {
         let clixml = b"#< CLIXML\r\n<Objs><Obj S='Error'>Preparando m\xC3\xB3dulos para primeiro uso</Obj></Objs>";
         let error = powershell_output_result(false, b"", clixml).unwrap_err();
-        assert_eq!(error, "Não foi possível consultar os serviços do Windows.");
+        assert_eq!(error, "Não foi possível consultar os serviços do Windows. O PowerShell terminou com erro; consulte o log técnico do QBoa.");
         assert!(!error.contains("CLIXML"));
         assert!(!error.contains("Preparando módulos"));
 
@@ -969,16 +1358,25 @@ mod tests {
             powershell_output_result(true, stdout, clixml).unwrap(),
             "{\"services\":[]}"
         );
+
+        let diagnostic = b"__QBOA_POWERSHELL_ERROR__: Acesso negado";
+        assert_eq!(
+            powershell_output_result(false, diagnostic, clixml).unwrap_err(),
+            "Falha no PowerShell ao consultar os serviços do Windows: Acesso negado"
+        );
     }
 
     #[test]
     fn unknown_service_is_ignored_and_left_unchanged() {
         let mut profile = profile(WindowsVersion::Windows10, WindowsEdition::Home);
         profile.validated = true;
+        profile.defaults_validated = true;
         profile.services.push(ServiceRule {
             name: "ExampleSvc".to_string(),
             start_type: "Manual".to_string(),
             windows_default_start_type: None,
+            form_factor: None,
+            requires_no_battery: false,
             profiles: vec![ProductProfile::Safe],
         });
         let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
@@ -1007,6 +1405,8 @@ mod tests {
                 name: name.to_string(),
                 start_type: "Disabled".to_string(),
                 windows_default_start_type: None,
+                form_factor: None,
+                requires_no_battery: false,
                 profiles: vec![ProductProfile::Safe],
             });
             let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
@@ -1060,6 +1460,8 @@ mod tests {
             name: "ExampleSvc".to_string(),
             start_type: "Manual".to_string(),
             windows_default_start_type: Some("Automatic".to_string()),
+            form_factor: None,
+            requires_no_battery: false,
             profiles: vec![ProductProfile::Safe],
         });
         let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
@@ -1089,6 +1491,8 @@ mod tests {
                 name: name.to_string(),
                 start_type: "Manual".to_string(),
                 windows_default_start_type: None,
+                form_factor: None,
+                requires_no_battery: false,
                 profiles: vec![ProductProfile::Safe],
             })
             .collect();
@@ -1128,28 +1532,46 @@ mod tests {
         profile.validated = true;
         profile.services.push(ServiceRule {
             name: "ExampleSvc".to_string(),
-            start_type: "Manual".to_string(),
+            start_type: "Disabled".to_string(),
             windows_default_start_type: Some("Automatic".to_string()),
+            form_factor: None,
+            requires_no_battery: false,
             profiles: vec![ProductProfile::Safe],
         });
         let mut backend = fake_backend(WindowsVersion::Windows10, WindowsEdition::Home);
-        backend.system.services[0].start_type = "Manual".to_string();
+        backend.system.services[0].start_type = "Disabled".to_string();
+        backend.baseline = Some(ServiceSnapshot {
+            os: WindowsVersion::Windows10,
+            build: "19045".to_string(),
+            edition: WindowsEdition::Home,
+            services: vec![InstalledService {
+                name: "ExampleSvc".to_string(),
+                start_type: "Manual".to_string(),
+            }],
+        });
 
         assert!(restore_windows_defaults(&mut backend, &profile).is_ok());
-        assert_eq!(backend.saved[0].services[0].start_type, "Manual");
+        assert_eq!(backend.saved[0].services[0].start_type, "Disabled");
         assert_eq!(
             backend.changes,
-            vec![("ExampleSvc".to_string(), "Automatic".to_string())]
+            vec![("ExampleSvc".to_string(), "Manual".to_string())]
         );
     }
 
     #[test]
     fn profile_templates_have_empty_unvalidated_matrices() {
         let profiles = profile_files().unwrap();
-        assert_eq!(profiles.len(), 10);
-        assert!(profiles
-            .iter()
-            .all(|profile| !profile.validated && profile.services.is_empty()));
+        assert_eq!(profiles.len(), 11);
+        assert!(profiles.iter().all(|profile| !profile.validated));
+        for profile in &profiles {
+            let has_heuristic_catalog = (profile.os == WindowsVersion::Windows10
+                && matches!(profile.edition, WindowsEdition::Home | WindowsEdition::Pro))
+                || (profile.os == WindowsVersion::Windows11
+                    && profile.edition == WindowsEdition::IoTEnterpriseLtsc);
+            assert_eq!(profile.heuristic_apply_enabled, has_heuristic_catalog);
+            assert_eq!(!profile.services.is_empty(), has_heuristic_catalog);
+            assert!(!profile.defaults_validated);
+        }
         for os in [WindowsVersion::Windows10, WindowsVersion::Windows11] {
             for edition in [
                 WindowsEdition::Home,
@@ -1167,6 +1589,14 @@ mod tests {
                 );
             }
         }
+        assert_eq!(
+            profiles
+                .iter()
+                .filter(|profile| profile.os == WindowsVersion::Windows11
+                    && profile.edition == WindowsEdition::IoTEnterpriseLtsc)
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1177,6 +1607,8 @@ mod tests {
             name: "ExampleSvc".to_string(),
             start_type: "Disabled".to_string(),
             windows_default_start_type: None,
+            form_factor: None,
+            requires_no_battery: false,
             profiles: vec![ProductProfile::Custom],
         });
         let result = preview(
