@@ -401,7 +401,7 @@ async function copyCapabilitySummary() {
     return;
   }
   try {
-    await navigator.clipboard.writeText(lines.join("\\n"));
+    await navigator.clipboard.writeText(lines.join("\n"));
     status.textContent = "Resumo copiado para a área de transferência.";
   } catch (error) {
     status.textContent = "Não foi possível copiar automaticamente. Verifique a permissão da área de transferência.";
