@@ -185,9 +185,9 @@ pub(crate) fn capture_initial_baseline<B: ServiceProfileBackend>(
         }
     }
     backend.save_baseline(&ServiceSnapshot {
-        os: system.os,
+        os: system.os.clone(),
         build: system.build.clone(),
-        edition: system.edition,
+        edition: system.edition.clone(),
         services: system.services.clone(),
     })
 }
