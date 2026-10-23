@@ -70,6 +70,7 @@ pub(crate) enum WindowsEdition {
     Pro,
     ProForWorkstations,
     Enterprise,
+    #[serde(rename = "iot_enterprise_ltsc")]
     IoTEnterpriseLtsc,
     Education,
     Unknown,
