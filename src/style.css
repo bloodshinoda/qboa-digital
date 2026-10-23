@@ -566,9 +566,13 @@ button {
   background: #111;
   border-top: 3px solid transparent;
   border-image: var(--rainbow) 1;
-  padding: 12px 24px 18px;
-  height: 220px;
+  padding: 0 24px;
+  min-height: 42px;
   overflow: hidden;
+}
+
+.console[open] {
+  padding-bottom: 18px;
 }
 
 .console-title {
@@ -576,8 +580,15 @@ button {
   text-transform: uppercase;
   letter-spacing: 2px;
   opacity: 0.6;
-  margin-bottom: 6px;
+  margin-bottom: 0;
+  padding: 13px 0;
+  cursor: pointer;
+  list-style: none;
 }
+
+.console-title::-webkit-details-marker { display: none; }
+.console-title::before { content: "＋"; display: inline-block; margin-right: 10px; opacity: .8; }
+.console[open] .console-title::before { content: "−"; }
 
 #console-output {
   height: 170px;
@@ -665,7 +676,9 @@ button.copy-pix-button:hover:not(:disabled) {
 .capability-heading, .capability-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .capability-heading h2 { margin: 0 0 6px; }
 .capability-heading p, .capability-card p { margin: 4px 0 10px; line-height: 1.45; }
-.capability-system { margin: 12px 0; padding: 10px 12px; border-radius: 8px; background: var(--qboa-panel-strong); }
+.capability-summary-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 6px; }
+.capability-summary-actions span { font-size: .8rem; opacity: .75; }
+.capability-system { margin: 6px 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--qboa-panel-strong); }
 .capability-system p { margin: 3px 0; font-size: .85rem; }
 .capability-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .capability-card { min-width: 0; padding: 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; background: var(--qboa-panel); }
