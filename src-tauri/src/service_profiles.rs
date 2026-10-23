@@ -332,7 +332,7 @@ pub(crate) fn preview(
         if let Some(baseline) = rule.windows_default_start_type.as_deref() {
             if !service.start_type.eq_ignore_ascii_case(baseline) {
                 let reason =
-                    "Estado atual diverge do baseline histórico; regra ignorada por segurança."
+                    "O estado atual difere da configuração de referência; regra ignorada por segurança."
                         .to_string();
                 ignored.push(service.name.clone());
                 items.push(ServicePreviewItem {
@@ -407,9 +407,9 @@ pub(crate) fn preview(
     } else if !has_changes {
         "Nenhuma alteração compatível para aplicar neste sistema.".to_string()
     } else if !profile.validated && profile.heuristic_apply_enabled {
-        "Perfil heurístico baseado no Black Viper: só serão aplicadas regras cujo estado atual coincide com o baseline histórico; regras de hardware incerto serão ignoradas.".to_string()
+        "Perfil heurístico: só serão aplicadas regras cujo estado atual coincide com a configuração de referência; regras de hardware incerto serão ignoradas.".to_string()
     } else if !profile.validated {
-        "Prévia heurística baseada no Black Viper. Aplicação bloqueada até validação em Windows real.".to_string()
+        "Prévia heurística. Aplicação bloqueada até validação em Windows real.".to_string()
     } else if applicable {
         "Prévia pronta.".to_string()
     } else {
@@ -1054,7 +1054,7 @@ mod tests {
         assert!(preview.applicable);
         assert!(preview
             .message
-            .contains("Perfil heurístico baseado no Black Viper"));
+            .contains("Perfil heurístico"));
         assert!(preview
             .services
             .iter()
@@ -1086,7 +1086,7 @@ mod tests {
             .incompatible
             .as_deref()
             .unwrap()
-            .contains("baseline histórico"));
+            .contains("configuração de referência"));
     }
 
     #[test]
