@@ -2,7 +2,7 @@
 
 ![Qboa Digital](src-tauri/icons/logo.png)
 
-Versão atual: `3.0` (versão do pacote: `3.0.0`)
+Versão atual: `3.1` (versão do pacote: `3.1.0`)
 
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
 
