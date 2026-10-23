@@ -147,12 +147,12 @@ function renderTabs() {
   tabsEl.appendChild(capabilityTab);
 
   const contributionTab = document.createElement("button");
-  contributionTab.className = "tab" + (activeSection === "contribuir" ? " active" : "");
-  contributionTab.textContent = "🤝 Contribuir";
+  contributionTab.className = "tab" + (activeSection === "sobre" ? " active" : "");
+  contributionTab.textContent = "ℹ️ Sobre";
   contributionTab.addEventListener("click", () => {
-    activeSection = "contribuir";
+    activeSection = "sobre";
     renderTabs();
-    document.getElementById("section-summary").textContent = "Contribua com código, testes, ideias ou Pix.";
+    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.0";
     renderCards();
   });
   tabsEl.appendChild(contributionTab);
@@ -181,25 +181,31 @@ function renderCards() {
   syncExecutionControls();
   cardsEl.innerHTML = "";
   if (activeSection === "servicos" || activeSection === "capacidades") { if (activeSection === "servicos" && !windowsServices.length) void loadWindowsServices(); return; }
-  if (activeSection === "contribuir") {
+  if (activeSection === "sobre") {
     dashboard.classList.add("contribution-view");
     recoveryPanel.hidden = true;
     cardsEl.innerHTML = `
-      <article class="contribution-panel">
+      <article class="contribution-panel about-panel">
         <div class="contribution-copy">
-          <span class="eyebrow">Apoie o projeto</span>
-          <h2>Ajude o Qboa Digital a continuar evoluindo</h2>
-          <p>Você pode contribuir com código, ideias, testes ou uma contribuição via Pix.</p>
+          <span class="eyebrow">Sobre o aplicativo</span>
+          <h2>QBoa Digital <span class="about-version">3.1.0</span></h2>
+          <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
+          <div class="about-meta">
+            <p><strong>Versão:</strong> 3.1.0</p>
+            <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
+            <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
+          </div>
           <div class="contribution-actions">
-            <a class="contribution-link" href="https://github.com/bloodshinoda/qboa-digital" target="_blank" rel="noreferrer">Participar no GitHub</a>
+            <a class="contribution-link" href="https://github.com/bloodshinoda/qboa-digital" target="_blank" rel="noreferrer">Repositório no GitHub</a>
             <button class="copy-pix-button" type="button" data-pix="00020126330014BR.GOV.BCB.PIX0111072603319765204000053039865802BR62070503***63041548">Copiar código Pix</button>
           </div>
+          <p class="about-support">O QBoa Digital é um projeto independente. Contribuições ajudam a manter o desenvolvimento, os testes e a evolução do aplicativo.</p>
           <p id="pix-copy-status" class="pix-copy-status" aria-live="polite"></p>
         </div>
         <div class="pix-block">
           <img src="./data/pix-qrcode.png" alt="QR Code para contribuição via Pix" class="pix-qrcode" />
-          <strong>Contribua via Pix</strong>
-          <span>Abra o aplicativo do seu banco e escaneie o código.</span>
+          <strong>Apoie via Pix</strong>
+          <span>Escaneie o QR Code com o aplicativo do seu banco.</span>
         </div>
       </article>
     `;
