@@ -1690,6 +1690,7 @@ async fn manage_windows_service(
 async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
+    service_profiles::capture_initial_baseline(&mut backend, &system)?;
     let profile = service_profiles::system_profile(&system)?;
     Ok(ServiceProfileState {
         system,
