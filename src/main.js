@@ -392,6 +392,22 @@ async function loadCapabilityInventory() {
   }
 }
 
+async function copyCapabilitySummary() {
+  const status = document.getElementById("capability-copy-status");
+  const system = document.getElementById("capability-system");
+  const lines = Array.from(system.querySelectorAll("p")).map((item) => item.textContent.trim()).filter(Boolean);
+  if (!lines.length) {
+    status.textContent = "Colete o inventário antes de copiar o resumo.";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(lines.join("\\n"));
+    status.textContent = "Resumo copiado para a área de transferência.";
+  } catch (error) {
+    status.textContent = "Não foi possível copiar automaticamente. Verifique a permissão da área de transferência.";
+  }
+}
+
 function renderCapabilityInventory(report) {
   const system = document.getElementById("capability-system");
   const list = document.getElementById("capability-list");
@@ -801,7 +817,7 @@ function renderServiceProfilePreview(preview) {
 
     const item = document.createElement("li");
     item.classList.add("service-preview-change");
-    item.textContent = `${service.service}: ${service.current} → ${proposedValue}`;
+    item.textContent = `${service.service}: ${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(proposedValue)}`;
 
     if (proposed === "disabled") {
       item.classList.add("service-preview-disable");
@@ -1155,6 +1171,7 @@ async function registerEvents() {
     void runDiagnostic("complete");
   });
 
+  document.getElementById("copy-capability-summary").addEventListener("click", () => { void copyCapabilitySummary(); });
   document.getElementById("capability-refresh-btn").addEventListener("click", () => {
     void loadCapabilityInventory();
   });
