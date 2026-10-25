@@ -614,7 +614,7 @@ function updateOperationProgress(taskName, stage, progressValue) {
   if (taskName) task.textContent = taskName;
   if (stage) stageEl.textContent = stage;
   const source = String(progressValue ?? stage ?? "");
-  const match = source.match(/(?:^|\\s)(\\d{1,3}(?:[.,]\\d+)?)\\s*%/);
+  const match = source.match(/(?:^|\s)(\d{1,3}(?:[.,]\d+)?)\s*%/);
   if (match) {
     const percent = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
     bar.classList.add("determinate"); bar.style.width = `${percent}%`;
