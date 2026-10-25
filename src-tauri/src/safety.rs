@@ -541,9 +541,17 @@ impl SafetyManager {
             .ok_or_else(|| "Rollback sem snapshot.".to_string())?;
         restore_snapshot(location, &change.task_id)
     }
-    pub fn try_register_execution(&mut self, task_id: &str) -> Result<ExecutionHandle, String> {
-        if let Some(active) = self.execution_state.values().find(|state| state.status == "running" || state.status == "cancelling") {
-            return Err(format!("Já existe uma operação em andamento: {} ({})", active.task_id, active.execution_id));
+    pub fn try_register_execution(
+        &mut self,
+        task_id: &str,
+    ) -> Result<ExecutionHandle, String> {
+        if let Some(active) = self.execution_state.values().find(|state| {
+            state.status == "running" || state.status == "cancelling"
+        }) {
+            return Err(format!(
+                "Já existe uma operação em andamento: {} ({})",
+                active.task_id, active.execution_id
+            ));
         }
         Ok(self.register_execution(task_id))
     }
