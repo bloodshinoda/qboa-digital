@@ -8,6 +8,12 @@ let pendingTask = null;
 let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
+let launchPending = false;
+let presetSequenceRunning = false;
+let presetExpectedCount = 0;
+let presetTerminalCount = 0;
+let currentOperationName = "";
+let currentOperationStage = "";
 let consoleBuffer = "";
 let executionOutput = [];
 let executionToastTimer = null;
@@ -152,20 +158,23 @@ function renderTabs() {
   contributionTab.addEventListener("click", () => {
     activeSection = "sobre";
     renderTabs();
-    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.0";
+    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.1";
     renderCards();
   });
   tabsEl.appendChild(contributionTab);
 }
 
 function syncExecutionControls() {
-  const running = Boolean(activeTaskId);
+  const running = Boolean(activeTaskId || launchPending || presetSequenceRunning);
   const presetButton = document.getElementById("preset-run-btn");
   const cancelButton = document.getElementById("cancel-task-btn");
 
   cancelButton.hidden = !running;
   cancelButton.disabled = !running;
   presetButton.disabled = running || activeSection === "servicos";
+  const progress = document.getElementById("operation-progress");
+  if (progress) progress.hidden = !running;
+  if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a operação…", null);
 }
 
 function renderCards() {
@@ -188,10 +197,10 @@ function renderCards() {
       <article class="contribution-panel about-panel">
         <div class="contribution-copy">
           <span class="eyebrow">Sobre o aplicativo</span>
-          <h2>QBoa Digital <span class="about-version">3.1.0</span></h2>
+          <h2>QBoa Digital <span class="about-version">3.1.1</span></h2>
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
-            <p><strong>Versão:</strong> 3.1.0</p>
+            <p><strong>Versão:</strong> 3.1.1</p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
           </div>
@@ -596,6 +605,42 @@ function taskDisplayName(taskId) {
   return task?.name || taskId;
 }
 
+function updateOperationProgress(taskName, stage, progressValue) {
+  const task = document.getElementById("operation-progress-task");
+  const stageEl = document.getElementById("operation-progress-stage");
+  const bar = document.getElementById("operation-progress-bar");
+  const percentEl = document.getElementById("operation-progress-percent");
+  if (!task || !stageEl || !bar || !percentEl) return;
+  if (taskName) task.textContent = taskName;
+  if (stage) stageEl.textContent = stage;
+  const source = String(progressValue ?? stage ?? "");
+  const match = source.match(/(?:^|\\s)(\\d{1,3}(?:[.,]\\d+)?)\\s*%/);
+  if (match) {
+    const percent = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
+    bar.classList.add("determinate"); bar.style.width = `${percent}%`;
+    percentEl.textContent = `${Math.round(percent)}%`;
+  } else {
+    bar.classList.remove("determinate"); bar.style.width = "";
+    percentEl.textContent = "Em andamento";
+  }
+}
+function showRunningOperationPopup(requestedName = "") {
+  const modal = document.getElementById("running-operation-modal");
+  document.getElementById("running-operation-task").textContent = currentOperationName || (activeTaskId ? taskDisplayName(activeTaskId) : "Uma operação está sendo iniciada.");
+  document.getElementById("running-operation-stage").textContent = currentOperationStage || "O QBoa está processando a operação. Aguarde antes de iniciar outra tarefa.";
+  document.getElementById("running-operation-requested").textContent = requestedName ? `Solicitação bloqueada: ${requestedName}.` : "Uma nova operação não será iniciada enquanto esta estiver ativa.";
+  modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  document.getElementById("running-operation-close").focus();
+}
+function closeRunningOperationPopup() {
+  const modal = document.getElementById("running-operation-modal");
+  modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
+}
+function operationIsBusy(requestedName = "") {
+  if (!(activeTaskId || launchPending || presetSequenceRunning)) return false;
+  showRunningOperationPopup(requestedName); return true;
+}
+
 function requiresConfirmation(item) {
   if (!item || !item.risk) return false;
   return item.risk === "moderate" || item.risk === "advanced";
@@ -682,11 +727,15 @@ async function prepareBrowserCleanupIfNeeded() {
 }
 
 async function executeTask(item, cardEl) {
+  if (operationIsBusy(item?.name)) return false;
+  launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
   if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id)) {
     await prepareBrowserCleanupIfNeeded();
   }
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
+  currentOperationName = item.name; currentOperationStage = "Solicitando início ao mecanismo…";
+  updateOperationProgress(currentOperationName, currentOperationStage, null);
   writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
   startActivity(item.name);
   closeRiskModal();
@@ -696,18 +745,20 @@ async function executeTask(item, cardEl) {
     const result = await Qboa.runTask(item.id, shutdownOnComplete);
     const output = result.output || "(sem saída)";
     activeExecutionId = result.execution_id || activeExecutionId;
+    launchPending = false; currentOperationStage = "Operação em execução; aguardando atualizações reais do mecanismo."; syncExecutionControls();
     appendConsole(output);
     return true;
   } catch (err) {
     stopActivity();
     appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
-    activeTaskId = null;
+    activeTaskId = null; activeExecutionId = null; launchPending = false; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
     return false;
   }
 }
 
 async function runTask(item, cardEl) {
+  if (operationIsBusy(item?.name)) return;
   if (requiresConfirmation(item)) {
     showRiskModal(item, cardEl);
     return;
@@ -752,10 +803,9 @@ function bindLevels() {
   });
 
   document.getElementById("preset-run-btn").addEventListener("click", async () => {
-    if (activeTaskId) {
-      appendConsole("Já existe uma tarefa em execução.");
-      return;
-    }
+    if (operationIsBusy(`Perfil ${presetDisplayName(activeLevel)}`)) return;
+    launchPending = true; presetSequenceRunning = true; presetExpectedCount = 0; presetTerminalCount = 0;
+    currentOperationName = `Perfil ${presetDisplayName(activeLevel)}`; currentOperationStage = "Preparando a sequência de tarefas…"; syncExecutionControls();
 
     const presetTasks = structure.sections.flatMap((section) =>
       section.items.filter((item) => item.preset && item.preset.includes(activeLevel))
@@ -774,9 +824,13 @@ function bindLevels() {
         await prepareBrowserCleanupIfNeeded();
       }
       const ids = await Qboa.runPreset(activeLevel);
-      appendConsole(`Perfil ${presetDisplayName(activeLevel)} iniciado: ${ids.length} tarefas em sequência.`);
+      launchPending = false; presetExpectedCount = ids.length;
+      currentOperationName = `Perfil ${presetDisplayName(activeLevel)}`;
+      currentOperationStage = `Executando sequência: ${presetTerminalCount} de ${presetExpectedCount} tarefas concluídas.`;
+      if (presetTerminalCount >= presetExpectedCount) { presetSequenceRunning = false; currentOperationName = ""; currentOperationStage = ""; }
+      syncExecutionControls(); appendConsole(`Perfil ${presetDisplayName(activeLevel)} iniciado: ${ids.length} tarefas em sequência.`);
     } catch (error) {
-      appendConsole(String(error));
+      appendConsole(String(error)); launchPending = false; presetSequenceRunning = false; presetExpectedCount = 0; presetTerminalCount = 0; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
     }
   });
 
@@ -1053,10 +1107,9 @@ async function registerEvents() {
   void listen("qboa-event", (event) => {
     const payload = event.payload;
     if (payload.event === "task-started") {
-      executionOutput = [];
-      activeTaskId = payload.task_id;
-      activeExecutionId = payload.execution_id;
-      syncExecutionControls();
+      executionOutput = []; activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
+      currentOperationName = presetSequenceRunning ? `Perfil ${presetDisplayName(activeLevel)} · ${taskDisplayName(payload.task_id)}` : taskDisplayName(payload.task_id);
+      currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
@@ -1087,8 +1140,8 @@ async function registerEvents() {
 
 
     if (payload.event === "task-output" && payload.message) {
-      executionOutput.push(payload.message);
-      appendConsole(payload.message);
+      executionOutput.push(payload.message); currentOperationStage = payload.message;
+      updateOperationProgress(currentOperationName, currentOperationStage, payload.progress || payload.message); appendConsole(payload.message);
     } else if (payload.event === "task-completed") {
       stopActivity();
       appendConsole(taskSuccessMessage(taskDisplayName(payload.task_id)));
@@ -1103,6 +1156,7 @@ async function registerEvents() {
     }
 
     if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
+      if (presetSequenceRunning) { presetTerminalCount += 1; currentOperationStage = `Sequência: ${presetTerminalCount}${presetExpectedCount ? ` de ${presetExpectedCount}` : ""} tarefa(s) finalizada(s).`; }
       if (isCleanupTask(payload.task_id)) {
         const resultStatus = payload.event === "task-completed" ? "success" : payload.event === "task-cancelled" ? "cancelled" : "error";
         showCleanupResult(payload.task_id, resultStatus, payload.message || "");
@@ -1110,6 +1164,8 @@ async function registerEvents() {
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
+      if (presetSequenceRunning && presetExpectedCount > 0 && presetTerminalCount >= presetExpectedCount) { presetSequenceRunning = false; currentOperationName = ""; currentOperationStage = ""; }
+      else if (!presetSequenceRunning) { currentOperationName = ""; currentOperationStage = ""; }
       syncExecutionControls();
       refreshHistory();
     }
@@ -1144,6 +1200,9 @@ async function registerEvents() {
     closeRiskModal();
   });
 
+  document.getElementById("running-operation-close").addEventListener("click", closeRunningOperationPopup);
+  document.getElementById("running-operation-console").addEventListener("click", () => { closeRunningOperationPopup(); const panel = document.getElementById("console"); panel.open = true; panel.scrollIntoView({ behavior: "smooth", block: "nearest" }); });
+  document.getElementById("running-operation-modal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeRunningOperationPopup(); });
   document.getElementById("execution-summary-close").addEventListener("click", closeExecutionSummary);
   document.getElementById("execution-summary-ok").addEventListener("click", closeExecutionSummary);
   document.getElementById("execution-summary-modal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeExecutionSummary(); });
@@ -1169,7 +1228,9 @@ async function registerEvents() {
     const riskModal = document.getElementById("risk-modal");
     const serviceInventoryModal = document.getElementById("service-inventory-modal");
     const executionSummaryModal = document.getElementById("execution-summary-modal");
-    if (!executionSummaryModal.classList.contains("hidden")) {
+    const runningOperationModal = document.getElementById("running-operation-modal");
+    if (!runningOperationModal.classList.contains("hidden")) { closeRunningOperationPopup(); }
+    else if (!executionSummaryModal.classList.contains("hidden")) {
       closeExecutionSummary();
     } else if (!serviceInventoryModal.classList.contains("hidden")) {
       serviceInventoryModal.classList.add("hidden");
