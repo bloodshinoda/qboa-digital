@@ -1009,7 +1009,11 @@ fn task_result(task: &Task, execution_id: &str) -> TaskResult {
     }
 }
 
-fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> Result<safety::ExecutionHandle, String> {
+fn start_task(
+    app: AppHandle,
+    task: Task,
+    shutdown_on_complete: bool,
+) -> Result<safety::ExecutionHandle, String> {
     let task_id_for_spawn = task.id.clone();
     let app_for_spawn = app.clone();
     let task_name = task.name.clone();
@@ -1017,7 +1021,10 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> Result<
     let task_for_spawn = task.clone();
     let task_risk_for_spawn = task_risk.clone();
 
-    let execution = safety_state().lock().unwrap().try_register_execution(&task_id_for_spawn)?;
+    let execution = safety_state()
+        .lock()
+        .unwrap()
+        .try_register_execution(&task_id_for_spawn)?;
     let execution_id = execution.execution_id.clone();
     let execution_id_for_spawn = execution_id.clone();
 
@@ -1618,7 +1625,16 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
     tauri::async_runtime::spawn(async move {
         for task in tasks {
             if let Err(error) = start_task(app.clone(), task.clone(), false) {
-                emit_event(&app, "task-error", &task.id, "", &error, false, None, task_risk_label(&task));
+                emit_event(
+                    &app,
+                    "task-error",
+                    &task.id,
+                    "",
+                    &error,
+                    false,
+                    None,
+                    task_risk_label(&task),
+                );
                 break;
             }
             while safety_state().lock().unwrap().is_task_running() {
