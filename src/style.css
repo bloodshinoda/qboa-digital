@@ -852,6 +852,14 @@ button.copy-pix-button:hover:not(:disabled) {
 
 
 
+/* Progresso real da operação e bloqueio de execuções concorrentes. */
+.operation-progress { position:fixed; left:20px; right:20px; bottom:20px; z-index:1050; display:grid; grid-template-columns:minmax(160px,1fr) minmax(120px,2fr) auto; align-items:center; gap:12px; padding:12px 16px; border:1px solid rgba(74,222,128,.32); border-radius:10px; background:#121916; color:#f4f4f4; box-shadow:0 12px 36px rgba(0,0,0,.42); }
+.operation-progress[hidden] { display:none; } .operation-progress-copy { display:grid; gap:3px; min-width:0; } .operation-progress-copy strong,.operation-progress-copy span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .operation-progress-copy span { color:#b8c4bc; font-size:.82rem; }
+.operation-progress-track { height:8px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.12); } .operation-progress-bar { width:35%; height:100%; border-radius:inherit; background:#4ade80; animation:qboa-progress-indeterminate 1.35s ease-in-out infinite; } .operation-progress-bar.determinate { animation:none; transition:width .2s ease; } .operation-progress-percent { min-width:80px; text-align:right; font-size:.82rem; color:#c9ced2; }
+@keyframes qboa-progress-indeterminate { from { transform:translateX(-120%); } to { transform:translateX(350%); } }
+.running-operation-modal { position:fixed; inset:0; z-index:1400; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.78); backdrop-filter:blur(5px); } .running-operation-modal.hidden { display:none; } .running-operation-dialog { width:min(520px,100%); padding:24px; border:1px solid rgba(246,198,106,.38); border-radius:14px; background:#171d19; color:#f4f4f4; box-shadow:0 24px 70px rgba(0,0,0,.6); } .running-operation-dialog h2 { margin:8px 0 16px; font-size:1.25rem; } .running-operation-dialog p { line-height:1.5; overflow-wrap:anywhere; } .running-operation-current { padding:12px; border-radius:8px; background:rgba(255,255,255,.05); } .running-operation-requested { color:#f6c66a; font-weight:600; } .running-operation-note { color:#b8c4bc; font-size:.9rem; } .running-operation-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:18px; }
+@media(max-width:600px) { .operation-progress { left:8px; right:8px; bottom:8px; grid-template-columns:1fr auto; gap:8px; } .operation-progress-track { grid-column:1 / -1; grid-row:2; } .operation-progress-percent { min-width:0; } .running-operation-modal { padding:8px; } .running-operation-dialog { padding:16px; } }
+
 /* Resumo final das limpezas e notificação acessível. */
 .execution-summary-modal { position:fixed; inset:0; z-index:1200; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.76); backdrop-filter:blur(5px); }
 .execution-summary-modal.hidden { display:none; }
