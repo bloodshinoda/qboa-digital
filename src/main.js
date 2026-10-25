@@ -169,8 +169,8 @@ function syncExecutionControls() {
   const presetButton = document.getElementById("preset-run-btn");
   const cancelButton = document.getElementById("cancel-task-btn");
 
-  cancelButton.hidden = !running;
-  cancelButton.disabled = !running;
+  cancelButton.hidden = !activeTaskId;
+  cancelButton.disabled = !activeTaskId;
   presetButton.disabled = running || activeSection === "servicos";
   const progress = document.getElementById("operation-progress");
   if (progress) progress.hidden = !running;
