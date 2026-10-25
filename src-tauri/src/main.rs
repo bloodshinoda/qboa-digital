@@ -991,7 +991,7 @@ async fn run_task(
         .resolve(&task_id)
         .cloned()
         .ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
-    let execution = start_task(app, task.clone(), shutdown_on_complete);
+    let execution = start_task(app, task.clone(), shutdown_on_complete)?;
     let result = task_result(&task, &execution.execution_id);
     Ok(result)
 }
@@ -1009,7 +1009,7 @@ fn task_result(task: &Task, execution_id: &str) -> TaskResult {
     }
 }
 
-fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety::ExecutionHandle {
+fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> Result<safety::ExecutionHandle, String> {
     let task_id_for_spawn = task.id.clone();
     let app_for_spawn = app.clone();
     let task_name = task.name.clone();
@@ -1017,10 +1017,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
     let task_for_spawn = task.clone();
     let task_risk_for_spawn = task_risk.clone();
 
-    let execution = safety_state()
-        .lock()
-        .unwrap()
-        .register_execution(&task_id_for_spawn);
+    let execution = safety_state().lock().unwrap().try_register_execution(&task_id_for_spawn)?;
     let execution_id = execution.execution_id.clone();
     let execution_id_for_spawn = execution_id.clone();
 
@@ -1523,7 +1520,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             }
         }
     });
-    execution
+    Ok(execution)
 }
 
 #[tauri::command]
@@ -1614,10 +1611,16 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
     if tasks.is_empty() {
         return Err(format!("Perfil desconhecido ou vazio: {preset_id}"));
     }
+    if safety_state().lock().unwrap().is_task_running() {
+        return Err("Já existe uma operação em andamento. Aguarde a conclusão antes de iniciar um perfil.".to_string());
+    }
 
     tauri::async_runtime::spawn(async move {
         for task in tasks {
-            start_task(app.clone(), task, false);
+            if let Err(error) = start_task(app.clone(), task.clone(), false) {
+                emit_event(&app, "task-error", &task.id, "", &error, false, None, task_risk_label(&task));
+                break;
+            }
             while safety_state().lock().unwrap().is_task_running() {
                 std::thread::sleep(Duration::from_millis(100));
             }
