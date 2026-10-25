@@ -1619,7 +1619,10 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
         return Err(format!("Perfil desconhecido ou vazio: {preset_id}"));
     }
     if safety_state().lock().unwrap().is_task_running() {
-        return Err("Já existe uma operação em andamento. Aguarde a conclusão antes de iniciar um perfil.".to_string());
+        return Err(
+            "Já existe uma operação em andamento. Aguarde a conclusão antes de iniciar um perfil."
+                .to_string(),
+        );
     }
 
     tauri::async_runtime::spawn(async move {
