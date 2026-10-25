@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Qboa Digital</title>
+  <title>Qboa Digital 3.1.1</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -150,6 +150,8 @@
     </div>
   </div>
 
+  <div id="operation-progress" class="operation-progress" hidden aria-live="polite"><div class="operation-progress-copy"><strong id="operation-progress-task">Operação em andamento</strong><span id="operation-progress-stage">Preparando…</span></div><div class="operation-progress-track"><div id="operation-progress-bar" class="operation-progress-bar"></div></div><span id="operation-progress-percent" class="operation-progress-percent">Em andamento</span></div>
+  <div id="running-operation-modal" class="running-operation-modal hidden" aria-hidden="true"><section class="running-operation-dialog" role="dialog" aria-modal="true" aria-labelledby="running-operation-title"><span class="eyebrow">QBoa Digital · execução protegida</span><h2 id="running-operation-title">Já existe uma operação em andamento</h2><p class="running-operation-current">Operação atual: <strong id="running-operation-task"></strong></p><p id="running-operation-stage"></p><p id="running-operation-requested" class="running-operation-requested"></p><p class="running-operation-note">Para evitar conflitos, o QBoa não iniciou a nova solicitação. Fechar esta janela não cancela a operação atual.</p><div class="running-operation-actions"><button id="running-operation-close" class="secondary-button" type="button">Voltar</button><button id="running-operation-console" class="primary-button" type="button">Ver progresso</button></div></section></div>
   <div id="execution-toast" class="execution-toast" role="status" aria-live="polite" hidden></div>
   <div id="execution-summary-modal" class="execution-summary-modal hidden" aria-hidden="true">
     <section class="execution-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="execution-summary-title">
