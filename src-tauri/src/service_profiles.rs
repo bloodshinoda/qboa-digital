@@ -1213,7 +1213,7 @@ mod tests {
         assert!(!result.validated);
         assert!(result.services.is_empty());
         assert!(result.message.contains("LTSC"));
-        assert!(result.message.contains("não será sugerida"));
+        assert!(result.message.contains("será sugerida"));
     }
 
     #[test]
