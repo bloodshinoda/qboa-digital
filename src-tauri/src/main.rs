@@ -991,7 +991,7 @@ async fn run_task(
         .resolve(&task_id)
         .cloned()
         .ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
-    let execution = start_task(app, task.clone(), shutdown_on_complete);
+    let execution = start_task(app, task.clone(), shutdown_on_complete)?;
     let result = task_result(&task, &execution.execution_id);
     Ok(result)
 }
@@ -1009,7 +1009,11 @@ fn task_result(task: &Task, execution_id: &str) -> TaskResult {
     }
 }
 
-fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety::ExecutionHandle {
+fn start_task(
+    app: AppHandle,
+    task: Task,
+    shutdown_on_complete: bool,
+) -> Result<safety::ExecutionHandle, String> {
     let task_id_for_spawn = task.id.clone();
     let app_for_spawn = app.clone();
     let task_name = task.name.clone();
@@ -1020,7 +1024,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
     let execution = safety_state()
         .lock()
         .unwrap()
-        .register_execution(&task_id_for_spawn);
+        .try_register_execution(&task_id_for_spawn)?;
     let execution_id = execution.execution_id.clone();
     let execution_id_for_spawn = execution_id.clone();
 
@@ -1523,7 +1527,7 @@ fn start_task(app: AppHandle, task: Task, shutdown_on_complete: bool) -> safety:
             }
         }
     });
-    execution
+    Ok(execution)
 }
 
 #[tauri::command]
@@ -1614,10 +1618,28 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
     if tasks.is_empty() {
         return Err(format!("Perfil desconhecido ou vazio: {preset_id}"));
     }
+    if safety_state().lock().unwrap().is_task_running() {
+        return Err(
+            "Já existe uma operação em andamento. Aguarde a conclusão antes de iniciar um perfil."
+                .to_string(),
+        );
+    }
 
     tauri::async_runtime::spawn(async move {
         for task in tasks {
-            start_task(app.clone(), task, false);
+            if let Err(error) = start_task(app.clone(), task.clone(), false) {
+                emit_event(
+                    &app,
+                    "task-error",
+                    &task.id,
+                    "",
+                    &error,
+                    false,
+                    None,
+                    task_risk_label(&task),
+                );
+                break;
+            }
             while safety_state().lock().unwrap().is_task_running() {
                 std::thread::sleep(Duration::from_millis(100));
             }
@@ -1714,11 +1736,14 @@ async fn preview_service_profile(
 }
 
 #[tauri::command]
-async fn apply_service_profile(profile: service_profiles::ProductProfile) -> Result<(), String> {
+async fn apply_service_profile(
+    profile: service_profiles::ProductProfile,
+    changes: Vec<service_profiles::ServiceProfileOverride>,
+) -> Result<(), String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
     let service_profile = service_profiles::system_profile(&system)?;
-    service_profiles::apply_profile(&mut backend, &service_profile, profile)
+    service_profiles::apply_profile_with_overrides(&mut backend, &service_profile, profile, changes)
 }
 
 #[tauri::command]

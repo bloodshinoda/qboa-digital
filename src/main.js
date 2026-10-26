@@ -8,6 +8,12 @@ let pendingTask = null;
 let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
+let launchPending = false;
+let presetSequenceRunning = false;
+let presetExpectedCount = 0;
+let presetTerminalCount = 0;
+let currentOperationName = "";
+let currentOperationStage = "";
 let consoleBuffer = "";
 let executionOutput = [];
 let executionToastTimer = null;
@@ -15,6 +21,8 @@ let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
+let currentServiceProfilePreview = null;
+let editedServiceProfileChanges = [];
 let windowsServices = [];
 let browserCleanupDecision = null;
 let showAllSessionChanges = false;
@@ -68,8 +76,8 @@ const Qboa = {
     return invoke("preview_service_profile", { profile });
   },
 
-  async applyServiceProfile(profile) {
-    return invoke("apply_service_profile", { profile });
+  async applyServiceProfile(profile, changes) {
+    return invoke("apply_service_profile", { profile, changes });
   },
 
   async restoreWindowsServiceDefaults() {
@@ -152,20 +160,23 @@ function renderTabs() {
   contributionTab.addEventListener("click", () => {
     activeSection = "sobre";
     renderTabs();
-    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.0";
+    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.1";
     renderCards();
   });
   tabsEl.appendChild(contributionTab);
 }
 
 function syncExecutionControls() {
-  const running = Boolean(activeTaskId);
+  const running = Boolean(activeTaskId || launchPending || presetSequenceRunning);
   const presetButton = document.getElementById("preset-run-btn");
   const cancelButton = document.getElementById("cancel-task-btn");
 
-  cancelButton.hidden = !running;
-  cancelButton.disabled = !running;
+  cancelButton.hidden = !activeTaskId;
+  cancelButton.disabled = !activeTaskId;
   presetButton.disabled = running || activeSection === "servicos";
+  const progress = document.getElementById("operation-progress");
+  if (progress) progress.hidden = !running;
+  if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a operação…", null);
 }
 
 function renderCards() {
@@ -188,10 +199,10 @@ function renderCards() {
       <article class="contribution-panel about-panel">
         <div class="contribution-copy">
           <span class="eyebrow">Sobre o aplicativo</span>
-          <h2>QBoa Digital <span class="about-version">3.1.0</span></h2>
+          <h2>QBoa Digital <span class="about-version">3.1.1</span></h2>
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
-            <p><strong>Versão:</strong> 3.1.0</p>
+            <p><strong>Versão:</strong> 3.1.1</p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
           </div>
@@ -244,6 +255,134 @@ function renderCards() {
 
 function serviceStatusLabel(status) {
   return ({ running: "Em execução", stopped: "Parado", startpending: "Iniciando", stoppending: "Parando", paused: "Pausado" })[String(status).toLowerCase()] || status;
+}
+
+const WINDOWS_SERVICE_DESCRIPTIONS = {
+  "phonesvc":"Serviço de telefonia",
+  "phone service":"Serviço de telefonia",
+  "dhcp":"Obtém endereços IP e configurações de rede automaticamente",
+  "dnscache":"Armazena consultas DNS em cache para acelerar a navegação",
+  "wuauserv":"Gerencia atualizações do Windows",
+  "bits":"Transfere arquivos em segundo plano, inclusive para atualizações",
+  "windefend":"Proteção antivírus do Microsoft Defender",
+  "audiosrv":"Gerencia o áudio do Windows",
+  "audioendpointbuilder":"Detecta e configura dispositivos de áudio",
+  "cryptsvc":"Serviços criptográficos e validação de assinaturas digitais",
+  "eventlog":"Registra eventos do Windows e dos aplicativos",
+  "spooler":"Gerencia a fila e os trabalhos de impressão",
+  "schedule":"Executa tarefas agendadas",
+  "winmgmt":"Infraestrutura de gerenciamento do Windows (WMI)",
+  "profsvc":"Carrega e gerencia perfis de usuário",
+  "usermanager":"Gerencia usuários e sessões",
+  "lanmanworkstation":"Conecta o computador a pastas e recursos compartilhados na rede",
+  "lanmanserver":"Compartilha arquivos e impressoras pela rede",
+  "power":"Gerencia planos e estados de energia",
+  "nlasvc":"Identifica redes conectadas e suas propriedades",
+  "netprofm":"Identifica propriedades e perfis de rede",
+  "wlan svc":"Gerencia conexões Wi-Fi",
+  "wlansvc":"Gerencia conexões Wi-Fi",
+  "wwansvc":"Gerencia conexões de banda larga móvel",
+  "bthserv":"Suporte básico a dispositivos Bluetooth",
+  "deviceassociationservice":"Emparelha dispositivos e periféricos",
+  "deviceinstall":"Gerencia a instalação de dispositivos",
+  "plugplay":"Detecta e configura dispositivos conectados",
+  "spooler":"Gerencia fila de impressão",
+  "fax":"Envia e recebe fax",
+  "themes":"Gerencia temas visuais do Windows",
+  "fontcache":"Otimiza o carregamento de fontes",
+  "sysmain":"Otimiza o desempenho e o carregamento de aplicativos",
+  "defragsvc":"Otimiza e desfragmenta unidades de armazenamento",
+  "vss":"Coordena cópias de sombra usadas por backup e restauração",
+  "wbengine":"Motor de backup do Windows",
+  "fhsvc":"Gerencia o Histórico de Arquivos",
+  "storsvc":"Gerencia recursos e configurações de armazenamento",
+  "vds":"Gerencia discos e volumes",
+  "msiserver":"Instala, repara e remove programas no formato MSI",
+  "installservice":"Infraestrutura de instalação da Microsoft Store",
+  "clipsvc":"Infraestrutura de licenciamento da Microsoft Store",
+  "appxs vc":"Infraestrutura de implantação de aplicativos da Store",
+  "appxsvc":"Infraestrutura de implantação de aplicativos da Store",
+  "state repository":"Armazena estado de aplicativos",
+  "staterepository":"Armazena estado de aplicativos",
+  "wscsvc":"Central de segurança e estado de proteção do Windows",
+  "securityhealthservice":"Mantém informações de segurança do Windows",
+  "sense":"Detecção e resposta avançada do Microsoft Defender",
+  "wdnisvc":"Inspeção de rede do Microsoft Defender",
+  "bdesvc":"Gerencia a criptografia de unidades com BitLocker",
+  "efs":"Criptografa arquivos em unidades NTFS",
+  "scardsvr":"Gerencia acesso a cartões inteligentes",
+  "vaultsvc":"Armazena credenciais e segredos do Windows",
+  "keyiso":"Isola chaves criptográficas e operações de autenticação",
+  "termservice":"Gerencia sessões de Área de Trabalho Remota",
+  "sessionenv":"Configura sessões de Área de Trabalho Remota",
+  "umrdpservice":"Redireciona dispositivos em sessões remotas",
+  "rasman":"Gerencia conexões VPN e de acesso remoto",
+  "rasauto":"Cria conexões de acesso remoto sob demanda",
+  "sstpsvc":"Suporte a conexões VPN SSTP",
+  "remote registry":"Permite gerenciamento remoto do Registro",
+  "remoteregistry":"Permite gerenciamento remoto do Registro",
+  "winrm":"Gerenciamento remoto do Windows via WS-Management",
+  "ssh-agent":"Armazena chaves SSH para autenticação",
+  "iphlpsvc":"Suporte à conectividade IPv6",
+  "sharedaccess":"Compartilha a conexão de Internet e o ponto de acesso móvel",
+  "icssvc":"Gerencia o ponto de acesso móvel",
+  "dnscache":"Armazena consultas DNS em cache",
+  "lmhosts":"Suporte NetBIOS sobre TCP/IP",
+  "netlogon":"Autentica usuários e computadores em domínios",
+  "fdrespub":"Publica o computador e seus recursos para descoberta na rede",
+  "fdphost":"Hospeda descoberta de dispositivos na rede",
+  "ssdpsrv":"Descobre dispositivos UPnP na rede",
+  "upnphost":"Hospeda dispositivos UPnP",
+  "webclient":"Acesso a arquivos e pastas via WebDAV",
+  "trkwks":"Mantém vínculos com arquivos em outros computadores",
+  "diagnosticshub.standardcollector.service":"Coleta dados de diagnóstico para ferramentas de desenvolvimento",
+  "dps":"Detecta e soluciona problemas do Windows",
+  "diagsvc":"Executa serviços de diagnóstico",
+  "wer svc":"Relatório de erros do Windows",
+  "wersvc":"Relata falhas de aplicativos e do Windows",
+  "diagtrack":"Coleta dados de diagnóstico e telemetria do Windows",
+  "w32time":"Sincroniza a data e a hora do sistema",
+  "tzautoupdate":"Atualiza automaticamente o fuso horário",
+  "camsvc":"Gerencia acesso de aplicativos a recursos do sistema",
+  "frame server":"Gerencia fluxos de câmera para aplicativos",
+  "frameserver":"Gerencia fluxos de câmera para aplicativos",
+  "lfsvc":"Gerencia recursos de localização geográfica",
+  "sensorservice":"Gerencia sensores do dispositivo",
+  "sensordataservice":"Fornece dados de sensores",
+  "tabletinputservice":"Teclado virtual, escrita manual e entrada por toque",
+  "hidserv":"Suporte a teclas especiais e dispositivos HID",
+  "bthavctpsvc":"Gerencia comandos e controles de áudio Bluetooth",
+  "phone svc":"Serviço de telefonia",
+  "smsrouter":"Encaminha mensagens para aplicativos compatíveis",
+  "tokenbroker":"Intermedeia tokens de autenticação de aplicativos",
+  "wlidsvc":"Login com conta Microsoft",
+  "licensemanager":"Gerencia licenças de aplicativos da Microsoft Store",
+  "push to install":"Permite instalação remota de aplicativos da Store",
+  "pushtoinstall":"Permite instalação remota de aplicativos da Store",
+  "xbl authmanager":"Autenticação para serviços Xbox",
+  "xblauthmanager":"Autenticação para serviços Xbox",
+  "xblgamesave":"Sincroniza salvamentos de jogos Xbox",
+  "xboxgipservice":"Gerencia periféricos Xbox",
+  "vmcompute":"Gerencia máquinas virtuais e contêineres",
+  "vmicguestinterface":"Comunicação entre máquina virtual Hyper-V e host",
+  "vmicheartbeat":"Informa ao host se a máquina virtual está ativa",
+  "vmickvpexchange":"Troca informações entre host e máquina virtual",
+  "vmicrdv":"Redireciona dispositivos em sessões Hyper-V",
+  "vmicshutdown":"Permite desligamento coordenado de máquinas virtuais",
+  "vmictimesync":"Sincroniza o relógio de máquinas virtuais",
+  "vmicvmsession":"Gerencia sessões de máquinas virtuais",
+  "vmicvss":"Coordena cópias de sombra em máquinas virtuais",
+  "hns":"Gerencia redes de contêineres e virtualização",
+  "wmiapsrv":"Adaptador de desempenho do WMI",
+  "pla":"Coleta dados de desempenho em conjuntos",
+  "perfhost":"Hospeda provedores de desempenho",
+  "retaildemo":"Controla o modo de demonstração de varejo",
+  "fax":"Envia e recebe fax",
+  "phone service":"Serviço de telefonia"
+};
+function serviceDescription(name) {
+  const key = String(name || "").trim().toLowerCase();
+  return WINDOWS_SERVICE_DESCRIPTIONS[key] || (key === "phoneservice" ? WINDOWS_SERVICE_DESCRIPTIONS.phonesvc : "");
 }
 
 function serviceStartTypeLabel(startType) {
@@ -596,6 +735,42 @@ function taskDisplayName(taskId) {
   return task?.name || taskId;
 }
 
+function updateOperationProgress(taskName, stage, progressValue) {
+  const task = document.getElementById("operation-progress-task");
+  const stageEl = document.getElementById("operation-progress-stage");
+  const bar = document.getElementById("operation-progress-bar");
+  const percentEl = document.getElementById("operation-progress-percent");
+  if (!task || !stageEl || !bar || !percentEl) return;
+  if (taskName) task.textContent = taskName;
+  if (stage) stageEl.textContent = stage;
+  const source = String(progressValue ?? stage ?? "");
+  const match = source.match(/(?:^|\s)(\d{1,3}(?:[.,]\d+)?)\s*%/);
+  if (match) {
+    const percent = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
+    bar.classList.add("determinate"); bar.style.width = `${percent}%`;
+    percentEl.textContent = `${Math.round(percent)}%`;
+  } else {
+    bar.classList.remove("determinate"); bar.style.width = "";
+    percentEl.textContent = "Em andamento";
+  }
+}
+function showRunningOperationPopup(requestedName = "") {
+  const modal = document.getElementById("running-operation-modal");
+  document.getElementById("running-operation-task").textContent = currentOperationName || (activeTaskId ? taskDisplayName(activeTaskId) : "Uma operação está sendo iniciada.");
+  document.getElementById("running-operation-stage").textContent = currentOperationStage || "O QBoa está processando a operação. Aguarde antes de iniciar outra tarefa.";
+  document.getElementById("running-operation-requested").textContent = requestedName ? `Solicitação bloqueada: ${requestedName}.` : "Uma nova operação não será iniciada enquanto esta estiver ativa.";
+  modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  document.getElementById("running-operation-close").focus();
+}
+function closeRunningOperationPopup() {
+  const modal = document.getElementById("running-operation-modal");
+  modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
+}
+function operationIsBusy(requestedName = "") {
+  if (!(activeTaskId || launchPending || presetSequenceRunning)) return false;
+  showRunningOperationPopup(requestedName); return true;
+}
+
 function requiresConfirmation(item) {
   if (!item || !item.risk) return false;
   return item.risk === "moderate" || item.risk === "advanced";
@@ -682,11 +857,15 @@ async function prepareBrowserCleanupIfNeeded() {
 }
 
 async function executeTask(item, cardEl) {
+  if (operationIsBusy(item?.name)) return false;
+  launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
   if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id)) {
     await prepareBrowserCleanupIfNeeded();
   }
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
+  currentOperationName = item.name; currentOperationStage = "Solicitando início ao mecanismo…";
+  updateOperationProgress(currentOperationName, currentOperationStage, null);
   writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
   startActivity(item.name);
   closeRiskModal();
@@ -696,18 +875,20 @@ async function executeTask(item, cardEl) {
     const result = await Qboa.runTask(item.id, shutdownOnComplete);
     const output = result.output || "(sem saída)";
     activeExecutionId = result.execution_id || activeExecutionId;
+    launchPending = false; currentOperationStage = "Operação em execução; aguardando atualizações reais do mecanismo."; syncExecutionControls();
     appendConsole(output);
     return true;
   } catch (err) {
     stopActivity();
     appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
-    activeTaskId = null;
+    activeTaskId = null; activeExecutionId = null; launchPending = false; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
     return false;
   }
 }
 
 async function runTask(item, cardEl) {
+  if (operationIsBusy(item?.name)) return;
   if (requiresConfirmation(item)) {
     showRiskModal(item, cardEl);
     return;
@@ -752,10 +933,9 @@ function bindLevels() {
   });
 
   document.getElementById("preset-run-btn").addEventListener("click", async () => {
-    if (activeTaskId) {
-      appendConsole("Já existe uma tarefa em execução.");
-      return;
-    }
+    if (operationIsBusy(`Perfil ${presetDisplayName(activeLevel)}`)) return;
+    launchPending = true; presetSequenceRunning = true; presetExpectedCount = 0; presetTerminalCount = 0;
+    currentOperationName = `Perfil ${presetDisplayName(activeLevel)}`; currentOperationStage = "Preparando a sequência de tarefas…"; syncExecutionControls();
 
     const presetTasks = structure.sections.flatMap((section) =>
       section.items.filter((item) => item.preset && item.preset.includes(activeLevel))
@@ -774,9 +954,13 @@ function bindLevels() {
         await prepareBrowserCleanupIfNeeded();
       }
       const ids = await Qboa.runPreset(activeLevel);
-      appendConsole(`Perfil ${presetDisplayName(activeLevel)} iniciado: ${ids.length} tarefas em sequência.`);
+      launchPending = false; presetExpectedCount = ids.length;
+      currentOperationName = `Perfil ${presetDisplayName(activeLevel)}`;
+      currentOperationStage = `Executando sequência: ${presetTerminalCount} de ${presetExpectedCount} tarefas concluídas.`;
+      if (presetTerminalCount >= presetExpectedCount) { presetSequenceRunning = false; currentOperationName = ""; currentOperationStage = ""; }
+      syncExecutionControls(); appendConsole(`Perfil ${presetDisplayName(activeLevel)} iniciado: ${ids.length} tarefas em sequência.`);
     } catch (error) {
-      appendConsole(String(error));
+      appendConsole(String(error)); launchPending = false; presetSequenceRunning = false; presetExpectedCount = 0; presetTerminalCount = 0; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
     }
   });
 
@@ -835,47 +1019,71 @@ async function refreshHistory() {
   }
 }
 function renderServiceProfilePreview(preview) {
-  const items = document.getElementById("service-profile-preview");
-  const ignored = document.getElementById("service-profile-ignored");
-  const ignoredTitle = document.getElementById("service-profile-ignored-title");
-  items.replaceChildren();
-  ignored.replaceChildren();
-  ignoredTitle.hidden = true;
+  currentServiceProfilePreview = preview;
+  const items = document.getElementById("service-profile-preview-list");
+  const ignored = document.getElementById("service-profile-ignored-list");
+  items.replaceChildren(); ignored.replaceChildren();
   document.getElementById("service-profile-preview-status").textContent = preview.message;
-  document.getElementById("service-profile-apply-btn").disabled =
-    !serviceProfileState?.system?.supported ||
-    !(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled) ||
-    !preview.applicable;
-
-  preview.services.forEach((service) => {
+  const canApply = Boolean(serviceProfileState?.system?.supported) &&
+    Boolean(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled) &&
+    Boolean(preview.applicable);
+  const modal = document.getElementById("service-profile-preview-modal");
+  modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  const changes = (preview.services || []).filter((service) => {
     const current = String(service.current || "").trim().toLowerCase();
-    const proposedValue = String(service.proposed || "").trim();
-    const proposed = proposedValue.toLowerCase();
-
-    // A prévia deve mostrar somente mudanças efetivas; regras sem proposta,
-    // valores iguais e serviços ignorados não entram na lista de alterações.
-    if (!proposedValue || !current || proposed === current || service.ignored) return;
-
-    const item = document.createElement("li");
-    item.classList.add("service-preview-change");
-    item.textContent = `${service.service}: ${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(proposedValue)}`;
-
-    if (proposed === "disabled") {
-      item.classList.add("service-preview-disable");
-    } else if (current === "disabled") {
-      item.classList.add("service-preview-enable");
-    } else {
-      item.classList.add("service-preview-modify");
-    }
-    items.appendChild(item);
+    const proposed = String(service.proposed || "").trim().toLowerCase();
+    return proposed && current && proposed !== current && !service.ignored && !service.incompatible;
   });
-  ignoredTitle.hidden = true;
-  if (!items.children.length) {
-    const item = document.createElement("li");
-    item.className = "service-preview-empty";
-    item.textContent = "Nenhum serviço terá a inicialização alterada neste perfil.";
-    items.appendChild(item);
-  }
+  editedServiceProfileChanges = [];
+  changes.forEach((service) => {
+    const current = String(service.current || "").trim().toLowerCase();
+    const proposed = String(service.proposed || "").trim().toLowerCase();
+    const row = document.createElement("li");
+    row.className = "service-profile-preview-row" + (proposed === "disabled" ? " preview-disable" : current === "disabled" ? " preview-enable" : "");
+    const include = document.createElement("input"); include.type = "checkbox"; include.checked = true;
+    include.setAttribute("aria-label", `Incluir alteração de ${service.service}`);
+    const copy = document.createElement("div"); copy.className = "service-preview-copy";
+    const name = document.createElement("strong"); name.className = "service-preview-name"; name.textContent = service.service;
+    copy.appendChild(name);
+    const descriptionText = serviceDescription(service.service);
+    if (descriptionText) {
+      const description = document.createElement("span");
+      description.className = "service-preview-description";
+      description.textContent = ` (${descriptionText})`;
+      copy.appendChild(description);
+    }
+    const transition = document.createElement("span"); transition.className = "service-preview-transition";
+    transition.textContent = `${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(proposed)}`; copy.appendChild(transition);
+    const target = document.createElement("select"); target.setAttribute("aria-label", `Novo tipo de inicialização para ${service.service}`);
+    [["automatic","Automático"],["manual","Manual"],["disabled","Desativado"]].forEach(([value,label]) => { const option=document.createElement("option"); option.value=value; option.textContent=label; target.appendChild(option); });
+    target.value = proposed;
+    const update = () => {
+      const index = editedServiceProfileChanges.findIndex((item) => item.service.toLowerCase() === service.service.toLowerCase());
+      if (include.checked) {
+        const entry = { service: service.service, start_type: target.value };
+        if (index >= 0) editedServiceProfileChanges[index] = entry; else editedServiceProfileChanges.push(entry);
+      } else if (index >= 0) editedServiceProfileChanges.splice(index,1);
+      target.disabled = !include.checked; row.style.opacity = include.checked ? "1" : ".5";
+      transition.textContent = `${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(target.value)}${include.checked ? "" : " (não será aplicado)"}`;
+      document.getElementById("service-profile-preview-count").textContent = `${editedServiceProfileChanges.length} alteração(ões) selecionada(s) de ${changes.length}`;
+      document.getElementById("service-profile-modal-apply").disabled = !canApply || !editedServiceProfileChanges.length;
+    };
+    editedServiceProfileChanges.push({service:service.service,start_type:proposed});
+    include.addEventListener("change", update); target.addEventListener("change", update);
+    row.append(include,copy,target); items.appendChild(row);
+  });
+  if (!changes.length) { const empty=document.createElement("li"); empty.className="service-profile-preview-empty"; empty.textContent="Este perfil não propõe alterações aplicáveis neste sistema."; items.appendChild(empty); }
+  const ignoredServices=(preview.services||[]).filter((service)=>service.ignored||service.incompatible||!service.proposed);
+  ignoredServices.forEach((service)=>{const item=document.createElement("li");item.textContent=`${service.service}${service.incompatible ? " — "+service.incompatible : ""}`;ignored.appendChild(item);});
+  if(!ignoredServices.length){const item=document.createElement("li");item.textContent="Nenhum serviço ignorado.";ignored.appendChild(item);}
+  document.getElementById("service-profile-preview-count").textContent = `${editedServiceProfileChanges.length} alteração(ões) selecionada(s) de ${changes.length}`;
+  document.getElementById("service-profile-modal-apply").disabled = !canApply || !editedServiceProfileChanges.length;
+  document.getElementById("service-profile-apply-btn").disabled = !canApply || !changes.length;
+  document.getElementById("service-profile-preview-close").focus();
+}
+function closeServiceProfilePreview() {
+  const modal=document.getElementById("service-profile-preview-modal");
+  modal.classList.add("hidden"); modal.setAttribute("aria-hidden","true");
 }
 
 function diagnosticCategoryLabel(category) {
@@ -1053,10 +1261,9 @@ async function registerEvents() {
   void listen("qboa-event", (event) => {
     const payload = event.payload;
     if (payload.event === "task-started") {
-      executionOutput = [];
-      activeTaskId = payload.task_id;
-      activeExecutionId = payload.execution_id;
-      syncExecutionControls();
+      executionOutput = []; activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
+      currentOperationName = presetSequenceRunning ? `Perfil ${presetDisplayName(activeLevel)} · ${taskDisplayName(payload.task_id)}` : taskDisplayName(payload.task_id);
+      currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
@@ -1087,8 +1294,8 @@ async function registerEvents() {
 
 
     if (payload.event === "task-output" && payload.message) {
-      executionOutput.push(payload.message);
-      appendConsole(payload.message);
+      executionOutput.push(payload.message); currentOperationStage = payload.message;
+      updateOperationProgress(currentOperationName, currentOperationStage, payload.progress || payload.message); appendConsole(payload.message);
     } else if (payload.event === "task-completed") {
       stopActivity();
       appendConsole(taskSuccessMessage(taskDisplayName(payload.task_id)));
@@ -1103,6 +1310,7 @@ async function registerEvents() {
     }
 
     if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
+      if (presetSequenceRunning) { presetTerminalCount += 1; currentOperationStage = `Sequência: ${presetTerminalCount}${presetExpectedCount ? ` de ${presetExpectedCount}` : ""} tarefa(s) finalizada(s).`; }
       if (isCleanupTask(payload.task_id)) {
         const resultStatus = payload.event === "task-completed" ? "success" : payload.event === "task-cancelled" ? "cancelled" : "error";
         showCleanupResult(payload.task_id, resultStatus, payload.message || "");
@@ -1110,6 +1318,8 @@ async function registerEvents() {
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
+      if (presetSequenceRunning && presetExpectedCount > 0 && presetTerminalCount >= presetExpectedCount) { presetSequenceRunning = false; currentOperationName = ""; currentOperationStage = ""; }
+      else if (!presetSequenceRunning) { currentOperationName = ""; currentOperationStage = ""; }
       syncExecutionControls();
       refreshHistory();
     }
@@ -1144,6 +1354,9 @@ async function registerEvents() {
     closeRiskModal();
   });
 
+  document.getElementById("running-operation-close").addEventListener("click", closeRunningOperationPopup);
+  document.getElementById("running-operation-console").addEventListener("click", () => { closeRunningOperationPopup(); const panel = document.getElementById("console"); panel.open = true; panel.scrollIntoView({ behavior: "smooth", block: "nearest" }); });
+  document.getElementById("running-operation-modal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeRunningOperationPopup(); });
   document.getElementById("execution-summary-close").addEventListener("click", closeExecutionSummary);
   document.getElementById("execution-summary-ok").addEventListener("click", closeExecutionSummary);
   document.getElementById("execution-summary-modal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeExecutionSummary(); });
@@ -1169,7 +1382,9 @@ async function registerEvents() {
     const riskModal = document.getElementById("risk-modal");
     const serviceInventoryModal = document.getElementById("service-inventory-modal");
     const executionSummaryModal = document.getElementById("execution-summary-modal");
-    if (!executionSummaryModal.classList.contains("hidden")) {
+    const runningOperationModal = document.getElementById("running-operation-modal");
+    if (!runningOperationModal.classList.contains("hidden")) { closeRunningOperationPopup(); }
+    else if (!executionSummaryModal.classList.contains("hidden")) {
       closeExecutionSummary();
     } else if (!serviceInventoryModal.classList.contains("hidden")) {
       serviceInventoryModal.classList.add("hidden");
@@ -1268,14 +1483,23 @@ async function registerEvents() {
 
   document.getElementById("service-profile-select").addEventListener("change", () => {
     document.getElementById("service-profile-apply-btn").disabled = true;
-    document.getElementById("service-profile-preview").replaceChildren();
-    document.getElementById("service-profile-ignored").replaceChildren();
+    currentServiceProfilePreview = null;
+    editedServiceProfileChanges = [];
+    document.getElementById("service-profile-preview-list").replaceChildren();
+    document.getElementById("service-profile-ignored-list").replaceChildren();
     document.getElementById("service-profile-preview-status").textContent = "";
-    document.getElementById("service-profile-ignored-title").hidden = true;
+    closeServiceProfilePreview();
   });
 
-  document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
-    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
+  document.getElementById("service-profile-apply-btn").addEventListener("click", () => {
+    if (currentServiceProfilePreview) {
+      const modal=document.getElementById("service-profile-preview-modal");
+      modal.classList.remove("hidden"); modal.setAttribute("aria-hidden","false");
+    } else document.getElementById("service-profile-preview-btn").click();
+  });
+
+  async function applyEditedServiceProfile() {
+    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled) || !editedServiceProfileChanges.length) return;
     const profile = document.getElementById("service-profile-select").value;
     const aggressive = profile === "aggressive";
     const message = aggressive
@@ -1286,12 +1510,21 @@ async function registerEvents() {
     try {
       await executeServiceProfileOperation(
         `Aplicação do perfil ${document.getElementById("service-profile-select").selectedOptions[0]?.textContent || profile}`,
-        () => Qboa.applyServiceProfile(profile),
+        () => Qboa.applyServiceProfile(profile, editedServiceProfileChanges),
         "Preset de serviços aplicado."
       );
     } catch (error) {
       appendConsole(String(error));
+    } finally {
+      closeServiceProfilePreview();
     }
+  }
+
+  document.getElementById("service-profile-modal-apply").addEventListener("click", applyEditedServiceProfile);
+  document.getElementById("service-profile-preview-close").addEventListener("click", closeServiceProfilePreview);
+  document.getElementById("service-profile-preview-cancel").addEventListener("click", closeServiceProfilePreview);
+  document.getElementById("service-profile-preview-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeServiceProfilePreview();
   });
 
   document.getElementById("service-profile-defaults-btn").addEventListener("click", async () => {

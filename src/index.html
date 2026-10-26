@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Qboa Digital</title>
+  <title>Qboa Digital 3.1.1</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -66,17 +66,24 @@
     </select>
     <p class="service-profile-hint">O QBoa aplica regras validadas ou heurísticas restritas quando o estado atual coincide com o baseline e o hardware exigido é confirmado. Confira a prévia; padrões não validados não serão restaurados.</p>
     <div class="service-profile-actions">
-      <button id="service-profile-preview-btn" type="button">Prévia</button>
+      <button id="service-profile-preview-btn" type="button">Pré-visualizar alterações</button>
       <button id="service-profile-apply-btn" type="button" disabled>Aplicar perfil</button>
       <button id="service-profile-defaults-btn" type="button" disabled>Restaurar configuração inicial</button>
       <button id="service-profile-undo-btn" type="button" disabled>Desfazer minhas alterações</button>
     </div>
-    <p id="service-profile-preview-status"></p>
-    <ul id="service-profile-preview" class="service-profile-preview"></ul>
-    <h3 id="service-profile-ignored-title" hidden>Ignorados</h3>
-    <ul id="service-profile-ignored" class="service-profile-preview"></ul>
+    <p class="service-profile-hint">Confira as alterações em uma janela própria antes de aplicar.</p>
   </section>
 
+  <div class="service-profile-preview-modal hidden" id="service-profile-preview-modal" aria-hidden="true">
+    <section class="service-profile-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="service-profile-preview-title">
+      <header class="service-profile-preview-header"><div><span class="eyebrow">QBoa Digital · revisão</span><h2 id="service-profile-preview-title">Prévia do perfil de serviços</h2><p id="service-profile-preview-status" aria-live="polite"></p></div><button id="service-profile-preview-close" class="secondary-button" type="button">✕ Fechar</button></header>
+      <p class="service-profile-preview-help">Desmarque as alterações que não deseja aplicar ou escolha outro tipo de inicialização. Nada muda até confirmar.</p>
+      <div class="service-profile-preview-legend"><span class="legend-disable">● Desativar</span><span class="legend-enable">● Reativar</span><span class="legend-modify">● Alterar</span></div>
+      <ul id="service-profile-preview-list" class="service-profile-preview-list"></ul>
+      <details class="service-profile-ignored-details"><summary>Serviços ignorados pelo perfil</summary><ul id="service-profile-ignored-list"></ul></details>
+      <footer class="service-profile-preview-actions"><span id="service-profile-preview-count">Nenhuma alteração selecionada</span><button id="service-profile-preview-cancel" class="secondary-button" type="button">Voltar</button><button id="service-profile-modal-apply" class="primary-button" type="button" disabled>Aplicar alterações</button></footer>
+    </section>
+  </div>
   <div class="service-inventory-modal hidden" id="service-inventory-modal" aria-hidden="true">
   <section class="service-inventory-panel" id="service-inventory-panel" role="dialog" aria-modal="true" aria-labelledby="service-inventory-title">
     <div class="service-inventory-heading">
@@ -150,6 +157,8 @@
     </div>
   </div>
 
+  <div id="operation-progress" class="operation-progress" hidden aria-live="polite"><div class="operation-progress-copy"><strong id="operation-progress-task">Operação em andamento</strong><span id="operation-progress-stage">Preparando…</span></div><div class="operation-progress-track"><div id="operation-progress-bar" class="operation-progress-bar"></div></div><span id="operation-progress-percent" class="operation-progress-percent">Em andamento</span></div>
+  <div id="running-operation-modal" class="running-operation-modal hidden" aria-hidden="true"><section class="running-operation-dialog" role="dialog" aria-modal="true" aria-labelledby="running-operation-title"><span class="eyebrow">QBoa Digital · execução protegida</span><h2 id="running-operation-title">Já existe uma operação em andamento</h2><p class="running-operation-current">Operação atual: <strong id="running-operation-task"></strong></p><p id="running-operation-stage"></p><p id="running-operation-requested" class="running-operation-requested"></p><p class="running-operation-note">Para evitar conflitos, o QBoa não iniciou a nova solicitação. Fechar esta janela não cancela a operação atual.</p><div class="running-operation-actions"><button id="running-operation-close" class="secondary-button" type="button">Voltar</button><button id="running-operation-console" class="primary-button" type="button">Ver progresso</button></div></section></div>
   <div id="execution-toast" class="execution-toast" role="status" aria-live="polite" hidden></div>
   <div id="execution-summary-modal" class="execution-summary-modal hidden" aria-hidden="true">
     <section class="execution-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="execution-summary-title">

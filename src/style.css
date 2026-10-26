@@ -474,6 +474,7 @@ button {
 .risk-modal {
   position: fixed;
   inset: 0;
+  z-index: 1700;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -489,6 +490,7 @@ button {
 .confirmation-modal {
   position: fixed;
   inset: 0;
+  z-index: 1800;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -852,6 +854,14 @@ button.copy-pix-button:hover:not(:disabled) {
 
 
 
+/* Progresso real da operação e bloqueio de execuções concorrentes. */
+.operation-progress { position:fixed; left:50%; top:50%; right:auto; bottom:auto; transform:translate(-50%,-50%); z-index:1500; display:grid; grid-template-columns:minmax(160px,1fr) minmax(120px,2fr) auto; align-items:center; gap:12px; width:min(760px,calc(100vw - 32px)); padding:18px 20px; border:1px solid rgba(74,222,128,.48); border-radius:12px; background:rgba(0,0,0,.82); color:#f4f4f4; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); box-shadow:0 20px 60px rgba(0,0,0,.58); }
+.operation-progress[hidden] { display:none; } .operation-progress-copy { display:grid; gap:3px; min-width:0; } .operation-progress-copy strong,.operation-progress-copy span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .operation-progress-copy span { color:#b8c4bc; font-size:.82rem; }
+.operation-progress-track { height:8px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.12); } .operation-progress-bar { width:35%; height:100%; border-radius:inherit; background:#4ade80; animation:qboa-progress-indeterminate 1.35s ease-in-out infinite; } .operation-progress-bar.determinate { animation:none; transition:width .2s ease; } .operation-progress-percent { min-width:80px; text-align:right; font-size:.82rem; color:#c9ced2; }
+@keyframes qboa-progress-indeterminate { from { transform:translateX(-120%); } to { transform:translateX(350%); } }
+.running-operation-modal { position:fixed; inset:0; z-index:1400; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.78); backdrop-filter:blur(5px); } .running-operation-modal.hidden { display:none; } .running-operation-dialog { width:min(520px,100%); padding:24px; border:1px solid rgba(246,198,106,.38); border-radius:14px; background:#171d19; color:#f4f4f4; box-shadow:0 24px 70px rgba(0,0,0,.6); } .running-operation-dialog h2 { margin:8px 0 16px; font-size:1.25rem; } .running-operation-dialog p { line-height:1.5; overflow-wrap:anywhere; } .running-operation-current { padding:12px; border-radius:8px; background:rgba(255,255,255,.05); } .running-operation-requested { color:#f6c66a; font-weight:600; } .running-operation-note { color:#b8c4bc; font-size:.9rem; } .running-operation-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:18px; }
+@media(max-width:600px) { .operation-progress { left:50%; right:auto; top:50%; bottom:auto; width:calc(100vw - 24px); grid-template-columns:1fr auto; gap:10px; padding:15px; } .operation-progress-track { grid-column:1 / -1; grid-row:2; } .operation-progress-percent { min-width:0; } .running-operation-modal { padding:8px; } .running-operation-dialog { padding:16px; } }
+
 /* Resumo final das limpezas e notificação acessível. */
 .execution-summary-modal { position:fixed; inset:0; z-index:1200; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.76); backdrop-filter:blur(5px); }
 .execution-summary-modal.hidden { display:none; }
@@ -860,7 +870,7 @@ button.copy-pix-button:hover:not(:disabled) {
 .execution-summary-header h2 { margin:5px 0 0; } .execution-summary-task { margin:18px 0 5px; font-weight:700; } .execution-summary-status { color:var(--qboa-muted,#b8bdc2); }
 .execution-summary-output { max-height:38vh; overflow:auto; padding:12px; border-radius:8px; background:#0d0f10; color:#e6e6e6; white-space:pre-wrap; overflow-wrap:anywhere; font:.82rem/1.55 var(--font-console,monospace); }
 .execution-summary-actions { display:flex; justify-content:flex-end; margin-top:16px; }
-.execution-toast { position:fixed; right:20px; bottom:20px; z-index:1300; display:grid; gap:4px; width:min(360px,calc(100vw - 32px)); padding:14px 16px; border:1px solid rgba(255,255,255,.18); border-left:4px solid #4ade80; border-radius:10px; background:#171a1d; color:#f4f4f4; box-shadow:0 12px 36px rgba(0,0,0,.4); }
+.execution-toast { position:fixed; right:20px; bottom:20px; z-index:1600; display:grid; gap:4px; width:min(360px,calc(100vw - 32px)); padding:14px 16px; border:1px solid rgba(74,222,128,.35); border-left:4px solid #4ade80; border-radius:10px; background:rgba(0,0,0,.84); color:#f4f4f4; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); box-shadow:0 16px 42px rgba(0,0,0,.58); }
 .execution-toast[hidden] { display:none; } .execution-toast span { font-size:.85rem; color:#c9ced2; } .execution-toast.error { border-left-color:#ff7777; } .execution-toast.warning { border-left-color:#f6c66a; }
 @media(max-width:600px) { .execution-summary-modal { padding:8px; } .execution-summary-dialog { padding:16px; } .execution-summary-header { flex-direction:column; } }
 
@@ -870,3 +880,49 @@ button.copy-pix-button:hover:not(:disabled) {
 .about-meta { margin:18px 0; padding:12px 16px; border-left:3px solid #4ade80; border-radius:4px; background:rgba(255,255,255,.04); }
 .about-meta p { margin:5px 0; }
 .about-support { margin-top:18px; font-size:.82rem; opacity:.8; }
+
+
+/* Ajustes de contraste e prévia editável do perfil de serviços. */
+:root { --qboa-modal:#171d19; --qboa-modal-muted:#b8c4bc; --qboa-focus:#4ade80; }
+.operation-progress { background:rgba(0,0,0,.82); border-color:rgba(74,222,128,.48); }
+.operation-progress-copy span,.running-operation-note { color:var(--qboa-modal-muted); }
+.running-operation-dialog,.confirmation-dialog,.risk-dialog { background:var(--qboa-modal); color:var(--qboa-white,#f4f4f4); border-color:rgba(255,255,255,.18); }
+.running-operation-dialog h2,.confirmation-head h3,.risk-head h3 { color:#ffd166; }
+.execution-summary-dialog { background:rgba(0,0,0,.84); color:var(--qboa-white,#f4f4f4); }
+.execution-toast { background:rgba(0,0,0,.84); color:var(--qboa-white,#f4f4f4); }
+.service-profile-preview-modal { position:fixed; inset:0; z-index:1450; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(0,0,0,.8); backdrop-filter:blur(6px); }
+.service-profile-preview-modal.hidden { display:none; }
+.service-profile-preview-dialog { display:flex; flex-direction:column; gap:12px; width:min(900px,100%); max-height:90vh; overflow:hidden; padding:22px; border:1px solid rgba(255,255,255,.18); border-radius:14px; background:var(--qboa-panel,#171a1d); color:var(--qboa-white,#f4f4f4); box-shadow:0 24px 70px rgba(0,0,0,.6); }
+.service-profile-preview-header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.service-profile-preview-header h2 { margin:5px 0 8px; }
+.service-profile-preview-header p,.service-profile-preview-help { color:var(--qboa-modal-muted); font-size:.88rem; line-height:1.5; }
+.service-profile-preview-help { margin:0; }
+.service-profile-preview-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.78rem; }
+.legend-disable { color:#ff8585; } .legend-enable { color:#6ee7a0; } .legend-modify { color:#f6c66a; }
+.service-profile-preview-list { display:grid; gap:7px; overflow:auto; list-style:none; margin:0; padding:2px 4px 2px 0; }
+.service-profile-preview-row { display:grid; grid-template-columns:auto minmax(0,1fr) minmax(135px,180px); align-items:center; gap:10px; padding:10px 12px; border:1px solid rgba(255,255,255,.1); border-left:4px solid #f6c66a; border-radius:8px; background:rgba(255,255,255,.035); }
+.service-profile-preview-row.preview-disable { border-left-color:#ff7777; } .service-profile-preview-row.preview-enable { border-left-color:#6ee7a0; }
+.service-profile-preview-row input[type=checkbox] { accent-color:#4ade80; width:16px; height:16px; }
+.service-preview-name { min-width:0; overflow-wrap:anywhere; font-weight:700; }
+.service-preview-transition { display:block; margin-top:4px; color:var(--qboa-modal-muted); font-size:.8rem; font-weight:400; }
+.service-profile-preview-row select { width:100%; min-width:0; padding:8px; border:1px solid rgba(255,255,255,.2); border-radius:7px; background:#101412; color:#f4f4f4; font:inherit; }
+.service-profile-preview-row select:focus-visible { outline:2px solid var(--qboa-focus); outline-offset:2px; }
+.service-profile-preview-empty { padding:14px; color:var(--qboa-modal-muted); }
+.service-profile-ignored-details { color:var(--qboa-modal-muted); font-size:.82rem; } .service-profile-ignored-details summary { cursor:pointer; }
+#service-profile-ignored-list { max-height:100px; overflow:auto; columns:2; }
+.service-profile-preview-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; padding-top:12px; border-top:1px solid rgba(255,255,255,.12); }
+#service-profile-preview-count { margin-right:auto; color:var(--qboa-modal-muted); font-size:.82rem; }
+@media(max-width:620px) { .service-profile-preview-modal{padding:7px}.service-profile-preview-dialog{max-height:94vh;padding:13px}.service-profile-preview-header{flex-direction:column}.service-profile-preview-row{grid-template-columns:auto minmax(0,1fr)}.service-profile-preview-row select{grid-column:2}#service-profile-ignored-list{columns:1} }
+
+/* Descrição curta do serviço na prévia: nome em destaque, explicação secundária. */
+.service-preview-copy { min-width:0; overflow-wrap:anywhere; line-height:1.45; }
+.service-preview-name { display:inline; font-weight:700; color:var(--qboa-white,#f4f4f4); }
+.service-preview-description { color:var(--qboa-modal-muted,#b8c4bc); font-size:.88rem; font-weight:400; }
+
+
+/* Confirmações e avisos bloqueantes têm prioridade sobre o progresso.
+   O indicador some enquanto a pessoa precisa decidir, evitando sobreposição. */
+body:has(.confirmation-modal:not(.hidden)) .operation-progress,
+body:has(.risk-modal:not(.hidden)) .operation-progress {
+  display: none !important;
+}
