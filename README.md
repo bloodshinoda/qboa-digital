@@ -2,16 +2,20 @@
 
 ![Qboa Digital](src-tauri/icons/logo.png)
 
-Versão atual: `3.1` (versão do pacote: `3.1.0`)
+Versão atual: `3.1.1` (versão do pacote: `3.1.1`)
 
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
 
-## QBoa Digital 3.1
+## QBoa Digital 3.1.1
 
-A versão 3.1 dá continuidade à linha estável do aplicativo. O QBoa reúne limpeza e manutenção do Windows, ferramentas de privacidade, diagnóstico e proteções para operações avançadas.
+A versão 3.1.1 aprimora o controle de execução e a clareza da interface do QBoa Digital, mantendo as ferramentas de limpeza, privacidade, diagnóstico e manutenção do Windows.
 
 ### Destaques desta versão
 
+- Painel de progresso centralizado, com contraste aprimorado e progresso indeterminado quando a ferramenta não informa percentual real.
+- Diálogos de confirmação e avisos de risco priorizados sobre o painel de progresso, que fica oculto enquanto a pessoa precisa decidir.
+- Bloqueio de execuções concorrentes tanto na interface quanto no backend Rust.
+- Descrições em linguagem simples para serviços conhecidos na prévia de ajustes de serviços.
 - Diálogos de confirmação próprios da interface, com cancelamento seguro e suporte à tecla Escape.
 - Resumo final das tarefas de limpeza, com indicação visual de sucesso, falha ou cancelamento.
 - Aba **Sobre** com versão, autoria, link do projeto e QR Code Pix para apoiar o desenvolvimento.
@@ -178,7 +182,7 @@ O workflow `.github/workflows/windows-build.yml` compila o aplicativo Windows em
 - `qboa-digital-windows-installer`: instalador NSIS `.exe`
 - `qboa-digital-windows-portable`: ZIP com o `.exe` portátil e DLLs de runtime
 
-O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. Para publicar a versão 3.1.0, crie e envie a tag `v3.1.0` a partir do commit que deseja lançar. A compilação gera o instalador NSIS `.exe` e o pacote portátil `.zip`; quando uma tag `v*` é enviada, o workflow cria automaticamente um **rascunho de release** com os dois arquivos anexados. Basta revisar as notas e publicar o rascunho na página de Releases. Os artefatos temporários da execução também ficam disponíveis no GitHub Actions por 14 dias. Extraia o ZIP portátil inteiro e mantenha o `.exe` junto das DLLs incluídas. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
+O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. Para publicar a versão 3.1.1, integre primeiro as alterações aprovadas em `main` e crie/envie a tag `v3.1.1` apontando para esse commit. O workflow compila os pacotes com nomes padronizados `qboa-digital-3.1.1-x64-installer.exe` e `qboa-digital-3.1.1-x64-portable.zip`. Ao receber a tag `v*`, o workflow cria automaticamente um **rascunho de release** com os dois arquivos anexados. Basta revisar as notas e publicar o rascunho na página de Releases. Os artefatos temporários da execução também ficam disponíveis no GitHub Actions por 14 dias. Extraia o ZIP portátil inteiro e mantenha o `.exe` junto das DLLs incluídas. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
 
 ## Validação P0 no Windows
 
@@ -186,7 +190,7 @@ A matriz de validação manual está em [docs/p0-windows-validation.md](docs/p0-
 
 ## Sobre e autoria
 
-**QBoa Digital 3.1.0** é um utilitário independente para limpeza, manutenção, privacidade e diagnóstico do Windows.
+**QBoa Digital 3.1.1** é um utilitário independente para limpeza, manutenção, privacidade e diagnóstico do Windows.
 
 - **Autor e desenvolvedor:** Vilson de Oliveira Junior
 - **Tecnologias:** Tauri, Rust, JavaScript, HTML e CSS
