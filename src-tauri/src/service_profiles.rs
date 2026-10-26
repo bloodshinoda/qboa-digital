@@ -271,6 +271,19 @@ pub(crate) fn preview(
     profile: &ServiceProfileFile,
     selected: ProductProfile,
 ) -> ServicePreview {
+    // O catálogo IoT LTSC ainda deriva de referências Windows Pro e não tem
+    // baseline de inicialização validada. Não sugerir alterações por analogia.
+    if system.edition == WindowsEdition::IoTEnterpriseLtsc && !profile.defaults_validated {
+        return ServicePreview {
+            profile: selected,
+            applicable: false,
+            validated: false,
+            message: "Catálogo de serviços do IoT Enterprise LTSC ainda sem baseline validada. As listas Windows 10/11 Pro e a captura desta máquina não comprovam os padrões de fábrica; nenhuma alteração de perfil será sugerida. Use a gestão manual após conferir fornecedor, caminho e necessidade do serviço.".to_string(),
+            services: Vec::new(),
+            ignored: Vec::new(),
+        };
+    }
+
     if !system.supported || profile.services.is_empty() {
         let services = system
             .services
@@ -1180,6 +1193,27 @@ mod tests {
             baseline: None,
             changes: Vec::new(),
         }
+    }
+
+    #[test]
+    fn unvalidated_ltsc_profile_does_not_suggest_pro_derived_changes() {
+        let detected = system(WindowsVersion::Windows11, WindowsEdition::IoTEnterpriseLtsc);
+        let mut catalog = profile(WindowsVersion::Windows11, WindowsEdition::IoTEnterpriseLtsc);
+        catalog.services.push(ServiceRule {
+            name: "ExampleSvc".to_string(),
+            start_type: "Manual".to_string(),
+            windows_default_start_type: Some("Automatic".to_string()),
+            profiles: vec![ProductProfile::Safe],
+            form_factor: None,
+            requires_no_battery: false,
+        });
+
+        let result = preview(&detected, &catalog, ProductProfile::Safe);
+        assert!(!result.applicable);
+        assert!(!result.validated);
+        assert!(result.services.is_empty());
+        assert!(result.message.contains("LTSC"));
+        assert!(result.message.contains("não será sugerida"));
     }
 
     #[test]
