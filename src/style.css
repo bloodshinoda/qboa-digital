@@ -878,3 +878,35 @@ button.copy-pix-button:hover:not(:disabled) {
 .about-meta { margin:18px 0; padding:12px 16px; border-left:3px solid #4ade80; border-radius:4px; background:rgba(255,255,255,.04); }
 .about-meta p { margin:5px 0; }
 .about-support { margin-top:18px; font-size:.82rem; opacity:.8; }
+
+
+/* Ajustes de contraste e prévia editável do perfil de serviços. */
+:root { --qboa-modal:#171d19; --qboa-modal-muted:#b8c4bc; --qboa-focus:#4ade80; }
+.operation-progress { background:var(--qboa-panel,#171a1d); border-color:rgba(74,222,128,.42); }
+.operation-progress-copy span,.running-operation-note { color:var(--qboa-modal-muted); }
+.running-operation-dialog,.confirmation-dialog,.risk-dialog { background:var(--qboa-modal); color:var(--qboa-white,#f4f4f4); border-color:rgba(255,255,255,.18); }
+.running-operation-dialog h2,.confirmation-head h3,.risk-head h3 { color:#ffd166; }
+.execution-summary-dialog,.execution-toast { background:var(--qboa-panel,#171a1d); color:var(--qboa-white,#f4f4f4); }
+.service-profile-preview-modal { position:fixed; inset:0; z-index:1450; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(0,0,0,.8); backdrop-filter:blur(6px); }
+.service-profile-preview-modal.hidden { display:none; }
+.service-profile-preview-dialog { display:flex; flex-direction:column; gap:12px; width:min(900px,100%); max-height:90vh; overflow:hidden; padding:22px; border:1px solid rgba(255,255,255,.18); border-radius:14px; background:var(--qboa-panel,#171a1d); color:var(--qboa-white,#f4f4f4); box-shadow:0 24px 70px rgba(0,0,0,.6); }
+.service-profile-preview-header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.service-profile-preview-header h2 { margin:5px 0 8px; }
+.service-profile-preview-header p,.service-profile-preview-help { color:var(--qboa-modal-muted); font-size:.88rem; line-height:1.5; }
+.service-profile-preview-help { margin:0; }
+.service-profile-preview-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.78rem; }
+.legend-disable { color:#ff8585; } .legend-enable { color:#6ee7a0; } .legend-modify { color:#f6c66a; }
+.service-profile-preview-list { display:grid; gap:7px; overflow:auto; list-style:none; margin:0; padding:2px 4px 2px 0; }
+.service-profile-preview-row { display:grid; grid-template-columns:auto minmax(0,1fr) minmax(135px,180px); align-items:center; gap:10px; padding:10px 12px; border:1px solid rgba(255,255,255,.1); border-left:4px solid #f6c66a; border-radius:8px; background:rgba(255,255,255,.035); }
+.service-profile-preview-row.preview-disable { border-left-color:#ff7777; } .service-profile-preview-row.preview-enable { border-left-color:#6ee7a0; }
+.service-profile-preview-row input[type=checkbox] { accent-color:#4ade80; width:16px; height:16px; }
+.service-preview-name { min-width:0; overflow-wrap:anywhere; font-weight:700; }
+.service-preview-transition { display:block; margin-top:4px; color:var(--qboa-modal-muted); font-size:.8rem; font-weight:400; }
+.service-profile-preview-row select { width:100%; min-width:0; padding:8px; border:1px solid rgba(255,255,255,.2); border-radius:7px; background:#101412; color:#f4f4f4; font:inherit; }
+.service-profile-preview-row select:focus-visible { outline:2px solid var(--qboa-focus); outline-offset:2px; }
+.service-profile-preview-empty { padding:14px; color:var(--qboa-modal-muted); }
+.service-profile-ignored-details { color:var(--qboa-modal-muted); font-size:.82rem; } .service-profile-ignored-details summary { cursor:pointer; }
+#service-profile-ignored-list { max-height:100px; overflow:auto; columns:2; }
+.service-profile-preview-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; padding-top:12px; border-top:1px solid rgba(255,255,255,.12); }
+#service-profile-preview-count { margin-right:auto; color:var(--qboa-modal-muted); font-size:.82rem; }
+@media(max-width:620px) { .service-profile-preview-modal{padding:7px}.service-profile-preview-dialog{max-height:94vh;padding:13px}.service-profile-preview-header{flex-direction:column}.service-profile-preview-row{grid-template-columns:auto minmax(0,1fr)}.service-profile-preview-row select{grid-column:2}#service-profile-ignored-list{columns:1} }
