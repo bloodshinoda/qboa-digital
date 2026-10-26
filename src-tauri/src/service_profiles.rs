@@ -525,14 +525,23 @@ pub(crate) fn apply_profile_with_overrides<B: ServiceProfileBackend>(
         if !seen.insert(name.to_ascii_lowercase()) {
             return Err(format!("Serviço duplicado na prévia: {name}"));
         }
-        let item = generated.services.iter().find(|item| item.service.eq_ignore_ascii_case(name))
+        let item = generated
+            .services
+            .iter()
+            .find(|item| item.service.eq_ignore_ascii_case(name))
             .ok_or_else(|| format!("Serviço não pertence à prévia deste perfil: {name}"))?;
         if item.incompatible.is_some() || item.proposed.is_none() {
-            return Err(format!("A alteração de {name} não é compatível com este sistema."));
+            return Err(format!(
+                "A alteração de {name} não é compatível com este sistema."
+            ));
         }
-        if item.current.eq_ignore_ascii_case(&target) { continue; }
+        if item.current.eq_ignore_ascii_case(&target) {
+            continue;
+        }
         if protected_disable(name, &target) {
-            return Err(format!("A alteração de {name} viola a proteção de serviços críticos."));
+            return Err(format!(
+                "A alteração de {name} viola a proteção de serviços críticos."
+            ));
         }
         let mut adjusted = item.clone();
         adjusted.proposed = Some(target);
@@ -541,10 +550,18 @@ pub(crate) fn apply_profile_with_overrides<B: ServiceProfileBackend>(
     if selected_items.is_empty() {
         return Err("Nenhuma alteração foi selecionada para aplicar.".to_string());
     }
-    let names: Vec<String> = selected_items.iter().map(|item| item.service.clone()).collect();
+    let names: Vec<String> = selected_items
+        .iter()
+        .map(|item| item.service.clone())
+        .collect();
     let snapshot_services = backend.start_types(&names)?;
     ensure_snapshot_covers(&names, &snapshot_services)?;
-    backend.save_snapshot(&ServiceSnapshot { os: system.os, build: system.build, edition: system.edition, services: snapshot_services })?;
+    backend.save_snapshot(&ServiceSnapshot {
+        os: system.os,
+        build: system.build,
+        edition: system.edition,
+        services: snapshot_services,
+    })?;
     for item in &selected_items {
         backend.set_start_type(&item.service, item.proposed.as_deref().unwrap_or_default())?;
     }
