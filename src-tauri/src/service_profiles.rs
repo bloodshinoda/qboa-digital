@@ -158,6 +158,12 @@ pub(crate) struct ServicePreview {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct ServiceProfileOverride {
+    pub service: String,
+    pub start_type: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct ServiceSnapshot {
     os: WindowsVersion,
     build: String,
@@ -491,6 +497,55 @@ pub(crate) fn apply_profile<B: ServiceProfileBackend>(
                 .as_deref()
                 .is_some_and(|target| !item.current.eq_ignore_ascii_case(target))
     }) {
+        backend.set_start_type(&item.service, item.proposed.as_deref().unwrap_or_default())?;
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_profile_with_overrides<B: ServiceProfileBackend>(
+    backend: &mut B,
+    profile: &ServiceProfileFile,
+    selected: ProductProfile,
+    changes: Vec<ServiceProfileOverride>,
+) -> Result<(), String> {
+    ensure_profile_has_validated_services(profile)?;
+    let system = backend.detect_system()?;
+    let generated = preview(&system, profile, selected);
+    if !generated.applicable {
+        return Err(format!("Perfil não aplicável: {}", generated.message));
+    }
+    let mut selected_items = Vec::new();
+    let mut seen = HashSet::new();
+    for change in changes {
+        let name = change.service.trim();
+        let target = change.start_type.trim().to_ascii_lowercase();
+        if name.is_empty() || !["automatic", "manual", "disabled"].contains(&target.as_str()) {
+            return Err("A prévia contém uma alteração inválida.".to_string());
+        }
+        if !seen.insert(name.to_ascii_lowercase()) {
+            return Err(format!("Serviço duplicado na prévia: {name}"));
+        }
+        let item = generated.services.iter().find(|item| item.service.eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("Serviço não pertence à prévia deste perfil: {name}"))?;
+        if item.incompatible.is_some() || item.proposed.is_none() {
+            return Err(format!("A alteração de {name} não é compatível com este sistema."));
+        }
+        if item.current.eq_ignore_ascii_case(&target) { continue; }
+        if protected_disable(name, &target) {
+            return Err(format!("A alteração de {name} viola a proteção de serviços críticos."));
+        }
+        let mut adjusted = item.clone();
+        adjusted.proposed = Some(target);
+        selected_items.push(adjusted);
+    }
+    if selected_items.is_empty() {
+        return Err("Nenhuma alteração foi selecionada para aplicar.".to_string());
+    }
+    let names: Vec<String> = selected_items.iter().map(|item| item.service.clone()).collect();
+    let snapshot_services = backend.start_types(&names)?;
+    ensure_snapshot_covers(&names, &snapshot_services)?;
+    backend.save_snapshot(&ServiceSnapshot { os: system.os, build: system.build, edition: system.edition, services: snapshot_services })?;
+    for item in &selected_items {
         backend.set_start_type(&item.service, item.proposed.as_deref().unwrap_or_default())?;
     }
     Ok(())
