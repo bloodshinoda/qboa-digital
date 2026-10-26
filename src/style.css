@@ -474,6 +474,7 @@ button {
 .risk-modal {
   position: fixed;
   inset: 0;
+  z-index: 1700;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -489,6 +490,7 @@ button {
 .confirmation-modal {
   position: fixed;
   inset: 0;
+  z-index: 1800;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -916,3 +918,11 @@ button.copy-pix-button:hover:not(:disabled) {
 .service-preview-copy { min-width:0; overflow-wrap:anywhere; line-height:1.45; }
 .service-preview-name { display:inline; font-weight:700; color:var(--qboa-white,#f4f4f4); }
 .service-preview-description { color:var(--qboa-modal-muted,#b8c4bc); font-size:.88rem; font-weight:400; }
+
+
+/* Confirmações e avisos bloqueantes têm prioridade sobre o progresso.
+   O indicador some enquanto a pessoa precisa decidir, evitando sobreposição. */
+body:has(.confirmation-modal:not(.hidden)) .operation-progress,
+body:has(.risk-modal:not(.hidden)) .operation-progress {
+  display: none !important;
+}
