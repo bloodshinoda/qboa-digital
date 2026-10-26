@@ -229,15 +229,8 @@ Write-Output ("Inicialização de {{0}} alterada para {{1}}" -f $svc.Name, '{sta
 }
 
 
-#[derive(Debug, PartialEq, Eq)]
-struct VendorMatch {
-    vendor: Option<&'static str>,
-    evidence: Vec<String>,
-}
-
 fn identify_vendor(name: &str, display_name: &str, image_path: &str) -> (Option<&'static str>, Vec<String>) {
     let name = name.trim().to_ascii_lowercase();
-    let display = display_name.trim().to_ascii_lowercase();
     let path = image_path.trim().replace('/', "\\").to_ascii_lowercase();
     let file = path.rsplit('\\').next().unwrap_or_default();
 
@@ -271,7 +264,6 @@ fn identify_vendor(name: &str, display_name: &str, image_path: &str) -> (Option<
         || name == "googlechromeelevationservice"
         || (file == "updater.exe" && path.contains("\\google\\googleupdater\\"))
         || (file == "elevation_service.exe" && path.contains("\\google\\chrome\\application\\"))
-        || display.contains("google updater")
     {
         let evidence = if name.starts_with("googleupdaterinternalservice") {
             "prefixo GoogleUpdaterInternalService; sufixo de versão ignorado"
