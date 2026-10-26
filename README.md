@@ -10,6 +10,30 @@ Versão atual: `3.1.1` (versão do pacote: `3.1.1`)
 
 A versão 3.1.1 aprimora o controle de execução e a clareza da interface do QBoa Digital, mantendo as ferramentas de limpeza, privacidade, diagnóstico e manutenção do Windows.
 
+## Screenshots
+
+Interface do QBoa Digital 3.1.1 em uso. As capturas são hospedadas no repositório do hotsite para manter uma única cópia dos arquivos.
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/qboadigital/qboadigital.github.io/main/assets/limpeza.png" alt="Tela de limpeza do QBoa Digital" width="720" />
+  <p><strong>Limpeza</strong></p>
+</div>
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/qboadigital/qboadigital.github.io/main/assets/capacidades.png" alt="Inventário de capacidades do Windows no QBoa Digital" width="720" />
+  <p><strong>Capacidades do Windows</strong></p>
+</div>
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/qboadigital/qboadigital.github.io/main/assets/diagn%C3%B3stico.png" alt="Tela de diagnóstico do QBoa Digital" width="720" />
+  <p><strong>Diagnóstico</strong></p>
+</div>
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/qboadigital/qboadigital.github.io/main/assets/servi%C3%A7os.png" alt="Gerenciamento de serviços do Windows no QBoa Digital" width="720" />
+  <p><strong>Serviços do Windows</strong></p>
+</div>
+
 ## Downloads — versão 3.1.1
 
 - **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.1.1/qboa-digital-3.1.1-x64-installer.exe)** — instalação tradicional.
