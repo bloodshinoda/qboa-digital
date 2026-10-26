@@ -96,11 +96,8 @@ ConvertTo-Json -InputObject $services -Depth 4 -Compress
             .into_iter()
             .map(|service| {
                 let protected = is_protected(&service.name);
-                let (vendor, identification_evidence) = identify_vendor(
-                    &service.name,
-                    &service.display_name,
-                    &service.image_path,
-                );
+                let (vendor, identification_evidence) =
+                    identify_vendor(&service.name, &service.display_name, &service.image_path);
                 let classification = if vendor.is_some() {
                     "known_third_party"
                 } else if service.is_microsoft {
