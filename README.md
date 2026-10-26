@@ -10,6 +10,12 @@ Versão atual: `3.1.1` (versão do pacote: `3.1.1`)
 
 A versão 3.1.1 aprimora o controle de execução e a clareza da interface do QBoa Digital, mantendo as ferramentas de limpeza, privacidade, diagnóstico e manutenção do Windows.
 
+## Downloads — versão 3.1.1
+
+- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.1.1/qboa-digital-3.1.1-x64-installer.exe)** — instalação tradicional.
+- **[Versão portátil Windows x64 (.zip)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.1.1/qboa-digital-3.1.1-x64-portable.zip)** — extraia o conteúdo completo do ZIP e mantenha o executável junto das DLLs incluídas.
+- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.1.1).
+
 ### Destaques desta versão
 
 - Painel de progresso centralizado, com contraste aprimorado e progresso indeterminado quando a ferramenta não informa percentual real.
@@ -182,7 +188,7 @@ O workflow `.github/workflows/windows-build.yml` compila o aplicativo Windows em
 - `qboa-digital-windows-installer`: instalador NSIS `.exe`
 - `qboa-digital-windows-portable`: ZIP com o `.exe` portátil e DLLs de runtime
 
-O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. Para publicar a versão 3.1.1, integre primeiro as alterações aprovadas em `main` e crie/envie a tag `v3.1.1` apontando para esse commit. O workflow compila os pacotes com nomes padronizados `qboa-digital-3.1.1-x64-installer.exe` e `qboa-digital-3.1.1-x64-portable.zip`. Ao receber a tag `v*`, o workflow cria automaticamente um **rascunho de release** com os dois arquivos anexados. Basta revisar as notas e publicar o rascunho na página de Releases. Os artefatos temporários da execução também ficam disponíveis no GitHub Actions por 14 dias. Extraia o ZIP portátil inteiro e mantenha o `.exe` junto das DLLs incluídas. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
+O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. A versão `v3.1.1` já está publicada em [Releases](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.1.1). O workflow compila os pacotes com nomes padronizados `qboa-digital-3.1.1-x64-installer.exe` e `qboa-digital-3.1.1-x64-portable.zip`. Ao receber uma tag `v*`, o workflow compila e anexa os dois arquivos à release correspondente; confira o resultado da execução em Actions. Os artefatos temporários da execução também ficam disponíveis no GitHub Actions por 14 dias. Extraia o ZIP portátil inteiro e mantenha o `.exe` junto das DLLs incluídas. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
 
 ## Validação P0 no Windows
 
