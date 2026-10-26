@@ -21,6 +21,8 @@ let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
 let serviceProfileState = null;
+let currentServiceProfilePreview = null;
+let editedServiceProfileChanges = [];
 let windowsServices = [];
 let browserCleanupDecision = null;
 let showAllSessionChanges = false;
@@ -74,8 +76,8 @@ const Qboa = {
     return invoke("preview_service_profile", { profile });
   },
 
-  async applyServiceProfile(profile) {
-    return invoke("apply_service_profile", { profile });
+  async applyServiceProfile(profile, changes) {
+    return invoke("apply_service_profile", { profile, changes });
   },
 
   async restoreWindowsServiceDefaults() {
@@ -889,47 +891,62 @@ async function refreshHistory() {
   }
 }
 function renderServiceProfilePreview(preview) {
-  const items = document.getElementById("service-profile-preview");
-  const ignored = document.getElementById("service-profile-ignored");
-  const ignoredTitle = document.getElementById("service-profile-ignored-title");
-  items.replaceChildren();
-  ignored.replaceChildren();
-  ignoredTitle.hidden = true;
+  currentServiceProfilePreview = preview;
+  const items = document.getElementById("service-profile-preview-list");
+  const ignored = document.getElementById("service-profile-ignored-list");
+  items.replaceChildren(); ignored.replaceChildren();
   document.getElementById("service-profile-preview-status").textContent = preview.message;
-  document.getElementById("service-profile-apply-btn").disabled =
-    !serviceProfileState?.system?.supported ||
-    !(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled) ||
-    !preview.applicable;
-
-  preview.services.forEach((service) => {
+  const canApply = Boolean(serviceProfileState?.system?.supported) &&
+    Boolean(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled) &&
+    Boolean(preview.applicable);
+  const modal = document.getElementById("service-profile-preview-modal");
+  modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  const changes = (preview.services || []).filter((service) => {
     const current = String(service.current || "").trim().toLowerCase();
-    const proposedValue = String(service.proposed || "").trim();
-    const proposed = proposedValue.toLowerCase();
-
-    // A prévia deve mostrar somente mudanças efetivas; regras sem proposta,
-    // valores iguais e serviços ignorados não entram na lista de alterações.
-    if (!proposedValue || !current || proposed === current || service.ignored) return;
-
-    const item = document.createElement("li");
-    item.classList.add("service-preview-change");
-    item.textContent = `${service.service}: ${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(proposedValue)}`;
-
-    if (proposed === "disabled") {
-      item.classList.add("service-preview-disable");
-    } else if (current === "disabled") {
-      item.classList.add("service-preview-enable");
-    } else {
-      item.classList.add("service-preview-modify");
-    }
-    items.appendChild(item);
+    const proposed = String(service.proposed || "").trim().toLowerCase();
+    return proposed && current && proposed !== current && !service.ignored && !service.incompatible;
   });
-  ignoredTitle.hidden = true;
-  if (!items.children.length) {
-    const item = document.createElement("li");
-    item.className = "service-preview-empty";
-    item.textContent = "Nenhum serviço terá a inicialização alterada neste perfil.";
-    items.appendChild(item);
-  }
+  editedServiceProfileChanges = [];
+  changes.forEach((service) => {
+    const current = String(service.current || "").trim().toLowerCase();
+    const proposed = String(service.proposed || "").trim().toLowerCase();
+    const row = document.createElement("li");
+    row.className = "service-profile-preview-row" + (proposed === "disabled" ? " preview-disable" : current === "disabled" ? " preview-enable" : "");
+    const include = document.createElement("input"); include.type = "checkbox"; include.checked = true;
+    include.setAttribute("aria-label", `Incluir alteração de ${service.service}`);
+    const copy = document.createElement("div"); copy.className = "service-preview-name"; copy.textContent = service.service;
+    const transition = document.createElement("span"); transition.className = "service-preview-transition";
+    transition.textContent = `${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(proposed)}`; copy.appendChild(transition);
+    const target = document.createElement("select"); target.setAttribute("aria-label", `Novo tipo de inicialização para ${service.service}`);
+    [["automatic","Automático"],["manual","Manual"],["disabled","Desativado"]].forEach(([value,label]) => { const option=document.createElement("option"); option.value=value; option.textContent=label; target.appendChild(option); });
+    target.value = proposed;
+    const update = () => {
+      const index = editedServiceProfileChanges.findIndex((item) => item.service.toLowerCase() === service.service.toLowerCase());
+      if (include.checked) {
+        const entry = { service: service.service, start_type: target.value };
+        if (index >= 0) editedServiceProfileChanges[index] = entry; else editedServiceProfileChanges.push(entry);
+      } else if (index >= 0) editedServiceProfileChanges.splice(index,1);
+      target.disabled = !include.checked; row.style.opacity = include.checked ? "1" : ".5";
+      transition.textContent = `${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(target.value)}${include.checked ? "" : " (não será aplicado)"}`;
+      document.getElementById("service-profile-preview-count").textContent = `${editedServiceProfileChanges.length} alteração(ões) selecionada(s) de ${changes.length}`;
+      document.getElementById("service-profile-modal-apply").disabled = !canApply || !editedServiceProfileChanges.length;
+    };
+    editedServiceProfileChanges.push({service:service.service,start_type:proposed});
+    include.addEventListener("change", update); target.addEventListener("change", update);
+    row.append(include,copy,target); items.appendChild(row);
+  });
+  if (!changes.length) { const empty=document.createElement("li"); empty.className="service-profile-preview-empty"; empty.textContent="Este perfil não propõe alterações aplicáveis neste sistema."; items.appendChild(empty); }
+  const ignoredServices=(preview.services||[]).filter((service)=>service.ignored||service.incompatible||!service.proposed);
+  ignoredServices.forEach((service)=>{const item=document.createElement("li");item.textContent=`${service.service}${service.incompatible ? " — "+service.incompatible : ""}`;ignored.appendChild(item);});
+  if(!ignoredServices.length){const item=document.createElement("li");item.textContent="Nenhum serviço ignorado.";ignored.appendChild(item);}
+  document.getElementById("service-profile-preview-count").textContent = `${editedServiceProfileChanges.length} alteração(ões) selecionada(s) de ${changes.length}`;
+  document.getElementById("service-profile-modal-apply").disabled = !canApply || !editedServiceProfileChanges.length;
+  document.getElementById("service-profile-apply-btn").disabled = !canApply || !changes.length;
+  document.getElementById("service-profile-preview-close").focus();
+}
+function closeServiceProfilePreview() {
+  const modal=document.getElementById("service-profile-preview-modal");
+  modal.classList.add("hidden"); modal.setAttribute("aria-hidden","true");
 }
 
 function diagnosticCategoryLabel(category) {
@@ -1329,14 +1346,23 @@ async function registerEvents() {
 
   document.getElementById("service-profile-select").addEventListener("change", () => {
     document.getElementById("service-profile-apply-btn").disabled = true;
-    document.getElementById("service-profile-preview").replaceChildren();
-    document.getElementById("service-profile-ignored").replaceChildren();
+    currentServiceProfilePreview = null;
+    editedServiceProfileChanges = [];
+    document.getElementById("service-profile-preview-list").replaceChildren();
+    document.getElementById("service-profile-ignored-list").replaceChildren();
     document.getElementById("service-profile-preview-status").textContent = "";
-    document.getElementById("service-profile-ignored-title").hidden = true;
+    closeServiceProfilePreview();
   });
 
-  document.getElementById("service-profile-apply-btn").addEventListener("click", async () => {
-    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled)) return;
+  document.getElementById("service-profile-apply-btn").addEventListener("click", () => {
+    if (currentServiceProfilePreview) {
+      const modal=document.getElementById("service-profile-preview-modal");
+      modal.classList.remove("hidden"); modal.setAttribute("aria-hidden","false");
+    } else document.getElementById("service-profile-preview-btn").click();
+  });
+
+  async function applyEditedServiceProfile() {
+    if (!(serviceProfileState?.profile?.validated || serviceProfileState?.profile?.heuristic_apply_enabled) || !editedServiceProfileChanges.length) return;
     const profile = document.getElementById("service-profile-select").value;
     const aggressive = profile === "aggressive";
     const message = aggressive
@@ -1347,12 +1373,21 @@ async function registerEvents() {
     try {
       await executeServiceProfileOperation(
         `Aplicação do perfil ${document.getElementById("service-profile-select").selectedOptions[0]?.textContent || profile}`,
-        () => Qboa.applyServiceProfile(profile),
+        () => Qboa.applyServiceProfile(profile, editedServiceProfileChanges),
         "Preset de serviços aplicado."
       );
     } catch (error) {
       appendConsole(String(error));
+    } finally {
+      closeServiceProfilePreview();
     }
+  }
+
+  document.getElementById("service-profile-modal-apply").addEventListener("click", applyEditedServiceProfile);
+  document.getElementById("service-profile-preview-close").addEventListener("click", closeServiceProfilePreview);
+  document.getElementById("service-profile-preview-cancel").addEventListener("click", closeServiceProfilePreview);
+  document.getElementById("service-profile-preview-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeServiceProfilePreview();
   });
 
   document.getElementById("service-profile-defaults-btn").addEventListener("click", async () => {
