@@ -910,3 +910,8 @@ button.copy-pix-button:hover:not(:disabled) {
 .service-profile-preview-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; padding-top:12px; border-top:1px solid rgba(255,255,255,.12); }
 #service-profile-preview-count { margin-right:auto; color:var(--qboa-modal-muted); font-size:.82rem; }
 @media(max-width:620px) { .service-profile-preview-modal{padding:7px}.service-profile-preview-dialog{max-height:94vh;padding:13px}.service-profile-preview-header{flex-direction:column}.service-profile-preview-row{grid-template-columns:auto minmax(0,1fr)}.service-profile-preview-row select{grid-column:2}#service-profile-ignored-list{columns:1} }
+
+/* Descrição curta do serviço na prévia: nome em destaque, explicação secundária. */
+.service-preview-copy { min-width:0; overflow-wrap:anywhere; line-height:1.45; }
+.service-preview-name { display:inline; font-weight:700; color:var(--qboa-white,#f4f4f4); }
+.service-preview-description { color:var(--qboa-modal-muted,#b8c4bc); font-size:.88rem; font-weight:400; }
