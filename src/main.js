@@ -257,6 +257,134 @@ function serviceStatusLabel(status) {
   return ({ running: "Em execução", stopped: "Parado", startpending: "Iniciando", stoppending: "Parando", paused: "Pausado" })[String(status).toLowerCase()] || status;
 }
 
+const WINDOWS_SERVICE_DESCRIPTIONS = {
+  "phonesvc":"Serviço de telefonia",
+  "phone service":"Serviço de telefonia",
+  "dhcp":"Obtém endereços IP e configurações de rede automaticamente",
+  "dnscache":"Armazena consultas DNS em cache para acelerar a navegação",
+  "wuauserv":"Gerencia atualizações do Windows",
+  "bits":"Transfere arquivos em segundo plano, inclusive para atualizações",
+  "windefend":"Proteção antivírus do Microsoft Defender",
+  "audiosrv":"Gerencia o áudio do Windows",
+  "audioendpointbuilder":"Detecta e configura dispositivos de áudio",
+  "cryptsvc":"Serviços criptográficos e validação de assinaturas digitais",
+  "eventlog":"Registra eventos do Windows e dos aplicativos",
+  "spooler":"Gerencia a fila e os trabalhos de impressão",
+  "schedule":"Executa tarefas agendadas",
+  "winmgmt":"Infraestrutura de gerenciamento do Windows (WMI)",
+  "profsvc":"Carrega e gerencia perfis de usuário",
+  "usermanager":"Gerencia usuários e sessões",
+  "lanmanworkstation":"Conecta o computador a pastas e recursos compartilhados na rede",
+  "lanmanserver":"Compartilha arquivos e impressoras pela rede",
+  "power":"Gerencia planos e estados de energia",
+  "nlasvc":"Identifica redes conectadas e suas propriedades",
+  "netprofm":"Identifica propriedades e perfis de rede",
+  "wlan svc":"Gerencia conexões Wi-Fi",
+  "wlansvc":"Gerencia conexões Wi-Fi",
+  "wwansvc":"Gerencia conexões de banda larga móvel",
+  "bthserv":"Suporte básico a dispositivos Bluetooth",
+  "deviceassociationservice":"Emparelha dispositivos e periféricos",
+  "deviceinstall":"Gerencia a instalação de dispositivos",
+  "plugplay":"Detecta e configura dispositivos conectados",
+  "spooler":"Gerencia fila de impressão",
+  "fax":"Envia e recebe fax",
+  "themes":"Gerencia temas visuais do Windows",
+  "fontcache":"Otimiza o carregamento de fontes",
+  "sysmain":"Otimiza o desempenho e o carregamento de aplicativos",
+  "defragsvc":"Otimiza e desfragmenta unidades de armazenamento",
+  "vss":"Coordena cópias de sombra usadas por backup e restauração",
+  "wbengine":"Motor de backup do Windows",
+  "fhsvc":"Gerencia o Histórico de Arquivos",
+  "storsvc":"Gerencia recursos e configurações de armazenamento",
+  "vds":"Gerencia discos e volumes",
+  "msiserver":"Instala, repara e remove programas no formato MSI",
+  "installservice":"Infraestrutura de instalação da Microsoft Store",
+  "clipsvc":"Infraestrutura de licenciamento da Microsoft Store",
+  "appxs vc":"Infraestrutura de implantação de aplicativos da Store",
+  "appxsvc":"Infraestrutura de implantação de aplicativos da Store",
+  "state repository":"Armazena estado de aplicativos",
+  "staterepository":"Armazena estado de aplicativos",
+  "wscsvc":"Central de segurança e estado de proteção do Windows",
+  "securityhealthservice":"Mantém informações de segurança do Windows",
+  "sense":"Detecção e resposta avançada do Microsoft Defender",
+  "wdnisvc":"Inspeção de rede do Microsoft Defender",
+  "bdesvc":"Gerencia a criptografia de unidades com BitLocker",
+  "efs":"Criptografa arquivos em unidades NTFS",
+  "scardsvr":"Gerencia acesso a cartões inteligentes",
+  "vaultsvc":"Armazena credenciais e segredos do Windows",
+  "keyiso":"Isola chaves criptográficas e operações de autenticação",
+  "termservice":"Gerencia sessões de Área de Trabalho Remota",
+  "sessionenv":"Configura sessões de Área de Trabalho Remota",
+  "umrdpservice":"Redireciona dispositivos em sessões remotas",
+  "rasman":"Gerencia conexões VPN e de acesso remoto",
+  "rasauto":"Cria conexões de acesso remoto sob demanda",
+  "sstpsvc":"Suporte a conexões VPN SSTP",
+  "remote registry":"Permite gerenciamento remoto do Registro",
+  "remoteregistry":"Permite gerenciamento remoto do Registro",
+  "winrm":"Gerenciamento remoto do Windows via WS-Management",
+  "ssh-agent":"Armazena chaves SSH para autenticação",
+  "iphlpsvc":"Suporte à conectividade IPv6",
+  "sharedaccess":"Compartilha a conexão de Internet e o ponto de acesso móvel",
+  "icssvc":"Gerencia o ponto de acesso móvel",
+  "dnscache":"Armazena consultas DNS em cache",
+  "lmhosts":"Suporte NetBIOS sobre TCP/IP",
+  "netlogon":"Autentica usuários e computadores em domínios",
+  "fdrespub":"Publica o computador e seus recursos para descoberta na rede",
+  "fdphost":"Hospeda descoberta de dispositivos na rede",
+  "ssdpsrv":"Descobre dispositivos UPnP na rede",
+  "upnphost":"Hospeda dispositivos UPnP",
+  "webclient":"Acesso a arquivos e pastas via WebDAV",
+  "trkwks":"Mantém vínculos com arquivos em outros computadores",
+  "diagnosticshub.standardcollector.service":"Coleta dados de diagnóstico para ferramentas de desenvolvimento",
+  "dps":"Detecta e soluciona problemas do Windows",
+  "diagsvc":"Executa serviços de diagnóstico",
+  "wer svc":"Relatório de erros do Windows",
+  "wersvc":"Relata falhas de aplicativos e do Windows",
+  "diagtrack":"Coleta dados de diagnóstico e telemetria do Windows",
+  "w32time":"Sincroniza a data e a hora do sistema",
+  "tzautoupdate":"Atualiza automaticamente o fuso horário",
+  "camsvc":"Gerencia acesso de aplicativos a recursos do sistema",
+  "frame server":"Gerencia fluxos de câmera para aplicativos",
+  "frameserver":"Gerencia fluxos de câmera para aplicativos",
+  "lfsvc":"Gerencia recursos de localização geográfica",
+  "sensorservice":"Gerencia sensores do dispositivo",
+  "sensordataservice":"Fornece dados de sensores",
+  "tabletinputservice":"Teclado virtual, escrita manual e entrada por toque",
+  "hidserv":"Suporte a teclas especiais e dispositivos HID",
+  "bthavctpsvc":"Gerencia comandos e controles de áudio Bluetooth",
+  "phone svc":"Serviço de telefonia",
+  "smsrouter":"Encaminha mensagens para aplicativos compatíveis",
+  "tokenbroker":"Intermedeia tokens de autenticação de aplicativos",
+  "wlidsvc":"Login com conta Microsoft",
+  "licensemanager":"Gerencia licenças de aplicativos da Microsoft Store",
+  "push to install":"Permite instalação remota de aplicativos da Store",
+  "pushtoinstall":"Permite instalação remota de aplicativos da Store",
+  "xbl authmanager":"Autenticação para serviços Xbox",
+  "xblauthmanager":"Autenticação para serviços Xbox",
+  "xblgamesave":"Sincroniza salvamentos de jogos Xbox",
+  "xboxgipservice":"Gerencia periféricos Xbox",
+  "vmcompute":"Gerencia máquinas virtuais e contêineres",
+  "vmicguestinterface":"Comunicação entre máquina virtual Hyper-V e host",
+  "vmicheartbeat":"Informa ao host se a máquina virtual está ativa",
+  "vmickvpexchange":"Troca informações entre host e máquina virtual",
+  "vmicrdv":"Redireciona dispositivos em sessões Hyper-V",
+  "vmicshutdown":"Permite desligamento coordenado de máquinas virtuais",
+  "vmictimesync":"Sincroniza o relógio de máquinas virtuais",
+  "vmicvmsession":"Gerencia sessões de máquinas virtuais",
+  "vmicvss":"Coordena cópias de sombra em máquinas virtuais",
+  "hns":"Gerencia redes de contêineres e virtualização",
+  "wmiapsrv":"Adaptador de desempenho do WMI",
+  "pla":"Coleta dados de desempenho em conjuntos",
+  "perfhost":"Hospeda provedores de desempenho",
+  "retaildemo":"Controla o modo de demonstração de varejo",
+  "fax":"Envia e recebe fax",
+  "phone service":"Serviço de telefonia"
+};
+function serviceDescription(name) {
+  const key = String(name || "").trim().toLowerCase();
+  return WINDOWS_SERVICE_DESCRIPTIONS[key] || (key === "phoneservice" ? WINDOWS_SERVICE_DESCRIPTIONS.phonesvc : "");
+}
+
 function serviceStartTypeLabel(startType) {
   return ({ automatic: "Automático", manual: "Manual", disabled: "Desativado", unknown: "Desconhecido" })[String(startType).toLowerCase()] || startType;
 }
@@ -914,7 +1042,16 @@ function renderServiceProfilePreview(preview) {
     row.className = "service-profile-preview-row" + (proposed === "disabled" ? " preview-disable" : current === "disabled" ? " preview-enable" : "");
     const include = document.createElement("input"); include.type = "checkbox"; include.checked = true;
     include.setAttribute("aria-label", `Incluir alteração de ${service.service}`);
-    const copy = document.createElement("div"); copy.className = "service-preview-name"; copy.textContent = service.service;
+    const copy = document.createElement("div"); copy.className = "service-preview-copy";
+    const name = document.createElement("strong"); name.className = "service-preview-name"; name.textContent = service.service;
+    copy.appendChild(name);
+    const descriptionText = serviceDescription(service.service);
+    if (descriptionText) {
+      const description = document.createElement("span");
+      description.className = "service-preview-description";
+      description.textContent = ` (${descriptionText})`;
+      copy.appendChild(description);
+    }
     const transition = document.createElement("span"); transition.className = "service-preview-transition";
     transition.textContent = `${serviceStartTypeLabel(service.current)} → ${serviceStartTypeLabel(proposed)}`; copy.appendChild(transition);
     const target = document.createElement("select"); target.setAttribute("aria-label", `Novo tipo de inicialização para ${service.service}`);
