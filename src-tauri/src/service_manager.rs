@@ -229,7 +229,7 @@ Write-Output ("Inicialização de {{0}} alterada para {{1}}" -f $svc.Name, '{sta
 }
 
 
-fn identify_vendor(name: &str, display_name: &str, image_path: &str) -> (Option<&'static str>, Vec<String>) {
+fn identify_vendor(name: &str, _display_name: &str, image_path: &str) -> (Option<&'static str>, Vec<String>) {
     let name = name.trim().to_ascii_lowercase();
     let path = image_path.trim().replace('/', "\\").to_ascii_lowercase();
     let file = path.rsplit('\\').next().unwrap_or_default();
