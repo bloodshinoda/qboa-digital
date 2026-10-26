@@ -415,7 +415,8 @@ function renderWindowsServices() {
   const filtered = windowsServices.filter((service) =>
     (!hideMicrosoft || !service.is_microsoft) &&
     (service.name.toLocaleLowerCase().includes(filter) ||
-     service.display_name.toLocaleLowerCase().includes(filter))
+     service.display_name.toLocaleLowerCase().includes(filter) ||
+     String(service.vendor || "").toLocaleLowerCase().includes(filter))
   );
   document.getElementById("service-inventory-status").textContent =
     `${filtered.length} de ${windowsServices.length} serviço(s) exibido(s).` +
@@ -428,6 +429,15 @@ function renderWindowsServices() {
     const key = document.createElement("small");
     key.textContent = service.name;
     nameCell.append(name, key);
+    const identity = document.createElement("small");
+    identity.className = "service-vendor-label";
+    identity.textContent = service.vendor
+      ? `Fornecedor identificado: ${service.vendor}`
+      : service.classification === "microsoft_signed"
+        ? "Assinatura Microsoft válida"
+        : "Fornecedor não identificado";
+    if (service.executable_path) identity.title = service.executable_path;
+    nameCell.appendChild(identity);
     if (service.protected) {
       const protectedLabel = document.createElement("span");
       protectedLabel.className = "service-protected-label";
