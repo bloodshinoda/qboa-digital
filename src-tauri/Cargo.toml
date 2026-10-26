@@ -1,6 +1,6 @@
 [package]
 name = "qboa-digital"
-version = "3.1.0"
+version = "3.1.1"
 description = "Qboa Digital — utilitário de limpeza e manutenção do Windows"
 authors = ["Vilson de Oliveira Junior"]
 edition = "2021"
