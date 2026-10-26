@@ -435,9 +435,17 @@ function renderWindowsServices() {
       ? `Fornecedor identificado: ${service.vendor}`
       : service.classification === "microsoft_signed"
         ? "Assinatura Microsoft válida"
-        : "Fornecedor não identificado";
-    if (service.executable_path) identity.title = service.executable_path;
+        : "Fornecedor não identificado · confirme antes de alterar";
+    identity.title = [
+      ...(service.identification_evidence || []),
+      service.executable_path || ""
+    ].filter(Boolean).join("\n");
     nameCell.appendChild(identity);
+    const identityHint = service.vendor
+      ? `Fornecedor identificado: ${service.vendor}.`
+      : service.classification === "microsoft_signed"
+        ? "O executável tem assinatura Microsoft válida."
+        : `Fornecedor não identificado. Confira o executável antes de alterar. Caminho: ${service.executable_path || "não disponível"}.`;
     if (service.protected) {
       const protectedLabel = document.createElement("span");
       protectedLabel.className = "service-protected-label";
@@ -467,7 +475,10 @@ function renderWindowsServices() {
         startSelect.value = old;
         return;
       }
-      if (!(await askConfirmation(`Alterar a inicialização de ${service.display_name} para ${serviceStartTypeLabel(next)}?`, "Alterar serviço?"))) {
+      if (!(await askConfirmation(
+        `Alterar a inicialização de ${service.display_name} de ${serviceStartTypeLabel(old)} para ${serviceStartTypeLabel(next)}?\n${identityHint}\nA configuração atual será consultada novamente pelo Windows durante a operação.`,
+        "Alterar serviço?"
+      ))) {
         startSelect.value = old;
         return;
       }
@@ -491,7 +502,10 @@ function renderWindowsServices() {
       button.textContent = label;
       button.disabled = disabled;
       button.addEventListener("click", async () => {
-        if (confirmation && !(await askConfirmation(confirmation, `${label} serviço?`))) return;
+        if (confirmation && !(await askConfirmation(
+          `${confirmation}\n${identityHint}\nConfirme que este serviço pode ser alterado no seu sistema.`,
+          `${label} serviço?`
+        ))) return;
         button.disabled = true;
         try {
           appendConsole(await Qboa.manageWindowsService(service.name, action));
