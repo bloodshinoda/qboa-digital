@@ -1736,11 +1736,14 @@ async fn preview_service_profile(
 }
 
 #[tauri::command]
-async fn apply_service_profile(profile: service_profiles::ProductProfile) -> Result<(), String> {
+async fn apply_service_profile(
+    profile: service_profiles::ProductProfile,
+    changes: Vec<service_profiles::ServiceProfileOverride>,
+) -> Result<(), String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
     let service_profile = service_profiles::system_profile(&system)?;
-    service_profiles::apply_profile(&mut backend, &service_profile, profile)
+    service_profiles::apply_profile_with_overrides(&mut backend, &service_profile, profile, changes)
 }
 
 #[tauri::command]
