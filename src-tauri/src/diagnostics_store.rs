@@ -78,26 +78,23 @@ impl StoredDiagnosticReport {
         }
     }
 
-    pub(crate) fn apply_result(&mut self, report: DiagnosticReport, elapsed_ms: u64) {
+    pub(crate) fn checkpoint(&mut self, report: DiagnosticReport) {
         self.results = report.results;
         self.checks = report.checks;
+        let system = self.results.iter()
+            .find(|item| matches!(item.category, crate::diagnostics::DiagnosticCategory::Sistema));
+        self.system.os_name = system.and_then(|item| item.evidence.iter().find_map(|line| line.strip_prefix("Sistema: ").map(str::to_string)));
+        self.system.os_version = system.and_then(|item| item.evidence.iter().find_map(|line| line.strip_prefix("Versão ").map(str::to_string)));
+        self.system.os_build = system.and_then(|item| item.evidence.iter().find_map(|line| line.strip_prefix("Build ").map(str::to_string)));
+        self.system.os_edition = system.and_then(|item| item.evidence.iter().find_map(|line| line.strip_prefix("Edição ").map(str::to_string)));
+    }
+
+    pub(crate) fn apply_result(&mut self, report: DiagnosticReport, elapsed_ms: u64) {
+        self.checkpoint(report);
         self.execution_status = ExecutionStatus::Completed;
         self.finished_at = Some(timestamp_now());
         self.duration_ms = Some(elapsed_ms);
-        self.system.os_name = self.results.iter()
-            .find(|item| matches!(item.category, crate::diagnostics::DiagnosticCategory::Sistema))
-            .and_then(|item| item.evidence.iter().find_map(|line| line.strip_prefix("Sistema: ").map(str::to_string)));
-        self.system.os_version = self.results.iter()
-            .find(|item| matches!(item.category, crate::diagnostics::DiagnosticCategory::Sistema))
-            .and_then(|item| item.evidence.iter().find_map(|line| line.strip_prefix("Versão ").map(str::to_string)));
-        self.system.os_build = self.results.iter()
-            .find(|item| matches!(item.category, crate::diagnostics::DiagnosticCategory::Sistema))
-            .and_then(|item| item.evidence.iter().find_map(|line| line.strip_prefix("Build ").map(str::to_string)));
-        self.system.os_edition = self.results.iter()
-            .find(|item| matches!(item.category, crate::diagnostics::DiagnosticCategory::Sistema))
-            .and_then(|item| item.evidence.iter().find_map(|line| line.strip_prefix("Edição ").map(str::to_string)));
     }
-
     pub(crate) fn fail(&mut self, message: String, elapsed_ms: u64) {
         self.execution_status = ExecutionStatus::Failed;
         self.finished_at = Some(timestamp_now());
