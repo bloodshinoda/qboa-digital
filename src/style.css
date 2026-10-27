@@ -934,3 +934,49 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .diagnostic-history-item:hover { background:rgba(255,255,255,.08); }
 .diagnostic-history-item span { font-weight:600; }
 .diagnostic-history-item small { color:var(--qboa-modal-muted,#b8c4bc); }
+
+
+/* Diagnóstico 3.2 */
+.diagnostic-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.diagnostic-modal.hidden { display: none; }
+.diagnostic-dialog {
+  width: min(920px, 100%);
+  max-height: min(88vh, 900px);
+  overflow: auto;
+  padding: 24px;
+  border-radius: 14px;
+  background: #063f27;
+  color: #fff;
+  box-shadow: 0 24px 90px rgba(0,0,0,.42);
+}
+.diagnostic-dialog-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.diagnostic-dialog-header h2 { margin:4px 0 0; }
+.diagnostic-close { width:38px; height:38px; border:0; border-radius:50%; background:rgba(255,255,255,.12); color:#fff; font-size:28px; line-height:1; cursor:pointer; }
+.diagnostic-modal-intro { max-width:780px; line-height:1.5; opacity:.9; }
+.diagnostic-test-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin:18px 0; }
+.diagnostic-test-card { display:flex; flex-direction:column; gap:8px; min-height:112px; padding:16px; text-align:left; border:1px solid rgba(255,255,255,.2); border-radius:10px; background:rgba(255,255,255,.07); color:#fff; cursor:pointer; }
+.diagnostic-test-card:hover { border-color:var(--qboa-red); background:rgba(255,255,255,.12); }
+.diagnostic-test-card strong { font-size:1rem; }
+.diagnostic-test-card span { font-size:.82rem; line-height:1.4; opacity:.82; }
+.diagnostic-test-card-primary { background:var(--qboa-red); border-color:var(--qboa-red); }
+.diagnostic-test-card:disabled { opacity:.55; cursor:wait; }
+.diagnostic-saved-reports { margin-top:18px; padding-top:12px; border-top:1px solid rgba(255,255,255,.2); }
+.diagnostic-saved-reports summary { cursor:pointer; font-weight:700; }
+.diagnostic-launch-card { min-height:220px; }
+.diagnostic-launch-card .contribution-copy { max-width:720px; }
+@media (max-width:600px) {
+  .diagnostic-modal { padding:10px; }
+  .diagnostic-dialog { padding:16px; max-height:94vh; }
+  .diagnostic-test-grid { grid-template-columns:1fr; }
+}
