@@ -1189,17 +1189,19 @@ function renderDiagnosticReport(report, target = null) {
     item.append(heading, evidence, source);
     list.appendChild(item);
   });
-  (report.checks || []).forEach((check) => {
-    const item = document.createElement("li");
-    const heading = document.createElement("strong");
-    heading.textContent = `Verificação · ${check.name} · ${diagnosticStatusLabel(check.status)}`;
-    const evidence = document.createElement("p");
-    evidence.textContent = check.evidence;
-    const source = document.createElement("small");
-    source.textContent = `Origem: ${check.source}`;
-    item.append(heading, evidence, source);
-    list.appendChild(item);
-  });
+  if (!target) {
+    (report.checks || []).forEach((check) => {
+      const item = document.createElement("li");
+      const heading = document.createElement("strong");
+      heading.textContent = `Verificação · ${check.name} · ${diagnosticStatusLabel(check.status)}`;
+      const evidence = document.createElement("p");
+      evidence.textContent = check.evidence;
+      const source = document.createElement("small");
+      source.textContent = `Origem: ${check.source}`;
+      item.append(heading, evidence, source);
+      list.appendChild(item);
+    });
+  }
 }
 
 function diagnosticExecutionLabel(status) {
@@ -1305,7 +1307,7 @@ async function runDiagnostic(mode, target = null) {
     status.textContent = report.execution_status === "failed"
       ? "A execução falhou; o laudo e o motivo foram preservados."
       : target
-      ? `Teste direcionado concluído: ${diagnosticCategoryLabel(target)}. A leitura é limitada aos dados disponíveis.`
+      ? `Consulta de ${diagnosticCategoryLabel(target)} concluída. Confira as evidências coletadas e as limitações informadas.`
       : "Diagnóstico completo finalizado; confira cada resultado e sua disponibilidade.";
   } catch (error) {
     status.textContent = String(error);
@@ -1542,7 +1544,9 @@ async function registerEvents() {
     const serviceInventoryModal = document.getElementById("service-inventory-modal");
     const executionSummaryModal = document.getElementById("execution-summary-modal");
     const runningOperationModal = document.getElementById("running-operation-modal");
+    const diagnosticModal = document.getElementById("diagnostic-modal");
     if (!runningOperationModal.classList.contains("hidden")) { closeRunningOperationPopup(); }
+    else if (!diagnosticModal.classList.contains("hidden")) { closeDiagnosticModal(); }
     else if (!executionSummaryModal.classList.contains("hidden")) {
       closeExecutionSummary();
     } else if (!serviceInventoryModal.classList.contains("hidden")) {
