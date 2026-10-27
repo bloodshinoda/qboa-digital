@@ -195,8 +195,7 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         ) {
             recommendation = recommendation.worst(Recommendation::Reparar);
             reasons.push(
-                "Contador CRC da interface aumentou durante o teste; revisar cabo ou porta."
-                    .into(),
+                "Contador CRC da interface aumentou durante o teste; revisar cabo ou porta.".into(),
             );
         }
         if let (Some(wear), Some(limit)) =
