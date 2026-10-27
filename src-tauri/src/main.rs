@@ -1704,7 +1704,9 @@ async fn run_diagnostic_check(
 async fn get_diagnostic_reports(
     app: AppHandle,
 ) -> Result<Vec<diagnostics_store::StoredDiagnosticReport>, String> {
-    let app_data_dir = app.path().app_data_dir()
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
     diagnostics_store::load_all(&app_data_dir)
 }
