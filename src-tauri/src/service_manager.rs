@@ -25,6 +25,10 @@ pub(crate) struct ServiceEntry {
     pub is_microsoft: bool,
     pub protected: bool,
     pub protection_reason: Option<String>,
+    pub vendor: Option<String>,
+    pub classification: String,
+    pub identification_evidence: Vec<String>,
+    pub executable_path: String,
 }
 
 #[derive(Deserialize)]
@@ -34,6 +38,7 @@ struct RawService {
     status: String,
     start_type: String,
     is_microsoft: bool,
+    image_path: String,
 }
 
 pub(crate) fn list_services() -> Result<Vec<ServiceEntry>, String> {
@@ -77,6 +82,7 @@ $services = @(Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
     status = ([string]$_.State).ToLowerInvariant()
     start_type = $start
     is_microsoft = [bool]$isMicrosoft
+    image_path = [string]$binaryPath
   }
 } | Sort-Object display_name)
 ConvertTo-Json -InputObject $services -Depth 4 -Compress
@@ -90,6 +96,15 @@ ConvertTo-Json -InputObject $services -Depth 4 -Compress
             .into_iter()
             .map(|service| {
                 let protected = is_protected(&service.name);
+                let (vendor, identification_evidence) =
+                    identify_vendor(&service.name, &service.display_name, &service.image_path);
+                let classification = if vendor.is_some() {
+                    "known_third_party"
+                } else if service.is_microsoft {
+                    "microsoft_signed"
+                } else {
+                    "unidentified"
+                };
                 ServiceEntry {
                     name: service.name,
                     display_name: service.display_name,
@@ -99,6 +114,10 @@ ConvertTo-Json -InputObject $services -Depth 4 -Compress
                     protected,
                     protection_reason: protected
                         .then(|| "Serviço crítico protegido pelo QBoa.".to_string()),
+                    vendor: vendor.map(str::to_string),
+                    classification: classification.to_string(),
+                    identification_evidence,
+                    executable_path: service.image_path,
                 }
             })
             .collect())
@@ -206,6 +225,127 @@ Write-Output ("Inicialização de {{0}} alterada para {{1}}" -f $svc.Name, '{sta
     }
 }
 
+fn identify_vendor(
+    name: &str,
+    _display_name: &str,
+    image_path: &str,
+) -> (Option<&'static str>, Vec<String>) {
+    let name = name.trim().to_ascii_lowercase();
+    let path = image_path.trim().replace('/', "\\").to_ascii_lowercase();
+    let file = path.rsplit('\\').next().unwrap_or_default();
+
+    let amd_names = [
+        "amdsata",
+        "amdsafd",
+        "amdsbs",
+        "amdwps",
+        "amdwddmg",
+        "amdryzenmasterdriverv20",
+        "amdi2c",
+        "amdgpio3",
+        "amdk8",
+        "amdpsp",
+        "amdppm",
+        "amdxe",
+        "amdxata",
+        "amdgpio2",
+        "amd external events utility",
+        "amd crash defender service",
+        "amdacpbus",
+        "amdfendrmgr",
+        "amdfendr",
+        "atihdaudioservice",
+    ];
+    if amd_names.iter().any(|candidate| *candidate == name)
+        || [
+            "amdkmdag.sys",
+            "amdfendrmgr.sys",
+            "amdfendr.sys",
+            "amdpsp.sys",
+            "atiesrxx.exe",
+        ]
+        .iter()
+        .any(|candidate| *candidate == file)
+    {
+        return (
+            Some("AMD"),
+            vec!["nome interno ou arquivo de driver AMD conhecido".to_string()],
+        );
+    }
+    if name == "apple mobile device service"
+        || file == "applemobiledeviceservice.exe"
+        || path.contains("\\apple\\mobile device support\\")
+    {
+        return (
+            Some("Apple"),
+            vec!["serviço/executável Apple Mobile Device".to_string()],
+        );
+    }
+    if name == "coworkvmservice" || file == "cowork-svc.exe" || path.contains("\\claude_") {
+        return (
+            Some("Claude"),
+            vec!["serviço ou executável Cowork do Claude".to_string()],
+        );
+    }
+    if name == "dbupdate"
+        || name == "dbupdatem"
+        || file == "dropboxupdate.exe"
+        || path.contains("\\dropbox\\")
+    {
+        return (
+            Some("Dropbox"),
+            vec!["serviço de atualização ou caminho Dropbox".to_string()],
+        );
+    }
+    if name.starts_with("googleupdaterservice")
+        || name.starts_with("googleupdaterinternalservice")
+        || name == "googlechromeelevationservice"
+        || (file == "updater.exe" && path.contains("\\google\\googleupdater\\"))
+        || (file == "elevation_service.exe" && path.contains("\\google\\chrome\\application\\"))
+    {
+        let evidence = if name.starts_with("googleupdaterinternalservice") {
+            "prefixo GoogleUpdaterInternalService; sufixo de versão ignorado"
+        } else if name.starts_with("googleupdaterservice") {
+            "prefixo GoogleUpdaterService; sufixo de versão ignorado"
+        } else {
+            "serviço/executável de atualização ou elevação Google"
+        };
+        return (Some("Google"), vec![evidence.to_string()]);
+    }
+    if [
+        "gubootservice",
+        "gubootstartup",
+        "gupmservice",
+        "gumemfilesservice",
+    ]
+    .iter()
+    .any(|candidate| *candidate == name)
+        || path.contains("\\glarysoft\\")
+        || path.contains("\\glary utilities\\")
+    {
+        return (
+            Some("Glarysoft"),
+            vec!["serviço, driver ou caminho Glary Utilities".to_string()],
+        );
+    }
+    if name == "pdf24" || file == "pdf24.exe" || path.contains("\\pdf24\\") {
+        return (
+            Some("PDF24"),
+            vec!["serviço/executável ou caminho PDF24".to_string()],
+        );
+    }
+    if name == "steam client service"
+        || file == "steamservice.exe"
+        || path.contains("\\common files\\steam\\")
+    {
+        return (
+            Some("Valve / Steam"),
+            vec!["serviço Steam Client ou steamservice.exe".to_string()],
+        );
+    }
+    (None, Vec::new())
+}
+
 fn valid_start_type(value: &str) -> bool {
     ["automatic", "manual", "disabled"].contains(&value.to_ascii_lowercase().as_str())
 }
@@ -278,6 +418,50 @@ fn base64_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn known_third_party_services_are_identified_without_version_suffixes() {
+        assert_eq!(
+            identify_vendor(
+                "GoogleUpdaterService157.0.8089.0",
+                "Google Updater Service",
+                r"C:\\Program Files (x86)\\Google\\GoogleUpdater\\157.0.8089.0\\updater.exe"
+            )
+            .0,
+            Some("Google")
+        );
+        assert_eq!(
+            identify_vendor(
+                "GoogleUpdaterInternalService157.0.8089.0",
+                "Google Updater Internal Service",
+                r"C:\\Program Files (x86)\\Google\\GoogleUpdater\\157.0.8089.0\\updater.exe"
+            )
+            .0,
+            Some("Google")
+        );
+        assert_eq!(
+            identify_vendor(
+                "CoworkVMService",
+                "Claude",
+                r"C:\\Program Files\\WindowsApps\\Claude_3.1623.1.0_x64__example\\app\\resources\\cowork-svc.exe"
+            )
+            .0,
+            Some("Claude")
+        );
+    }
+
+    #[test]
+    fn unknown_service_is_not_assumed_to_be_third_party() {
+        assert_eq!(
+            identify_vendor(
+                "MysterySvc",
+                "Mystery Service",
+                r"C:\\Windows\\System32\\mystery.exe"
+            )
+            .0,
+            None
+        );
+    }
 
     #[test]
     fn critical_services_are_protected_case_insensitively() {

@@ -1183,6 +1183,50 @@ mod tests {
     }
 
     #[test]
+    fn unvalidated_ltsc_profile_suggests_only_baseline_matching_changes() {
+        let mut detected = system(WindowsVersion::Windows11, WindowsEdition::IoTEnterpriseLtsc);
+        detected.services[0].start_type = "Automatic".to_string();
+        detected.services[2].start_type = "Manual".to_string();
+        let mut catalog = profile(WindowsVersion::Windows11, WindowsEdition::IoTEnterpriseLtsc);
+        catalog.heuristic_apply_enabled = true;
+        catalog.services.extend([
+            ServiceRule {
+                name: "ExampleSvc".to_string(),
+                start_type: "Disabled".to_string(),
+                windows_default_start_type: Some("Automatic".to_string()),
+                profiles: vec![ProductProfile::Safe],
+                form_factor: None,
+                requires_no_battery: false,
+            },
+            ServiceRule {
+                name: "MysterySvc".to_string(),
+                start_type: "Disabled".to_string(),
+                windows_default_start_type: Some("Automatic".to_string()),
+                profiles: vec![ProductProfile::Safe],
+                form_factor: None,
+                requires_no_battery: false,
+            },
+        ]);
+
+        let result = preview(&detected, &catalog, ProductProfile::Safe);
+        assert!(result.applicable);
+        assert!(!result.validated);
+        let matching = result
+            .services
+            .iter()
+            .find(|item| item.service == "ExampleSvc")
+            .unwrap();
+        assert_eq!(matching.proposed.as_deref(), Some("Disabled"));
+        let mismatched = result
+            .services
+            .iter()
+            .find(|item| item.service == "MysterySvc")
+            .unwrap();
+        assert!(mismatched.proposed.is_none());
+        assert!(mismatched.ignored);
+    }
+
+    #[test]
     fn historical_windows10_catalog_allows_only_heuristic_compatible_changes() {
         let detected = system(WindowsVersion::Windows10, WindowsEdition::Home);
         let mut catalog = profile_files()
