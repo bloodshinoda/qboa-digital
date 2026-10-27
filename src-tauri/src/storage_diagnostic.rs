@@ -247,8 +247,22 @@ mod tests {
                     unit: "MB/s".into(),
                 },
             ],
-            smart: SmartData { usable: true, reallocated: Some(0), pending: Some(0), uncorrectable: Some(0), interface_crc_before: Some(0), interface_crc_after: Some(0), wear_percent: Some(1.0), wear_limit_percent: Some(100.0), temperature_c: Some(35.0), ..SmartData::default() },
-            recommendation: Recommendation::Inconclusivo, reasons: vec![], execution_status: "completed".into(), space_available: true
+            smart: SmartData {
+                usable: true,
+                reallocated: Some(0),
+                pending: Some(0),
+                uncorrectable: Some(0),
+                interface_crc_before: Some(0),
+                interface_crc_after: Some(0),
+                wear_percent: Some(1.0),
+                wear_limit_percent: Some(100.0),
+                temperature_c: Some(35.0),
+                ..SmartData::default()
+            },
+            recommendation: Recommendation::Inconclusivo,
+            reasons: vec![],
+            execution_status: "completed".into(),
+            space_available: true,
         };
         evaluate(&mut report);
         report
