@@ -26,6 +26,8 @@ let editedServiceProfileChanges = [];
 let windowsServices = [];
 let browserCleanupDecision = null;
 let showAllSessionChanges = false;
+let activeDiagnosticTarget = null;
+let activeDiagnosticMode = "quick";
 
 const Qboa = {
   async analyze() {
@@ -203,15 +205,35 @@ function renderCards() {
   serviceProfilePanel.hidden = activeSection !== "servicos";
   capabilityPanel.hidden = activeSection !== "capacidades";
   dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
-  dashboard.classList.toggle("contribution-view", activeSection === "sobre" || activeSection === "diagnostico");
+  dashboard.classList.toggle("contribution-view", activeSection === "sobre");
   document.querySelector(".levels").hidden = activeSection !== "limpeza";
   syncExecutionControls();
   cardsEl.innerHTML = "";
   if (activeSection === "servicos" || activeSection === "capacidades") { if (activeSection === "servicos" && !windowsServices.length) void loadWindowsServices(); return; }
   if (activeSection === "diagnostico") {
     recoveryPanel.hidden = true;
-    cardsEl.innerHTML = `<article class="contribution-panel diagnostic-launch-card"><div class="contribution-copy"><span class="eyebrow">Testes do sistema</span><h2>Diagnóstico do computador</h2><p>Analise armazenamento, memória, GPU, processador e temperaturas. Cada teste apresenta evidências disponíveis e o diagnóstico completo reúne tudo em um laudo persistente.</p><button id="open-diagnostic-modal" class="primary-button" type="button">Abrir testes de diagnóstico</button></div></article>`;
-    document.getElementById("open-diagnostic-modal").addEventListener("click", openDiagnosticModal);
+    const tests = [
+      { id: "armazenamento", name: "Armazenamento", desc: "Espaço livre e informações disponíveis sobre os volumes." },
+      { id: "memoria_ram", name: "Memória RAM", desc: "Memória total e disponível durante a coleta." },
+      { id: "placa_de_video", name: "GPU", desc: "Adaptadores gráficos detectados e leituras disponíveis." },
+      { id: "processador", name: "Processador", desc: "Identificação do processador e dados disponíveis." },
+      { id: "temperatura", name: "Temperaturas", desc: "Leituras de sensores compatíveis, quando expostas pelo sistema." },
+      { id: "completo", name: "Diagnóstico completo", desc: "Executa a bateria completa e reúne os resultados em um laudo persistente." }
+    ];
+    tests.forEach((test) => {
+      const card = document.createElement("article");
+      card.className = "card";
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-label", `Abrir teste: ${test.name}`);
+      card.innerHTML = `<h3>${test.name}</h3><p>${test.desc}</p>`;
+      const open = () => openDiagnosticModal(test.id === "completo" ? null : test.id, test.id === "completo" ? "complete" : "quick");
+      card.addEventListener("click", open);
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+      });
+      cardsEl.appendChild(card);
+    });
     return;
   }
   if (activeSection === "sobre") {
@@ -1234,8 +1256,31 @@ async function loadDiagnosticHistory(selectLatest = false) {
   }
 }
 
-function openDiagnosticModal() {
+function openDiagnosticModal(target = null, mode = "quick") {
+  activeDiagnosticTarget = target;
+  activeDiagnosticMode = mode;
   const modal = document.getElementById("diagnostic-modal");
+  const title = document.getElementById("diagnostic-modal-title");
+  const intro = document.getElementById("diagnostic-modal-intro");
+  const runButton = document.getElementById("diagnostic-run-selected");
+  const labels = {
+    armazenamento: ["Teste de armazenamento", "Consulta informações disponíveis sobre os volumes e o espaço livre. Isso não substitui uma verificação física SMART ou um teste de superfície."],
+    memoria_ram: ["Teste de memória RAM", "Analisa os dados de memória expostos pelo Windows. Não é um teste de estresse nem substitui o Diagnóstico de Memória do Windows."],
+    placa_de_video: ["Teste de GPU", "Consulta os adaptadores gráficos detectados e as leituras disponíveis. Não executa benchmark nem teste de estresse gráfico."],
+    processador: ["Teste de processador", "Consulta a identificação e os dados disponíveis do processador. Não executa benchmark nem teste de estresse."],
+    temperatura: ["Teste de temperaturas", "Consulta leituras de sensores compatíveis quando o Windows ou os provedores disponíveis as expõem. Sensor indisponível não significa temperatura normal."]
+  };
+  if (target && labels[target]) {
+    title.textContent = labels[target][0];
+    intro.textContent = labels[target][1];
+    runButton.textContent = "Executar teste";
+  } else {
+    title.textContent = "Diagnóstico completo";
+    intro.textContent = "Executa a coleta completa das categorias disponíveis e salva um laudo local persistente. Itens sem leitura compatível serão marcados como indisponíveis, não como saudáveis.";
+    runButton.textContent = "Executar diagnóstico completo";
+  }
+  document.getElementById("diagnostic-results").replaceChildren();
+  document.getElementById("diagnostic-status").textContent = "";
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
   void loadDiagnosticHistory(true);
@@ -1250,7 +1295,7 @@ function closeDiagnosticModal() {
 async function runDiagnostic(mode, target = null) {
   const status = document.getElementById("diagnostic-status");
   document.getElementById("diagnostic-results").replaceChildren();
-  const buttons = Array.from(document.querySelectorAll(".diagnostic-test-card"));
+  const buttons = [document.getElementById("diagnostic-run-selected")];
   buttons.forEach((item) => { item.disabled = true; });
   status.textContent = "Verificando...";
   try {
@@ -1547,13 +1592,8 @@ async function registerEvents() {
     }
   });
 
-  document.querySelectorAll("[data-diagnostic-target]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runDiagnostic("quick", button.dataset.diagnosticTarget);
-    });
-  });
-  document.getElementById("diagnostic-complete-btn").addEventListener("click", () => {
-    void runDiagnostic("complete");
+  document.getElementById("diagnostic-run-selected").addEventListener("click", () => {
+    void runDiagnostic(activeDiagnosticMode, activeDiagnosticTarget);
   });
   document.getElementById("diagnostic-modal-close").addEventListener("click", closeDiagnosticModal);
   document.getElementById("diagnostic-modal").addEventListener("click", (event) => {
