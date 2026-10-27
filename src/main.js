@@ -160,7 +160,7 @@ function renderTabs() {
   contributionTab.addEventListener("click", () => {
     activeSection = "sobre";
     renderTabs();
-    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.1";
+    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.2";
     renderCards();
   });
   tabsEl.appendChild(contributionTab);
@@ -199,10 +199,10 @@ function renderCards() {
       <article class="contribution-panel about-panel">
         <div class="contribution-copy">
           <span class="eyebrow">Sobre o aplicativo</span>
-          <h2>QBoa Digital <span class="about-version">3.1.1</span></h2>
+          <h2>QBoa Digital <span class="about-version">3.1.2</span></h2>
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
-            <p><strong>Versão:</strong> 3.1.1</p>
+            <p><strong>Versão:</strong> 3.1.2</p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
           </div>
