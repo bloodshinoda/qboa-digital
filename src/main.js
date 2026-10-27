@@ -1250,21 +1250,18 @@ function closeDiagnosticModal() {
 async function runDiagnostic(mode, target = null) {
   const status = document.getElementById("diagnostic-status");
   document.getElementById("diagnostic-results").replaceChildren();
-  const buttons = [
-    document.getElementById("diagnostic-quick-btn"),
-    document.getElementById("diagnostic-complete-btn")
-  ];
+  const buttons = Array.from(document.querySelectorAll(".diagnostic-test-card"));
   buttons.forEach((item) => { item.disabled = true; });
   status.textContent = "Verificando...";
   try {
     const report = await Qboa.runDiagnosticCheck(mode);
-    renderDiagnosticReport(report);
+    renderDiagnosticReport(report, target);
     await loadDiagnosticHistory(false);
     status.textContent = report.execution_status === "failed"
       ? "A execução falhou; o laudo e o motivo foram preservados."
-      : mode === "quick"
-      ? "Coleta rápida concluída. Informações não representam aprovação de saúde."
-      : "Verificação completa finalizada; confira cada resultado e sua disponibilidade.";
+      : target
+      ? `Teste direcionado concluído: ${diagnosticCategoryLabel(target)}. A leitura é limitada aos dados disponíveis.`
+      : "Diagnóstico completo finalizado; confira cada resultado e sua disponibilidade.";
   } catch (error) {
     status.textContent = String(error);
   } finally {
@@ -1550,11 +1547,17 @@ async function registerEvents() {
     }
   });
 
-  document.getElementById("diagnostic-quick-btn").addEventListener("click", () => {
-    void runDiagnostic("quick");
+  document.querySelectorAll("[data-diagnostic-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void runDiagnostic("quick", button.dataset.diagnosticTarget);
+    });
   });
   document.getElementById("diagnostic-complete-btn").addEventListener("click", () => {
     void runDiagnostic("complete");
+  });
+  document.getElementById("diagnostic-modal-close").addEventListener("click", closeDiagnosticModal);
+  document.getElementById("diagnostic-modal").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeDiagnosticModal();
   });
 
   document.getElementById("copy-capability-summary").addEventListener("click", () => { void copyCapabilitySummary(); });
