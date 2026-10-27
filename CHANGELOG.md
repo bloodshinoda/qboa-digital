@@ -2,6 +2,17 @@
 
 Todas as mudanças relevantes do QBoa Digital são registradas neste arquivo.
 
+## [3.1.2] — 2026-10-27
+
+### Serviços do Windows
+- Corrige a prévia de ajustes no Windows 11 IoT Enterprise LTSC, que podia ocultar todas as sugestões de alteração.
+- Restringe as sugestões heurísticas aos serviços cujo estado atual coincide com o valor de referência do catálogo; divergências são ignoradas.
+- Identifica fornecedores conhecidos (AMD, Apple, Claude, Dropbox, Google, Glarysoft, PDF24 e Valve/Steam) e expõe evidências de identificação.
+- Mantém a prévia e a confirmação explícita antes de aplicar mudanças; identificação de fornecedor não equivale a recomendação para desativar serviços.
+
+### Validação
+- Adiciona testes para fornecedores identificados, serviços desconhecidos e compatibilidade das sugestões com a referência LTSC.
+
 ## [3.1.1] — 2026-10-26
 
 ### Interface e experiência de uso
