@@ -2,11 +2,24 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum DiskClass { NotebookHdd, DesktopHdd, SataSsd, Nvme, Usb, Unknown }
+pub(crate) enum DiskClass {
+    NotebookHdd,
+    DesktopHdd,
+    SataSsd,
+    Nvme,
+    Usb,
+    Unknown,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum Recommendation { Ok, Inconclusivo, Revisar, Reparar, Trocar }
+pub(crate) enum Recommendation {
+    Ok,
+    Inconclusivo,
+    Revisar,
+    Reparar,
+    Trocar,
+}
 
 impl Recommendation {
     pub(crate) fn label(self) -> &'static str {
@@ -28,7 +41,11 @@ impl Recommendation {
         }
     }
     fn worst(self, other: Self) -> Self {
-        if self.severity() >= other.severity() { self } else { other }
+        if self.severity() >= other.severity() {
+            self
+        } else {
+            other
+        }
     }
 }
 
@@ -111,8 +128,13 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         if report.class != DiskClass::Usb {
             if report.smart.pio_mode || report.smart.slow_sata_link {
                 recommendation = Recommendation::Reparar;
-                reasons.push("A condição do link/controlador impede usar a velocidade como motivo de troca.".into());
-            } else if let (Some((good, replace_floor)), Some(read), Some(write)) = (threshold(report.class), read, write) {
+                reasons.push(
+                    "A condição do link/controlador impede usar a velocidade como motivo de troca."
+                        .into(),
+                );
+            } else if let (Some((good, replace_floor)), Some(read), Some(write)) =
+                (threshold(report.class), read, write)
+            {
                 let read_bad = read < good;
                 let write_bad = write < good;
                 if read_bad && write_bad && read < replace_floor && write < replace_floor {
@@ -130,21 +152,33 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
             }
         } else {
             recommendation = Recommendation::Revisar;
-            reasons.push("Disco conectado por USB: desempenho não é usado para condenar o disco.".into());
-            if report.smart.usb_slow { reasons.push("USB lento: revisar cabo ou gabinete.".into()); }
+            reasons.push(
+                "Disco conectado por USB: desempenho não é usado para condenar o disco.".into(),
+            );
+            if report.smart.usb_slow {
+                reasons.push("USB lento: revisar cabo ou gabinete.".into());
+            }
         }
     }
 
     if report.smart.pio_mode || report.smart.slow_sata_link {
         recommendation = recommendation.worst(Recommendation::Reparar);
-        reasons.push(if report.smart.pio_mode { "Modo PIO detectado: revisar cabo, porta ou driver.".into() } else { "Link SATA lento: revisar cabo, porta ou driver.".into() });
+        reasons.push(if report.smart.pio_mode {
+            "Modo PIO detectado: revisar cabo, porta ou driver.".into()
+        } else {
+            "Link SATA lento: revisar cabo, porta ou driver.".into()
+        });
     }
     if report.class == DiskClass::Usb && report.smart.usb_slow {
         recommendation = recommendation.worst(Recommendation::Revisar);
     }
 
     if report.smart.usable {
-        for (label, count) in [("realocados", report.smart.reallocated), ("pendentes", report.smart.pending), ("incorrigíveis", report.smart.uncorrectable)] {
+        for (label, count) in [
+            ("realocados", report.smart.reallocated),
+            ("pendentes", report.smart.pending),
+            ("incorrigíveis", report.smart.uncorrectable),
+        ] {
             if count.unwrap_or(0) > 0 {
                 recommendation = recommendation.worst(Recommendation::Trocar);
                 reasons.push(format!("SMART informa {count:?} setores {label}."));
@@ -152,14 +186,26 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
                 reasons.push(format!("Contagem SMART de setores {label} indisponível."));
             }
         }
-        if matches!((report.smart.interface_crc_before, report.smart.interface_crc_after), (Some(before), Some(after)) if after > before) {
+        if matches!(
+            (
+                report.smart.interface_crc_before,
+                report.smart.interface_crc_after
+            ),
+            (Some(before), Some(after)) if after > before
+        ) {
             recommendation = recommendation.worst(Recommendation::Reparar);
-            reasons.push("Contador CRC da interface aumentou durante o teste; revisar cabo ou porta.".into());
+            reasons.push(
+                "Contador CRC da interface aumentou durante o teste; revisar cabo ou porta."
+                    .into(),
+            );
         }
-        if let (Some(wear), Some(limit)) = (report.smart.wear_percent, report.smart.wear_limit_percent) {
+        if let (Some(wear), Some(limit)) =
+            (report.smart.wear_percent, report.smart.wear_limit_percent)
+        {
             if wear.is_finite() && limit.is_finite() && wear >= limit {
                 recommendation = recommendation.worst(Recommendation::Trocar);
-                reasons.push("Desgaste atingiu ou ultrapassou o limite informado pelo disco.".into());
+                reasons
+                    .push("Desgaste atingiu ou ultrapassou o limite informado pelo disco.".into());
             }
         } else {
             reasons.push("Dados de desgaste SMART incompletos.".into());
@@ -173,7 +219,10 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
 
     if !report.space_available {
         recommendation = Recommendation::Inconclusivo;
-        reasons.push("Espaço livre insuficiente para iniciar o teste; nenhuma velocidade foi presumida.".into());
+        reasons.push(
+            "Espaço livre insuficiente para iniciar o teste; nenhuma velocidade foi presumida."
+                .into(),
+        );
     }
     report.recommendation = recommendation;
     report.reasons = reasons;
@@ -185,15 +234,25 @@ mod tests {
 
     fn sample(class: DiskClass, read: Option<f64>, write: Option<f64>) -> StorageReport {
         let mut report = StorageReport {
-            disk_id: "fake-disk-0".into(), class,
+            disk_id: "fake-disk-0".into(),
+            class,
             measurements: vec![
-                Measurement { kind: MeasurementKind::SeqLargeRead, value: read, unit: "MB/s".into() },
-                Measurement { kind: MeasurementKind::SeqLargeWrite, value: write, unit: "MB/s".into() },
+                Measurement {
+                    kind: MeasurementKind::SeqLargeRead,
+                    value: read,
+                    unit: "MB/s".into(),
+                },
+                Measurement {
+                    kind: MeasurementKind::SeqLargeWrite,
+                    value: write,
+                    unit: "MB/s".into(),
+                },
             ],
             smart: SmartData { usable: true, reallocated: Some(0), pending: Some(0), uncorrectable: Some(0), interface_crc_before: Some(0), interface_crc_after: Some(0), wear_percent: Some(1.0), wear_limit_percent: Some(100.0), temperature_c: Some(35.0), ..SmartData::default() },
             recommendation: Recommendation::Inconclusivo, reasons: vec![], execution_status: "completed".into(), space_available: true
         };
-        evaluate(&mut report); report
+        evaluate(&mut report);
+        report
     }
 
     #[test]
