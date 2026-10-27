@@ -81,7 +81,10 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         let read = value(report, MeasurementKind::SeqLargeRead);
         let write = value(report, MeasurementKind::SeqLargeWrite);
         if report.class != DiskClass::Usb {
-            if let (Some((good, replace_floor)), Some(read), Some(write)) = (threshold(report.class), read, write) {
+            if report.smart.pio_mode || report.smart.slow_sata_link {
+                recommendation = Recommendation::Reparar;
+                reasons.push("A condição do link/controlador impede usar a velocidade como motivo de troca.".into());
+            } else if let (Some((good, replace_floor)), Some(read), Some(write)) = (threshold(report.class), read, write) {
                 let read_bad = read < good;
                 let write_bad = write < good;
                 if read_bad && write_bad && read < replace_floor && write < replace_floor {
