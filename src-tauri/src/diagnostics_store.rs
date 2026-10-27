@@ -205,7 +205,7 @@ pub(crate) fn load_all(app_data_dir: &Path) -> Result<Vec<StoredDiagnosticReport
             Err(_) => continue,
         };
         if !safe_report_id(&report.report_id) || report.schema_version != SCHEMA_VERSION { continue; }
-        if matches!(report.execution_status, ExecutionStatus::Running) {
+        if matches!(&report.execution_status, ExecutionStatus::Running) {
             report.execution_status = ExecutionStatus::Partial;
             report.finished_at = Some(timestamp_now());
             report.issues.push(DiagnosticIssue {
@@ -233,7 +233,7 @@ mod tests {
         let second = new_report_id();
         assert_ne!(first, second);
         assert!(safe_report_id(&first));
-        assert!(safe_report_id("../report"));
+        assert!(!safe_report_id("../report"));
     }
 
     #[test]
