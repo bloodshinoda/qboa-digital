@@ -2,17 +2,17 @@
 
 ![Qboa Digital](src-tauri/icons/logo.png)
 
-Versão atual: `3.1.1` (versão do pacote: `3.1.1`)
+Versão atual: `3.1.2` (versão do pacote: `3.1.2`)
 
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
 
-## QBoa Digital 3.1.1
+## QBoa Digital 3.1.2
 
-A versão 3.1.1 aprimora o controle de execução e a clareza da interface do QBoa Digital, mantendo as ferramentas de limpeza, privacidade, diagnóstico e manutenção do Windows.
+A versão 3.1.2 corrige a prévia heurística de serviços no Windows 11 IoT Enterprise LTSC e melhora a identificação transparente de fornecedores, mantendo a confirmação explícita antes de qualquer alteração.
 
 ## Screenshots
 
-Interface do QBoa Digital 3.1.1 em uso. As capturas são hospedadas no repositório do hotsite para manter uma única cópia dos arquivos.
+Interface do QBoa Digital 3.1.2 em uso. As capturas são hospedadas no repositório do hotsite para manter uma única cópia dos arquivos.
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/qboadigital/qboadigital.github.io/main/assets/limpeza.png" alt="Tela de limpeza do QBoa Digital" width="720" />
@@ -34,11 +34,11 @@ Interface do QBoa Digital 3.1.1 em uso. As capturas são hospedadas no repositó
   <p><strong>Serviços do Windows</strong></p>
 </div>
 
-## Downloads — versão 3.1.1
+## Downloads — versão 3.1.2
 
-- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.1.1/qboa-digital-3.1.1-x64-installer.exe)** — instalação tradicional.
-- **[Versão portátil Windows x64 (.zip)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.1.1/qboa-digital-3.1.1-x64-portable.zip)** — extraia o conteúdo completo do ZIP e mantenha o executável junto das DLLs incluídas.
-- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.1.1).
+- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.1.2/qboa-digital-3.1.2-x64-installer.exe)** — instalação tradicional.
+- **[Versão portátil Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.1.2/qboa-digital-3.1.2-x64-portable.exe)** — executável portátil distribuído como arquivo individual.
+- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.1.2).
 
 ### Destaques desta versão
 
@@ -210,9 +210,9 @@ Essas imagens ainda não estão configuradas em `tauri.conf.json`. O logo princi
 O workflow `.github/workflows/windows-build.yml` compila o aplicativo Windows em `windows-latest` e publica dois artefatos:
 
 - `qboa-digital-windows-installer`: instalador NSIS `.exe`
-- `qboa-digital-windows-portable`: ZIP com o `.exe` portátil e DLLs de runtime
+- `qboa-digital-windows-portable`: executável portátil `.exe`
 
-O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. A versão `v3.1.1` já está publicada em [Releases](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.1.1). O workflow compila os pacotes com nomes padronizados `qboa-digital-3.1.1-x64-installer.exe` e `qboa-digital-3.1.1-x64-portable.zip`. Ao receber uma tag `v*`, o workflow compila e anexa os dois arquivos à release correspondente; confira o resultado da execução em Actions. Os artefatos temporários da execução também ficam disponíveis no GitHub Actions por 14 dias. Extraia o ZIP portátil inteiro e mantenha o `.exe` junto das DLLs incluídas. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
+O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. A versão `v3.1.2` já está publicada em [Releases](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.1.2). O workflow compila os pacotes com nomes padronizados `qboa-digital-3.1.2-x64-installer.exe` e `qboa-digital-3.1.2-x64-portable.zip`. Ao receber uma tag `v*`, o workflow compila e anexa os dois arquivos à release correspondente; confira o resultado da execução em Actions. Os artefatos temporários da execução também ficam disponíveis no GitHub Actions por 14 dias. A versão portátil é distribuída como `.exe` individual. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
 
 ## Validação P0 no Windows
 
@@ -220,7 +220,7 @@ A matriz de validação manual está em [docs/p0-windows-validation.md](docs/p0-
 
 ## Sobre e autoria
 
-**QBoa Digital 3.1.1** é um utilitário independente para limpeza, manutenção, privacidade e diagnóstico do Windows.
+**QBoa Digital 3.1.2** é um utilitário independente para limpeza, manutenção, privacidade e diagnóstico do Windows.
 
 - **Autor e desenvolvedor:** Vilson de Oliveira Junior
 - **Tecnologias:** Tauri, Rust, JavaScript, HTML e CSS

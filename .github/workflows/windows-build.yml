@@ -52,30 +52,26 @@ jobs:
         run: |
           $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*.exe" -File | Select-Object -First 1
           if (-not $installer) { throw "NSIS installer not found." }
-          Copy-Item $installer.FullName "qboa-digital-3.1.1-x64-installer.exe" -Force
+          Copy-Item $installer.FullName "qboa-digital-3.1.2-x64-installer.exe" -Force
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
           name: qboa-digital-windows-installer
-          path: qboa-digital-3.1.1-x64-installer.exe
+          path: qboa-digital-3.1.2-x64-installer.exe
           if-no-files-found: error
           retention-days: 14
 
       - name: Package portable application
         shell: pwsh
         run: |
-          $portable = "portable-qboa-digital"
-          New-Item -ItemType Directory -Force -Path $portable | Out-Null
-          Copy-Item "src-tauri/target/release/qboa-digital.exe" $portable
-          Get-ChildItem "src-tauri/target/release" -Filter "*.dll" -File | Copy-Item -Destination $portable
-          Compress-Archive -Path "$portable/*" -DestinationPath "qboa-digital-3.1.1-x64-portable.zip" -Force
+          Copy-Item "src-tauri/target/release/qboa-digital.exe" "qboa-digital-3.1.2-x64-portable.exe" -Force
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
         with:
           name: qboa-digital-windows-portable
-          path: qboa-digital-3.1.1-x64-portable.zip
+          path: qboa-digital-3.1.2-x64-portable.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -101,5 +97,5 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            release-assets/qboa-digital-3.1.1-x64-installer.exe
-            release-assets/qboa-digital-3.1.1-x64-portable.zip
+            release-assets/qboa-digital-3.1.2-x64-installer.exe
+            release-assets/qboa-digital-3.1.2-x64-portable.exe
