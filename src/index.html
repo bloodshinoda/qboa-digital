@@ -180,15 +180,8 @@
         <div><span class="eyebrow">QBoa Digital · análise</span><h2 id="diagnostic-modal-title">Diagnóstico do computador</h2></div>
         <button id="diagnostic-modal-close" class="diagnostic-close" type="button" aria-label="Fechar diagnóstico">×</button>
       </header>
-      <p class="diagnostic-modal-intro">Escolha uma área para analisar ou execute a bateria completa. Os resultados dependem dos dados e sensores disponíveis no Windows; ausência de leitura não significa que o componente esteja saudável.</p>
-      <div class="diagnostic-test-grid">
-        <button class="diagnostic-test-card" type="button" data-diagnostic-target="armazenamento"><strong>Armazenamento</strong><span>Espaço livre e consistência dos dados de volume</span></button>
-        <button class="diagnostic-test-card" type="button" data-diagnostic-target="memoria_ram"><strong>Memória RAM</strong><span>Memória total e disponível no momento da coleta</span></button>
-        <button class="diagnostic-test-card" type="button" data-diagnostic-target="placa_de_video"><strong>GPU</strong><span>Detecção do adaptador e leituras disponíveis</span></button>
-        <button class="diagnostic-test-card" type="button" data-diagnostic-target="processador"><strong>Processador</strong><span>Identificação, núcleos lógicos e dados disponíveis</span></button>
-        <button class="diagnostic-test-card" type="button" data-diagnostic-target="temperatura"><strong>Temperaturas</strong><span>Leituras dos sensores compatíveis, quando disponíveis</span></button>
-        <button class="diagnostic-test-card diagnostic-test-card-primary" id="diagnostic-complete-btn" type="button"><strong>Diagnóstico completo</strong><span>Executar todos os testes disponíveis e salvar o laudo</span></button>
-      </div>
+      <p class="diagnostic-modal-intro" id="diagnostic-modal-intro"></p>
+      <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Executar teste</button></div>
       <p id="diagnostic-status" aria-live="polite"></p>
       <ul id="diagnostic-results" class="diagnostic-results"></ul>
       <details class="diagnostic-saved-reports"><summary>Laudos salvos neste computador</summary><p>Os relatórios ficam localmente e não são apagados automaticamente.</p><ul id="diagnostic-history" class="diagnostic-history"></ul></details>
