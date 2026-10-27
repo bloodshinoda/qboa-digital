@@ -158,13 +158,24 @@ function renderTabs() {
   });
   tabsEl.appendChild(capabilityTab);
 
+  const diagnosticTab = document.createElement("button");
+  diagnosticTab.className = "tab" + (activeSection === "diagnostico" ? " active" : "");
+  diagnosticTab.textContent = "🩺 Diagnóstico";
+  diagnosticTab.addEventListener("click", () => {
+    activeSection = "diagnostico";
+    renderTabs();
+    document.getElementById("section-summary").textContent = "Testes de hardware e saúde do sistema";
+    renderCards();
+  });
+  tabsEl.appendChild(diagnosticTab);
+
   const contributionTab = document.createElement("button");
   contributionTab.className = "tab" + (activeSection === "sobre" ? " active" : "");
   contributionTab.textContent = "ℹ️ Sobre";
   contributionTab.addEventListener("click", () => {
     activeSection = "sobre";
     renderTabs();
-    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.1";
+    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.1.2";
     renderCards();
   });
   tabsEl.appendChild(contributionTab);
@@ -192,10 +203,17 @@ function renderCards() {
   serviceProfilePanel.hidden = activeSection !== "servicos";
   capabilityPanel.hidden = activeSection !== "capacidades";
   dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
+  dashboard.classList.toggle("contribution-view", activeSection === "sobre" || activeSection === "diagnostico");
   document.querySelector(".levels").hidden = activeSection !== "limpeza";
   syncExecutionControls();
   cardsEl.innerHTML = "";
   if (activeSection === "servicos" || activeSection === "capacidades") { if (activeSection === "servicos" && !windowsServices.length) void loadWindowsServices(); return; }
+  if (activeSection === "diagnostico") {
+    recoveryPanel.hidden = true;
+    cardsEl.innerHTML = `<article class="contribution-panel diagnostic-launch-card"><div class="contribution-copy"><span class="eyebrow">Testes do sistema</span><h2>Diagnóstico do computador</h2><p>Analise armazenamento, memória, GPU, processador e temperaturas. Cada teste apresenta evidências disponíveis e o diagnóstico completo reúne tudo em um laudo persistente.</p><button id="open-diagnostic-modal" class="primary-button" type="button">Abrir testes de diagnóstico</button></div></article>`;
+    document.getElementById("open-diagnostic-modal").addEventListener("click", openDiagnosticModal);
+    return;
+  }
   if (activeSection === "sobre") {
     dashboard.classList.add("contribution-view");
     recoveryPanel.hidden = true;
@@ -203,10 +221,10 @@ function renderCards() {
       <article class="contribution-panel about-panel">
         <div class="contribution-copy">
           <span class="eyebrow">Sobre o aplicativo</span>
-          <h2>QBoa Digital <span class="about-version">3.1.1</span></h2>
+          <h2>QBoa Digital <span class="about-version">3.1.2</span></h2>
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
-            <p><strong>Versão:</strong> 3.1.1</p>
+            <p><strong>Versão:</strong> 3.1.2</p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
           </div>
@@ -1135,10 +1153,10 @@ function diagnosticStatusLabel(status) {
   }[status] || "estado desconhecido";
 }
 
-function renderDiagnosticReport(report) {
+function renderDiagnosticReport(report, target = null) {
   const list = document.getElementById("diagnostic-results");
   list.replaceChildren();
-  report.results.forEach((result) => {
+  report.results.filter((result) => !target || result.category === target).forEach((result) => {
     const item = document.createElement("li");
     const heading = document.createElement("strong");
     heading.textContent = `${diagnosticCategoryLabel(result.category)} · ${diagnosticStatusLabel(result.status)}`;
@@ -1216,7 +1234,20 @@ async function loadDiagnosticHistory(selectLatest = false) {
   }
 }
 
-async function runDiagnostic(mode) {
+function openDiagnosticModal() {
+  const modal = document.getElementById("diagnostic-modal");
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  void loadDiagnosticHistory(true);
+}
+
+function closeDiagnosticModal() {
+  const modal = document.getElementById("diagnostic-modal");
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+async function runDiagnostic(mode, target = null) {
   const status = document.getElementById("diagnostic-status");
   document.getElementById("diagnostic-results").replaceChildren();
   const buttons = [
