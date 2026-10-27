@@ -30,7 +30,7 @@ Cada arquivo de laudo representa uma execução de diagnóstico.
 | `duration_ms` | inteiro ou null | sim | Duração monotônica, não negativa; nula se não disponível. |
 | `system` | objeto | sim | Identificação não sensível do sistema no momento da coleta. |
 | `results` | array | sim | Resultados por categoria, inclusive estados indisponíveis. |
-| `checks` | array | sim | Verificações adicionais, como SFC e DISM. Array vazio é válido para modo rápido. |
+| `checks` | array | sim | Verificações adicionais,  Array vazio nesta etapa: SFC/DISM são tarefas de manutenção e não integram o diagnóstico. |
 | `issues` | array | sim | Falhas, avisos e interrupções que afetaram a execução. Array vazio quando não houver. |
 
 ### 2.1 Identificação do sistema
@@ -210,3 +210,10 @@ O executor atual ainda não oferece cancelamento controlado das verificações S
 - [x] Falha de um arquivo JSON não impede carregar outros laudos válidos.
 - [ ] Validar compilação e testes automatizados no CI do Windows.
 - [ ] Validar execução real no Windows 11 IoT Enterprise LTSC 24H2 (build 26100).
+
+
+## Ajuste de escopo após validação inicial
+
+- SFC e DISM não fazem parte do diagnóstico rápido ou completo da 3.2; permanecem nas tarefas de limpeza/manutenção.
+- O diagnóstico completo reúne os testes disponíveis por categoria. A interface apresenta testes direcionados em popup e mantém o laudo/histórico local.
+- Nesta etapa, armazenamento, RAM, GPU, processador e temperaturas são avaliados com dados e sensores que o Windows consegue fornecer; não há benchmark ou teste de estresse destrutivo.
