@@ -1211,9 +1211,17 @@ mod tests {
         let result = preview(&detected, &catalog, ProductProfile::Safe);
         assert!(result.applicable);
         assert!(!result.validated);
-        let matching = result.services.iter().find(|item| item.service == "ExampleSvc").unwrap();
+        let matching = result
+            .services
+            .iter()
+            .find(|item| item.service == "ExampleSvc")
+            .unwrap();
         assert_eq!(matching.proposed.as_deref(), Some("Disabled"));
-        let mismatched = result.services.iter().find(|item| item.service == "MysterySvc").unwrap();
+        let mismatched = result
+            .services
+            .iter()
+            .find(|item| item.service == "MysterySvc")
+            .unwrap();
         assert!(mismatched.proposed.is_none());
         assert!(mismatched.ignored);
     }
