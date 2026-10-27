@@ -123,7 +123,8 @@ function renderTabs() {
   const tabsEl = document.getElementById("tabs");
   tabsEl.innerHTML = "";
 
-  // Diagnóstico possui cards e fluxo próprios; não renderizar também a aba antiga definida no JSON.\n  structure.sections.filter((section) => section.id !== "diagnostico").forEach((section) => {
+  // Diagnóstico possui cards e fluxo próprios; não renderizar também a aba antiga definida no JSON.
+  structure.sections.filter((section) => section.id !== "diagnostico").forEach((section) => {
     const btn = document.createElement("button");
     btn.className = "tab" + (section.id === activeSection ? " active" : "");
     btn.textContent = `${section.icon} ${section.title}`;
