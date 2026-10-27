@@ -212,7 +212,7 @@ O workflow `.github/workflows/windows-build.yml` compila o aplicativo Windows em
 - `qboa-digital-windows-installer`: instalador NSIS `.exe`
 - `qboa-digital-windows-portable`: executável portátil `.exe`
 
-O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. A versão `v3.1.2` já está publicada em [Releases](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.1.2). O workflow compila os pacotes com nomes padronizados `qboa-digital-3.1.2-x64-installer.exe` e `qboa-digital-3.1.2-x64-portable.zip`. Ao receber uma tag `v*`, o workflow compila e anexa os dois arquivos à release correspondente; confira o resultado da execução em Actions. Os artefatos temporários da execução também ficam disponíveis no GitHub Actions por 14 dias. A versão portátil é distribuída como `.exe` individual. O build portátil ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
+O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. Ao publicar a tag `v3.1.2`, o workflow compila os pacotes `qboa-digital-3.1.2-x64-installer.exe` e `qboa-digital-3.1.2-x64-portable.exe` e cria uma release em rascunho com ambos os arquivos anexados. Depois, revise e publique o rascunho em [Releases](https://github.com/bloodshinoda/qboa-digital/releases). Os artefatos temporários das execuções também ficam disponíveis no GitHub Actions por 14 dias. A versão portátil é distribuída como `.exe` individual, não como ZIP, e ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
 
 ## Validação P0 no Windows
 
