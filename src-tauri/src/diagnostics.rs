@@ -115,23 +115,7 @@ where
     };
     checkpoint(&report)?;
 
-    report.checks = if mode == DiagnosticMode::Complete {
-        match backend.run_extended_checks() {
-            Ok(checks) if !checks.is_empty() => checks
-                .into_iter()
-                .map(|check| DiagnosticCheck {
-                    name: check.name,
-                    status: check.status,
-                    evidence: check.evidence,
-                    source: "Verificação do Windows".to_string(),
-                })
-                .collect(),
-            Ok(_) => unavailable_checks("O provedor não retornou resultados."),
-            Err(error) => unavailable_checks(&error),
-        }
-    } else {
-        Vec::new()
-    };
+    // SFC e DISM são tarefas de manutenção, não testes de diagnóstico.\n    report.checks = Vec::new();
     checkpoint(&report)?;
     Ok(report)
 }
