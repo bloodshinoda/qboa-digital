@@ -60,6 +60,10 @@ const Qboa = {
     return invoke("run_diagnostic_check", { mode });
   },
 
+  async getDiagnosticReports() {
+    return invoke("get_diagnostic_reports");
+  },
+
   async listWindowsServices() { return invoke("list_windows_services"); },
 
   async manageWindowsService(name, action, startType = null) { return invoke("manage_windows_service", { name, action, startType }); },
@@ -1158,6 +1162,60 @@ function renderDiagnosticReport(report) {
   });
 }
 
+function diagnosticExecutionLabel(status) {
+  return {
+    running: "em execução",
+    completed: "concluído",
+    partial: "parcial",
+    cancelled: "cancelado",
+    failed: "falhou"
+  }[status] || "estado desconhecido";
+}
+
+async function loadDiagnosticHistory(selectLatest = false) {
+  const list = document.getElementById("diagnostic-history");
+  if (!list) return [];
+  try {
+    const reports = await Qboa.getDiagnosticReports();
+    list.replaceChildren();
+    if (!reports.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "Nenhum laudo salvo ainda.";
+      list.appendChild(empty);
+      return reports;
+    }
+    reports.forEach((report) => {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "diagnostic-history-item";
+      const date = document.createElement("span");
+      date.textContent = new Date(report.started_at).toLocaleString("pt-BR");
+      const detail = document.createElement("small");
+      detail.textContent = `${report.mode === "complete" ? "Completo" : "Rápido"} · ${diagnosticExecutionLabel(report.execution_status)}`;
+      button.append(date, detail);
+      button.addEventListener("click", () => {
+        renderDiagnosticReport(report);
+        document.getElementById("diagnostic-status").textContent =
+          `Laudo recuperado do histórico · ${diagnosticExecutionLabel(report.execution_status)} · ${report.report_id}`;
+      });
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+    if (selectLatest) {
+      renderDiagnosticReport(reports[0]);
+      document.getElementById("diagnostic-status").textContent =
+        `Último laudo recuperado · ${diagnosticExecutionLabel(reports[0].execution_status)}`;
+    }
+    return reports;
+  } catch (error) {
+    const item = document.createElement("li");
+    item.textContent = `Não foi possível carregar o histórico: ${String(error)}`;
+    list.replaceChildren(item);
+    return [];
+  }
+}
+
 async function runDiagnostic(mode) {
   const status = document.getElementById("diagnostic-status");
   document.getElementById("diagnostic-results").replaceChildren();
@@ -1170,7 +1228,10 @@ async function runDiagnostic(mode) {
   try {
     const report = await Qboa.runDiagnosticCheck(mode);
     renderDiagnosticReport(report);
-    status.textContent = mode === "quick"
+    await loadDiagnosticHistory(false);
+    status.textContent = report.execution_status === "failed"
+      ? "A execução falhou; o laudo e o motivo foram preservados."
+      : mode === "quick"
       ? "Coleta rápida concluída. Informações não representam aprovação de saúde."
       : "Verificação completa finalizada; confira cada resultado e sua disponibilidade.";
   } catch (error) {
@@ -1362,6 +1423,7 @@ async function registerEvents() {
   bindLevels();
   await registerEvents();
   await refreshHistory();
+  await loadDiagnosticHistory(true);
 
   document.getElementById("restore-point-btn").addEventListener("click", async () => {
     try {
