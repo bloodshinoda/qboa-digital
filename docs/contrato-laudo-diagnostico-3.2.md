@@ -30,7 +30,7 @@ Cada arquivo de laudo representa uma execução de diagnóstico.
 | `duration_ms` | inteiro ou null | sim | Duração monotônica, não negativa; nula se não disponível. |
 | `system` | objeto | sim | Identificação não sensível do sistema no momento da coleta. |
 | `results` | array | sim | Resultados por categoria, inclusive estados indisponíveis. |
-| `checks` | array | sim | Verificações adicionais,  Array vazio nesta etapa: SFC/DISM são tarefas de manutenção e não integram o diagnóstico. |
+| `checks` | array | sim | Verificações adicionais. Array vazio nesta etapa: SFC/DISM são tarefas de manutenção e não integram o diagnóstico. |
 | `issues` | array | sim | Falhas, avisos e interrupções que afetaram a execução. Array vazio quando não houver. |
 
 ### 2.1 Identificação do sistema
@@ -131,7 +131,7 @@ A política de retenção (limite por quantidade ou idade) fica deliberadamente 
 - Versão menor/igual à suportada: validar e carregar; preservar os dados reconhecidos.
 - Versão superior à suportada: não sobrescrever nem migrar automaticamente; mostrar que o arquivo foi criado por uma versão mais nova.
 - Migrações futuras devem ser explícitas, testadas e não destrutivas.
-- O formato interno atual `DiagnosticReport` (`mode`, `results`, `checks`) pode continuar sendo usado durante a coleta, mas a persistência deve usar um envelope separado para não acoplar o contrato histórico à implementação do coletor.
+- O formato interno atual `DiagnosticReport` (`mode`, `results`, `checks`) pode continuar sendo usado durante a coleta, mas `checks` permanece vazio nesta etapa. A persistência usa um envelope separado para não acoplar o contrato histórico à implementação do coletor.
 
 ## 7. Exemplo ilustrativo
 
@@ -197,7 +197,7 @@ O identificador no exemplo é ilustrativo. A implementação deve gerar IDs úni
 
 A implementação inicial adiciona o módulo `diagnostics_store`, usa o diretório de dados do aplicativo Tauri, salva cada laudo em arquivo JSON independente e usa arquivo temporário com substituição final. O histórico ignora arquivos inválidos ou acima do limite de leitura sem impedir a recuperação dos demais.
 
-O executor atual ainda não oferece cancelamento controlado das verificações SFC/DISM; portanto, `cancelled` permanece um estado contratual futuro e não deve ser apresentado como funcionalidade já disponível. Uma falha fatal antes da primeira coleta útil produz um laudo `failed`. Os checkpoints existentes cobrem a coleta base e o conjunto de verificações adicionais, não cada consulta CIM individual.
+O executor atual ainda não oferece cancelamento controlado dos testes de coleta; portanto, `cancelled` permanece um estado contratual futuro e não deve ser apresentado como funcionalidade já disponível. Uma falha fatal antes da primeira coleta útil produz um laudo `failed`. Os checkpoints existentes cobrem a coleta base, não cada consulta CIM individual.
 
 ## 11. Critérios de aceite da persistência
 
