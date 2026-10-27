@@ -186,11 +186,27 @@ O identificador no exemplo é ilustrativo. A implementação deve gerar IDs úni
 - [ ] O contrato não armazena recomendação automática, segredo ou identificador sensível do equipamento.
 - [ ] O relatório não substitui nem modifica o journal de alterações.
 
-## 9. Decisões ainda abertas antes da implementação
+## 9. Decisões fechadas para a primeira implementação
 
-1. Retenção: manter todos os laudos ou adotar limite configurável.
-2. Experiência de interface: mostrar o último laudo na tela de diagnóstico e abrir um histórico separado.
-3. Identificador: selecionar implementação que garanta unicidade e seja compatível com as dependências existentes.
-4. Recuperação de execução interrompida: registrar um envelope `running` em cada etapa ou salvar apenas checkpoints controlados. A escolha deve equilibrar robustez e escrita em disco.
+1. **Retenção:** não apagar laudos automaticamente na versão 3.2. Uma política configurável fica para uma etapa futura.
+2. **Interface:** carregar o laudo mais recente ao abrir a aplicação e permitir selecionar execuções anteriores na lista local.
+3. **Identificador:** gerar um identificador hexadecimal com relógio de alta resolução, PID e contador atômico por processo; o ID também é validado antes de ser usado em caminhos.
+4. **Recuperação:** persistir o envelope `running` antes de coletar e gravar checkpoints após a coleta base e após as verificações adicionais. Ao carregar um arquivo ainda `running`, convertê-lo para `partial`, registrar `execution_interrupted` e manter resultados já persistidos.
 
-Estas decisões não bloqueiam a revisão dos campos centrais, mas devem ser fechadas antes de finalizar a persistência.
+## 10. Estado da implementação
+
+A implementação inicial adiciona o módulo `diagnostics_store`, usa o diretório de dados do aplicativo Tauri, salva cada laudo em arquivo JSON independente e usa arquivo temporário com substituição final. O histórico ignora arquivos inválidos ou acima do limite de leitura sem impedir a recuperação dos demais.
+
+O executor atual ainda não oferece cancelamento controlado das verificações SFC/DISM; portanto, `cancelled` permanece um estado contratual futuro e não deve ser apresentado como funcionalidade já disponível. Uma falha fatal antes da primeira coleta útil produz um laudo `failed`. Os checkpoints existentes cobrem a coleta base e o conjunto de verificações adicionais, não cada consulta CIM individual.
+
+## 11. Critérios de aceite da persistência
+
+- [x] Um relatório é escrito antes de começar a coleta.
+- [x] Resultados da coleta base são salvos antes das verificações adicionais.
+- [x] O resultado final é salvo e fica disponível após reiniciar o aplicativo.
+- [x] Execuções ainda marcadas como `running` são recuperadas como parciais, com aviso de interrupção.
+- [x] O histórico não apaga relatórios automaticamente.
+- [x] IDs inválidos são recusados antes de montar caminhos.
+- [x] Falha de um arquivo JSON não impede carregar outros laudos válidos.
+- [ ] Validar compilação e testes automatizados no CI do Windows.
+- [ ] Validar execução real no Windows 11 IoT Enterprise LTSC 24H2 (build 26100).
