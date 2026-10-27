@@ -115,7 +115,8 @@ where
     };
     checkpoint(&report)?;
 
-    // SFC e DISM são tarefas de manutenção, não testes de diagnóstico.\n    report.checks = Vec::new();
+    // SFC e DISM são tarefas de manutenção, não testes de diagnóstico.
+    report.checks = Vec::new();
     checkpoint(&report)?;
     Ok(report)
 }
@@ -848,7 +849,7 @@ mod tests {
             result_for(&report, DiagnosticCategory::Sistema).status,
             DiagnosticStatus::Informativo
         );
-        assert_eq!(report.checks.len(), 2);
+        assert!(report.checks.is_empty());
 
         backend.data = DiagnosticData::default();
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
@@ -1250,46 +1251,23 @@ mod tests {
     }
 
     #[test]
-    fn complete_checks_separate_pass_failure_and_cancellation() {
+    fn complete_diagnostic_runs_data_checks_without_sfc_or_dism() {
         let mut backend = FakeBackend::default();
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
+        assert_eq!(report.results.len(), 6);
         assert!(report.checks.is_empty());
-
-        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
-        assert_eq!(report.checks.len(), 2);
-        assert!(report
-            .checks
-            .iter()
-            .all(|check| check.status == DiagnosticStatus::Ok));
-
-        backend.checks[0].status = DiagnosticStatus::Falha;
-        backend.checks[0].evidence = "código 2; erro de verificação".to_string();
-        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
-        assert_eq!(report.checks[0].status, DiagnosticStatus::Falha);
-        assert!(report.checks[0].evidence.contains("código 2"));
-
-        backend.checks[0].status = DiagnosticStatus::Indisponivel;
-        backend.checks[0].evidence = "processo cancelado".to_string();
-        let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
-        assert_eq!(report.checks[0].status, DiagnosticStatus::Indisponivel);
-        assert!(report.checks[0].evidence.contains("cancelado"));
+        assert_eq!(backend.extended_calls, 0);
     }
 
     #[test]
-    fn failed_to_start_complete_checks_are_reported_unavailable() {
+    fn complete_diagnostic_does_not_run_external_maintenance_commands() {
         let mut backend = FakeBackend {
             extended_error: Some("provedor não executável".to_string()),
             ..FakeBackend::default()
         };
         let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
-        assert_eq!(report.checks.len(), 2);
-        assert!(report
-            .checks
-            .iter()
-            .all(|check| check.status == DiagnosticStatus::Indisponivel));
-        assert!(report.checks[0]
-            .evidence
-            .contains("provedor não executável"));
+        assert!(report.checks.is_empty());
+        assert_eq!(backend.extended_calls, 0);
     }
 
     #[test]
