@@ -1680,7 +1680,9 @@ async fn run_diagnostic_check(
     app: AppHandle,
     mode: diagnostics::DiagnosticMode,
 ) -> Result<diagnostics_store::StoredDiagnosticReport, String> {
-    let app_data_dir = app.path().app_data_dir()
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
     let mut stored = diagnostics_store::StoredDiagnosticReport::new(mode);
     diagnostics_store::save(&app_data_dir, &stored)?;
