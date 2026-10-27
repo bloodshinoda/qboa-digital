@@ -1686,7 +1686,11 @@ async fn run_diagnostic_check(
     diagnostics_store::save(&app_data_dir, &stored)?;
     let started = Instant::now();
     let mut backend = diagnostics::WindowsDiagnosticBackend::default();
-    match diagnostics::run(&mut backend, mode) {
+    let execution = diagnostics::run_with_checkpoint(&mut backend, mode, |snapshot| {
+        stored.checkpoint(snapshot.clone());
+        diagnostics_store::save(&app_data_dir, &stored)
+    });
+    match execution {
         Ok(report) => stored.apply_result(report, started.elapsed().as_millis() as u64),
         Err(error) => stored.fail(error, started.elapsed().as_millis() as u64),
     }
