@@ -4,6 +4,7 @@ mod capability_inventory;
 mod cleanup_findings;
 mod diagnostics;
 mod diagnostics_store;
+mod storage_diagnostic;
 mod registry_executor;
 mod safety;
 mod service_manager;
