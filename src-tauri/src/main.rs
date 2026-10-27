@@ -3,6 +3,7 @@
 mod capability_inventory;
 mod cleanup_findings;
 mod diagnostics;
+mod diagnostics_store;
 mod registry_executor;
 mod safety;
 mod service_manager;
@@ -22,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use safety::{ChangeRecord, SafetyManager};
 use service_profiles::ServiceProfileBackend;
@@ -1676,10 +1677,30 @@ async fn get_session_history() -> Result<Vec<safety::ChangeRecord>, String> {
 
 #[tauri::command]
 async fn run_diagnostic_check(
+    app: AppHandle,
     mode: diagnostics::DiagnosticMode,
-) -> Result<diagnostics::DiagnosticReport, String> {
+) -> Result<diagnostics_store::StoredDiagnosticReport, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    let mut stored = diagnostics_store::StoredDiagnosticReport::new(mode);
+    diagnostics_store::save(&app_data_dir, &stored)?;
+    let started = Instant::now();
     let mut backend = diagnostics::WindowsDiagnosticBackend::default();
-    diagnostics::run(&mut backend, mode)
+    match diagnostics::run(&mut backend, mode) {
+        Ok(report) => stored.apply_result(report, started.elapsed().as_millis() as u64),
+        Err(error) => stored.fail(error, started.elapsed().as_millis() as u64),
+    }
+    diagnostics_store::save(&app_data_dir, &stored)?;
+    Ok(stored)
+}
+
+#[tauri::command]
+async fn get_diagnostic_reports(
+    app: AppHandle,
+) -> Result<Vec<diagnostics_store::StoredDiagnosticReport>, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    diagnostics_store::load_all(&app_data_dir)
 }
 
 #[tauri::command]
@@ -1795,6 +1816,7 @@ fn main() {
             rollback_session,
             get_session_history,
             run_diagnostic_check,
+            get_diagnostic_reports,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
