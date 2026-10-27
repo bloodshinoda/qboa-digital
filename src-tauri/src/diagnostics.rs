@@ -95,9 +95,27 @@ pub(crate) fn run<B: DiagnosticBackend>(
     backend: &mut B,
     mode: DiagnosticMode,
 ) -> Result<DiagnosticReport, String> {
+    run_with_checkpoint(backend, mode, |_| Ok(()))
+}
+
+pub(crate) fn run_with_checkpoint<B, F>(
+    backend: &mut B,
+    mode: DiagnosticMode,
+    mut checkpoint: F,
+) -> Result<DiagnosticReport, String>
+where
+    B: DiagnosticBackend,
+    F: FnMut(&DiagnosticReport) -> Result<(), String>,
+{
     let data = backend.collect()?;
-    let results = build_results(&data);
-    let checks = if mode == DiagnosticMode::Complete {
+    let mut report = DiagnosticReport {
+        mode,
+        results: build_results(&data),
+        checks: Vec::new(),
+    };
+    checkpoint(&report)?;
+
+    report.checks = if mode == DiagnosticMode::Complete {
         match backend.run_extended_checks() {
             Ok(checks) if !checks.is_empty() => checks
                 .into_iter()
@@ -114,11 +132,8 @@ pub(crate) fn run<B: DiagnosticBackend>(
     } else {
         Vec::new()
     };
-    Ok(DiagnosticReport {
-        mode,
-        results,
-        checks,
-    })
+    checkpoint(&report)?;
+    Ok(report)
 }
 
 fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
