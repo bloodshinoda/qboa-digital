@@ -926,3 +926,11 @@ body:has(.confirmation-modal:not(.hidden)) .operation-progress,
 body:has(.risk-modal:not(.hidden)) .operation-progress {
   display: none !important;
 }
+
+
+/* Histórico local de laudos de diagnóstico */
+.diagnostic-history { display:grid; gap:7px; padding:0; list-style:none; }
+.diagnostic-history-item { display:flex; flex-direction:column; align-items:flex-start; gap:3px; width:100%; padding:9px 11px; border:1px solid var(--qboa-border,rgba(255,255,255,.14)); border-radius:8px; background:rgba(255,255,255,.035); color:inherit; text-align:left; cursor:pointer; }
+.diagnostic-history-item:hover { background:rgba(255,255,255,.08); }
+.diagnostic-history-item span { font-weight:600; }
+.diagnostic-history-item small { color:var(--qboa-modal-muted,#b8c4bc); }
