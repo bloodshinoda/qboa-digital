@@ -20,7 +20,7 @@ use std::io::{BufRead, BufReader, Read};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -53,6 +53,9 @@ struct EventPayload {
 }
 
 static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[cfg(target_os = "windows")]
+static STORAGE_SCRIPT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
 
@@ -1729,26 +1732,46 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
     }
 
     let disk_id = disk_id.unwrap_or("");
-    let script = format!(
-        "$env:QBOA_STORAGE_MODE = '{}'; $env:QBOA_STORAGE_DISK_ID = '{}';\n{}",
-        mode,
-        disk_id,
-        include_str!("../scripts/storage_diagnostic.ps1")
-    );
-    let mut command = Command::new("powershell.exe");
-    configure_hidden_console(&mut command);
-    let output = command
-        .args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ])
-        .output()
-        .map_err(|error| format!("Não foi possível iniciar o coletor de armazenamento: {error}"))?;
+    let counter = STORAGE_SCRIPT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let script_path = std::env::temp_dir().join(format!(
+        "qboa-storage-{}-{counter:016x}.ps1",
+        std::process::id()
+    ));
+    let mut created_script = false;
+    let execution = (|| -> Result<std::process::Output, String> {
+        let mut script_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&script_path)
+            .map_err(|error| format!("Não foi possível criar o script temporário de armazenamento: {error}"))?;
+        created_script = true;
+        script_file
+            .write_all(include_str!("../scripts/storage_diagnostic.ps1").as_bytes())
+            .map_err(|error| format!("Não foi possível gravar o script temporário de armazenamento: {error}"))?;
+        drop(script_file);
+
+        let mut command = Command::new("powershell.exe");
+        configure_hidden_console(&mut command);
+        command
+            .env("QBOA_STORAGE_MODE", mode)
+            .env("QBOA_STORAGE_DISK_ID", disk_id)
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&script_path)
+            .output()
+            .map_err(|error| format!("Não foi possível iniciar o coletor de armazenamento: {error}"))
+    })();
+    if created_script {
+        std::fs::remove_file(&script_path)
+            .map_err(|error| format!("Não foi possível remover o script temporário de armazenamento: {error}"))?;
+    }
+    let output = execution?;
     if !output.status.success() {
         let stderr = decode_process_output(&output.stderr);
         let stdout = decode_process_output(&output.stdout);
