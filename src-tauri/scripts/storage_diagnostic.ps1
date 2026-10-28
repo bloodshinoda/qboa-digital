@@ -198,9 +198,21 @@ function Get-DiskEntries {
 
 function Get-SmartSnapshot([int]$diskNumber) {
     $disk = Get-CimInstance Win32_DiskDrive -Filter ("Index = " + $diskNumber) -ErrorAction Stop
+    $diskInfo = Get-Disk -Number $diskNumber -ErrorAction SilentlyContinue
     $pd = Get-PhysicalDisk -ErrorAction SilentlyContinue | Where-Object { "$($_.DeviceId)" -eq "$diskNumber" } | Select-Object -First 1
     $counter = $null
-    try { if ($null -ne $pd) { $counter = $pd | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue } } catch {}
+    try {
+        if ($null -ne $diskInfo) {
+            $counter = Get-StorageReliabilityCounter -Disk $diskInfo -ErrorAction SilentlyContinue
+        }
+    } catch {}
+    if ($null -eq $counter) {
+        try {
+            if ($null -ne $pd) {
+                $counter = Get-StorageReliabilityCounter -PhysicalDisk $pd -ErrorAction SilentlyContinue
+            }
+        } catch {}
+    }
 
     $attributes = @()
     $reallocated = $null
@@ -279,7 +291,7 @@ function Get-SmartSnapshot([int]$diskNumber) {
     $attr198 = $attributes | Where-Object { $_.id -eq 198 } | Select-Object -First 1
     $attr199 = $attributes | Where-Object { $_.id -eq 199 } | Select-Object -First 1
     $attr194 = $attributes | Where-Object { $_.id -in @(190,194) } | Select-Object -First 1
-    $wearAttr = $attributes | Where-Object { $_.id -in @(202,231,233) -and $null -ne $_.threshold -and $_.current -gt 0 } | Select-Object -First 1
+    $wearAttr = $attributes | Where-Object { $_.id -in @(202,231,233) -and $null -ne $_.threshold -and $_.current -ge 0 } | Select-Object -First 1
 
     if ($null -ne $attr5) { $reallocated = [uint64]$attr5.raw_value }
     if ($null -ne $attr197) { $pending = [uint64]$attr197.raw_value }
