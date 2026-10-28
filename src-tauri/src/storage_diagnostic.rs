@@ -361,6 +361,7 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
     }
 
     if report.smart.usable {
+        let mut smart_core_complete = true;
         if report.smart.predicted_failure == Some(true) {
             recommendation = recommendation.worst(Recommendation::Trocar);
             reasons.push("O provedor SMART sinalizou previsão de falha do dispositivo.".into());
@@ -374,6 +375,7 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
                 recommendation = recommendation.worst(Recommendation::Trocar);
                 reasons.push(format!("SMART informa {count:?} setores {label}."));
             } else if count.is_none() {
+                smart_core_complete = false;
                 reasons.push(format!("Contagem SMART de setores {label} indisponível."));
             }
         }
@@ -391,12 +393,25 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
                     .push("Desgaste atingiu ou ultrapassou o limite informado pelo disco.".into());
             }
         } else {
+            if report.smart.wear_percent.is_some() || report.smart.wear_limit_percent.is_some() {
+                smart_core_complete = false;
+            }
             reasons.push("Dados de desgaste SMART incompletos.".into());
         }
         if report.smart.temperature_c.is_none() {
             reasons.push("Temperatura SMART indisponível; não foi presumida como zero.".into());
         }
+        if recommendation == Recommendation::Ok && !smart_core_complete {
+            recommendation = Recommendation::Inconclusivo;
+            reasons.push(
+                "A velocidade está dentro da faixa, mas os dados SMART críticos estão incompletos."
+                    .into(),
+            );
+        }
     } else {
+        if recommendation == Recommendation::Ok {
+            recommendation = Recommendation::Inconclusivo;
+        }
         reasons.push("SMART utilizável indisponível; estado SMART inconclusivo.".into());
     }
 
@@ -488,6 +503,40 @@ mod tests {
         evaluate(&mut report);
         assert_eq!(report.recommendation, Recommendation::Reparar);
     }
+
+    #[test]
+    fn smart_prediction_of_failure_overrides_good_speed() {
+        let mut report = sample(DiskClass::Nvme, Some(3000.0), Some(3000.0));
+        report.smart.predicted_failure = Some(true);
+        evaluate(&mut report);
+        assert_eq!(report.recommendation, Recommendation::Trocar);
+    }
+
+    #[test]
+    fn unavailable_smart_prevents_ok_verdict() {
+        let mut report = sample(DiskClass::SataSsd, Some(500.0), Some(500.0));
+        report.smart.usable = false;
+        evaluate(&mut report);
+        assert_eq!(report.recommendation, Recommendation::Inconclusivo);
+    }
+
+    #[test]
+    fn missing_space_ignores_speed_but_keeps_smart_findings() {
+        let mut report = sample(DiskClass::SataSsd, Some(1.0), Some(1.0));
+        report.space_available = false;
+        report.smart.pending = Some(1);
+        evaluate(&mut report);
+        assert_eq!(report.recommendation, Recommendation::Trocar);
+    }
+
+    #[test]
+    fn missing_space_does_not_evaluate_supplied_speed_values() {
+        let mut report = sample(DiskClass::SataSsd, Some(1.0), Some(1.0));
+        report.space_available = false;
+        evaluate(&mut report);
+        assert_eq!(report.recommendation, Recommendation::Inconclusivo);
+    }
+
     #[test]
     fn missing_speed_is_not_zero() {
         assert_eq!(
