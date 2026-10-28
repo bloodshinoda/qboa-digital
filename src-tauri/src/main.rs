@@ -1743,11 +1743,15 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
             .write(true)
             .create_new(true)
             .open(&script_path)
-            .map_err(|error| format!("Não foi possível criar o script temporário de armazenamento: {error}"))?;
+            .map_err(|error| {
+                format!("Não foi possível criar o script temporário de armazenamento: {error}")
+            })?;
         created_script = true;
         script_file
             .write_all(include_str!("../scripts/storage_diagnostic.ps1").as_bytes())
-            .map_err(|error| format!("Não foi possível gravar o script temporário de armazenamento: {error}"))?;
+            .map_err(|error| {
+                format!("Não foi possível gravar o script temporário de armazenamento: {error}")
+            })?;
         drop(script_file);
 
         let mut command = Command::new("powershell.exe");
@@ -1765,11 +1769,15 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
             ])
             .arg(&script_path)
             .output()
-            .map_err(|error| format!("Não foi possível iniciar o coletor de armazenamento: {error}"))
+            .map_err(|error| {
+                format!("Não foi possível iniciar o coletor de armazenamento: {error}")
+            })
     })();
     if created_script {
         std::fs::remove_file(&script_path)
-            .map_err(|error| format!("Não foi possível remover o script temporário de armazenamento: {error}"))?;
+            .map_err(|error| {
+                format!("Não foi possível remover o script temporário de armazenamento: {error}")
+            })?;
     }
     let output = execution?;
     if !output.status.success() {
