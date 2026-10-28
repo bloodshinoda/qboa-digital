@@ -90,8 +90,8 @@ pub(crate) struct SmartData {
     pub wear_percent: Option<f64>,
     pub wear_limit_percent: Option<f64>,
     pub temperature_c: Option<f64>,
-    pub pio_mode: bool,
-    pub slow_sata_link: bool,
+    pub pio_mode: Option<bool>,
+    pub slow_sata_link: Option<bool>,
     pub usb_slow: bool,
 }
 
@@ -282,6 +282,8 @@ fn value(report: &StorageReport, kind: MeasurementKind) -> Option<f64> {
 pub(crate) fn evaluate(report: &mut StorageReport) {
     let mut recommendation = Recommendation::Inconclusivo;
     let mut reasons = Vec::new();
+    let pio_mode = report.smart.pio_mode == Some(true);
+    let slow_sata_link = report.smart.slow_sata_link == Some(true);
 
     if report.class == DiskClass::Unknown {
         reasons.push("Classe do disco não identificada pelo barramento; desempenho e recomendação inconclusivos.".into());
@@ -289,7 +291,7 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         let read = value(report, MeasurementKind::SeqLargeRead);
         let write = value(report, MeasurementKind::SeqLargeWrite);
         if report.class != DiskClass::Usb {
-            if report.smart.pio_mode || report.smart.slow_sata_link {
+            if pio_mode || slow_sata_link {
                 recommendation = Recommendation::Reparar;
                 reasons.push(
                     "A condição do link/controlador impede usar a velocidade como motivo de troca."
@@ -332,7 +334,7 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         (Some(before), Some(after)) if after > before
     );
 
-    if report.smart.pio_mode || report.smart.slow_sata_link || crc_increased {
+    if pio_mode || slow_sata_link || crc_increased {
         // Problemas de interface/transporte não devem condenar o disco pela velocidade.
         // SMART crítico abaixo ainda pode elevar a recomendação para Trocar.
         if recommendation == Recommendation::Trocar {
@@ -340,10 +342,10 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         } else {
             recommendation = recommendation.worst(Recommendation::Reparar);
         }
-        if report.smart.pio_mode {
+        if pio_mode {
             reasons.push("Modo PIO detectado: revisar cabo, porta ou driver.".into());
         }
-        if report.smart.slow_sata_link {
+        if slow_sata_link {
             reasons.push("Link SATA lento: revisar cabo, porta ou driver.".into());
         }
     }
