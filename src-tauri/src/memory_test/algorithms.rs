@@ -66,7 +66,6 @@ impl AlgorithmReport {
             });
         }
     }
-
 }
 
 /// Escritas voláteis impedem que o compilador elimine o padrão do teste.
@@ -79,11 +78,7 @@ fn write_pattern(buffer: &mut [u8], pattern_at: impl Fn(usize) -> u8) {
 }
 
 /// Leituras voláteis forçam a verificação dos bytes efetivamente endereçados.
-fn verify_pattern(
-    buffer: &[u8],
-    expected_at: impl Fn(usize) -> u8,
-    report: &mut AlgorithmReport,
-) {
+fn verify_pattern(buffer: &[u8], expected_at: impl Fn(usize) -> u8, report: &mut AlgorithmReport) {
     let ptr = buffer.as_ptr();
     for offset in 0..buffer.len() {
         // SAFETY: offset percorre exatamente os índices válidos do slice.
