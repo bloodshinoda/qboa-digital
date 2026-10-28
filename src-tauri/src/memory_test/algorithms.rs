@@ -80,12 +80,25 @@ impl AlgorithmReport {
     }
 }
 
+/// Escritas voláteis impedem que o compilador elimine o padrão do teste.
+fn write_pattern(buffer: &mut [u8], pattern_at: impl Fn(usize) -> u8) {
+    let ptr = buffer.as_mut_ptr();
+    for offset in 0..buffer.len() {
+        // SAFETY: offset percorre exatamente os índices válidos do slice.
+        unsafe { std::ptr::write_volatile(ptr.add(offset), pattern_at(offset)) };
+    }
+}
+
+/// Leituras voláteis forçam a verificação dos bytes efetivamente endereçados.
 fn verify_pattern(
     buffer: &[u8],
     expected_at: impl Fn(usize) -> u8,
     report: &mut AlgorithmReport,
 ) {
-    for (offset, actual) in buffer.iter().copied().enumerate() {
+    let ptr = buffer.as_ptr();
+    for offset in 0..buffer.len() {
+        // SAFETY: offset percorre exatamente os índices válidos do slice.
+        let actual = unsafe { std::ptr::read_volatile(ptr.add(offset)) };
         let expected = expected_at(offset);
         if actual != expected {
             report.record(offset, expected, actual);
@@ -97,7 +110,7 @@ fn verify_pattern(
 pub fn run_a01(buffer: &mut [u8]) -> AlgorithmReport {
     let mut report = AlgorithmReport::new(AlgorithmId::A01);
     for pattern in [0x00, 0xFF] {
-        buffer.fill(pattern);
+        write_pattern(buffer, |_| pattern);
         verify_pattern(buffer, |_| pattern, &mut report);
     }
     report
@@ -109,7 +122,7 @@ pub fn run_a02(buffer: &mut [u8]) -> AlgorithmReport {
     for bit in 0..u8::BITS {
         let pattern = 1u8 << bit;
         for value in [pattern, !pattern] {
-            buffer.fill(value);
+            write_pattern(buffer, |_| value);
             verify_pattern(buffer, |_| value, &mut report);
         }
     }
@@ -157,18 +170,29 @@ impl XorShift64Star {
     }
 }
 
-fn seeded_pattern(len: usize, seed: u64) -> Vec<u8> {
-    let mut rng = XorShift64Star::new(seed);
-    (0..len).map(|_| rng.next_byte()).collect()
-}
-
 /// A04 — padrão pseudoaleatório determinístico.
 /// A mesma versão, seed e tamanho produzem os mesmos bytes.
 pub fn run_a04(buffer: &mut [u8], seed: u64) -> AlgorithmReport {
     let mut report = AlgorithmReport::new(AlgorithmId::A04);
-    let expected = seeded_pattern(buffer.len(), seed);
-    buffer.copy_from_slice(&expected);
-    verify_pattern(buffer, |offset| expected[offset], &mut report);
+
+    let ptr = buffer.as_mut_ptr();
+    let mut writer = XorShift64Star::new(seed);
+    for offset in 0..buffer.len() {
+        // SAFETY: offset is within the mutable slice.
+        unsafe { std::ptr::write_volatile(ptr.add(offset), writer.next_byte()) };
+    }
+
+    // Recreate the stream instead of allocating a second buffer of equal size.
+    let mut verifier = XorShift64Star::new(seed);
+    for offset in 0..buffer.len() {
+        // SAFETY: offset is within the mutable slice.
+        let actual = unsafe { std::ptr::read_volatile(ptr.add(offset)) };
+        let expected = verifier.next_byte();
+        if actual != expected {
+            report.record(offset, expected, actual);
+        }
+    }
+
     report
 }
 
@@ -176,22 +200,24 @@ pub fn run_a04(buffer: &mut [u8], seed: u64) -> AlgorithmReport {
 /// ordem reversa. O buffer termina preenchido com zero.
 pub fn run_a05(buffer: &mut [u8]) -> AlgorithmReport {
     let mut report = AlgorithmReport::new(AlgorithmId::A05);
-    buffer.fill(0x00);
+    write_pattern(buffer, |_| 0x00);
 
+    let ptr = buffer.as_mut_ptr();
     for offset in 0..buffer.len() {
-        let actual = buffer[offset];
+        // SAFETY: offset is within the mutable slice.
+        let actual = unsafe { std::ptr::read_volatile(ptr.add(offset)) };
         if actual != 0x00 {
             report.record(offset, 0x00, actual);
         }
-        buffer[offset] = 0xFF;
+        // SAFETY: offset is within the mutable slice.\n        unsafe { std::ptr::write_volatile(ptr.add(offset), 0xFF) };
     }
 
     for offset in (0..buffer.len()).rev() {
-        let actual = buffer[offset];
+        // SAFETY: offset is within the mutable slice.\n        let actual = unsafe { std::ptr::read_volatile(ptr.add(offset)) };
         if actual != 0xFF {
             report.record(offset, 0xFF, actual);
         }
-        buffer[offset] = 0x00;
+        // SAFETY: offset is within the mutable slice.\n        unsafe { std::ptr::write_volatile(ptr.add(offset), 0x00) };
     }
 
     report
