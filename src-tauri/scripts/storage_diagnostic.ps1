@@ -354,6 +354,14 @@ function Get-MeasurementSpec {
     )
 }
 
+if ($mode -eq 'specs') {
+    Add-Type -TypeDefinition $benchSource -Language CSharp -ErrorAction Stop
+    $specs = @(Get-MeasurementSpec)
+    if ($specs.Count -ne 8) { throw 'O contrato do benchmark deve conter exatamente oito medições.' }
+    ConvertTo-Json -InputObject $specs -Depth 4 -Compress
+    exit 0
+}
+
 if ($mode -eq 'list') {
     $entries = @(Get-DiskEntries)
     ConvertTo-Json -InputObject $entries -Depth 8 -Compress
