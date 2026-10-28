@@ -37,8 +37,6 @@ public static class QboaStorageBench {
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool WriteFile(IntPtr handle, IntPtr buffer, uint bytes, out uint transferred, IntPtr overlapped);
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool FlushFileBuffers(IntPtr handle);
-    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
     public static QboaBenchResult Run(string path, long fileBytes, int blockBytes, int queueDepth,
@@ -51,8 +49,10 @@ public static class QboaStorageBench {
         long reservedBytes = 0, completedBytes = 0, operations = 0, sequentialBlock = -1;
         int stop = 0;
         var failures = new Exception[queueDepth];
-        var stopwatch = Stopwatch.StartNew();
+        var stopwatch = new Stopwatch();
         var workers = new Thread[queueDepth];
+        var ready = new CountdownEvent(queueDepth);
+        var startGate = new ManualResetEventSlim(false);
 
         for (int workerId = 0; workerId < queueDepth; workerId++) {
             int localId = workerId;
@@ -60,6 +60,7 @@ public static class QboaStorageBench {
                 IntPtr allocation = IntPtr.Zero;
                 IntPtr aligned = IntPtr.Zero;
                 IntPtr handle = InvalidHandle;
+                bool announcedReady = false;
                 try {
                     allocation = Marshal.AllocHGlobal(blockBytes + 4095);
                     long alignedAddress = (allocation.ToInt64() + 4095L) & ~4095L;
@@ -76,6 +77,9 @@ public static class QboaStorageBench {
 
                     var random = new Random(unchecked(Environment.TickCount ^ (localId * 7919)));
                     long maxBlocks = fileBytes / 4096;
+                    ready.Signal();
+                    announcedReady = true;
+                    startGate.Wait();
                     while (Volatile.Read(ref stop) == 0 && stopwatch.ElapsedMilliseconds < maxMilliseconds) {
                         long current, reservation;
                         while (true) {
@@ -108,12 +112,11 @@ public static class QboaStorageBench {
                         Interlocked.Increment(ref operations);
                     }
 
-                    if (write && handle != InvalidHandle && !FlushFileBuffers(handle))
-                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Falha ao descarregar gravações do teste.");
                 } catch (Exception error) {
                     failures[localId] = error;
                     Interlocked.Exchange(ref stop, 1);
                 } finally {
+                    if (!announcedReady) ready.Signal();
                     if (handle != InvalidHandle) CloseHandle(handle);
                     if (allocation != IntPtr.Zero) Marshal.FreeHGlobal(allocation);
                 }
@@ -122,8 +125,13 @@ public static class QboaStorageBench {
             workers[workerId].Start();
         }
 
+        ready.Wait();
+        stopwatch.Start();
+        startGate.Set();
         foreach (Thread worker in workers) worker.Join();
         stopwatch.Stop();
+        ready.Dispose();
+        startGate.Dispose();
         foreach (Exception failure in failures)
             if (failure != null) throw new InvalidOperationException(failure.Message, failure);
         if (completedBytes <= 0 || operations <= 0 || stopwatch.Elapsed.TotalSeconds <= 0)
@@ -390,8 +398,8 @@ if ($null -eq $entry) { throw 'O disco/volume selecionado não está mais dispon
 
 $freeBytes = $null
 try { $freeBytes = [long](Get-Volume -DriveLetter $driveLetter -ErrorAction Stop).SizeRemaining } catch {}
-$testFileBytes = 134217728
-$maxBytesPerMeasurement = 134217728
+$testFileBytes = 268435456
+$maxBytesPerMeasurement = 1073741824
 $timeLimitMs = 3000
 $spaceAvailable = ($null -ne $freeBytes -and $freeBytes -ge ($testFileBytes + 67108864))
 $smartBefore = $null
