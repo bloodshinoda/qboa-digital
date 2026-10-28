@@ -1774,10 +1774,9 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
             })
     })();
     if created_script {
-        std::fs::remove_file(&script_path)
-            .map_err(|error| {
-                format!("Não foi possível remover o script temporário de armazenamento: {error}")
-            })?;
+        std::fs::remove_file(&script_path).map_err(|error| {
+            format!("Não foi possível remover o script temporário de armazenamento: {error}")
+        })?;
     }
     let output = execution?;
     if !output.status.success() {
