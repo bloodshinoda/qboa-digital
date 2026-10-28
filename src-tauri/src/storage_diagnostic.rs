@@ -415,7 +415,6 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         reasons.push("SMART utilizável indisponível; estado SMART inconclusivo.".into());
     }
 
-
     report.recommendation = recommendation;
     report.reasons = reasons;
 }
