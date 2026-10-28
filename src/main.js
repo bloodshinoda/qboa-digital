@@ -1528,7 +1528,7 @@ async function refreshStorageDisks(preserveSelection = true) {
       checkbox.type = "checkbox";
       checkbox.value = disk.id;
       checkbox.dataset.storageDisk = "true";
-      checkbox.checked = previous.size ? previous.has(disk.id) : index === 0;
+      checkbox.checked = preserveSelection ? previous.has(disk.id) : index === 0;
       const description = document.createElement("span");
       description.className = "storage-disk-description";
       const name = document.createElement("strong");
@@ -1686,7 +1686,7 @@ async function runDiagnostic(mode, target = null) {
         status.textContent = "Testando unidade " + (index + 1) + " de " + selectedIds.length + " · " + diskId + "...";
         try {
           const report = await Qboa.runStorageDiagnostic(diskId);
-          renderStorageReport(report, completed > 0);
+          renderStorageReport(report, completed > 0 || failures.length > 0);
           completed++;
           if (report.execution_status === "partial") failures.push((report.disk_name || diskId) + ": teste parcial");
         } catch (error) {
