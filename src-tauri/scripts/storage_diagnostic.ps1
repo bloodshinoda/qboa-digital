@@ -459,8 +459,10 @@ if ($entry.class -eq 'usb') {
     $readMeasure = $measurements | Where-Object { $_.kind -eq 'seq_large_read' -and $null -ne $_.value } | Select-Object -First 1
     if ($null -ne $readMeasure -and [double]$readMeasure.value -lt 20) { $usbSlow = $true }
 }
-$pio = $false
-# A ausência de uma fonte confiável para o modo de transferência não é reportada como falha de disco.
+# Os cmdlets padrão do Windows não expõem um estado PIO/negociação SATA confiável para todos os controladores.
+# Não gravamos false quando essa informação não pode ser detectada.
+$pio = $null
+$slowSataLink = $null
 $report = [pscustomobject]@{
     disk_id = $diskId
     backend = 'windows'
@@ -483,7 +485,7 @@ $report = [pscustomobject]@{
         wear_limit_percent = $smart.wear_limit_percent
         temperature_c = $smart.temperature_c
         pio_mode = $pio
-        slow_sata_link = $false
+        slow_sata_link = $slowSataLink
         usb_slow = $usbSlow
         attributes = @($smart.attributes)
         reliability_metrics = @($smart.reliability_metrics)
