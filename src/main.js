@@ -1116,8 +1116,7 @@ function diagnosticCategoryLabel(category) {
     armazenamento: "Armazenamento",
     memoria_ram: "Memória RAM",
     placa_de_video: "Placa de vídeo",
-    processador: "Processador",
-    temperatura: "Temperatura"
+    processador: "Processador"
   }[category] || category;
 }
 
