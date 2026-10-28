@@ -38,6 +38,37 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Validate storage collector and eight-measurement contract
+        shell: pwsh
+        run: |
+          $env:QBOA_STORAGE_MODE = "specs"
+          $output = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "src-tauri/scripts/storage_diagnostic.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Storage collector syntax/C# compile check failed." }
+          $specs = ($output -join [Environment]::NewLine) | ConvertFrom-Json
+          if ($specs.Count -ne 8) { throw "Expected exactly eight storage measurements; found $($specs.Count)." }
+
+          $expected = @(
+            @{ kind = "seq_small_write"; unit = "MB/s"; block = 131072; queue = 1; write = $true; random = $false },
+            @{ kind = "seq_small_read"; unit = "MB/s"; block = 131072; queue = 1; write = $false; random = $false },
+            @{ kind = "seq_large_write"; unit = "MB/s"; block = 1048576; queue = 8; write = $true; random = $false },
+            @{ kind = "seq_large_read"; unit = "MB/s"; block = 1048576; queue = 8; write = $false; random = $false },
+            @{ kind = "random_small_write"; unit = "IOPS"; block = 4096; queue = 1; write = $true; random = $true },
+            @{ kind = "random_small_read"; unit = "IOPS"; block = 4096; queue = 1; write = $false; random = $true },
+            @{ kind = "random_large_write"; unit = "IOPS"; block = 4096; queue = 32; write = $true; random = $true },
+            @{ kind = "random_large_read"; unit = "IOPS"; block = 4096; queue = 32; write = $false; random = $true }
+          )
+
+          foreach ($expectedMeasurement in $expected) {
+            $actual = @($specs | Where-Object { $_.kind -eq $expectedMeasurement.kind })
+            if ($actual.Count -ne 1) { throw "Missing or duplicate measurement: $($expectedMeasurement.kind)." }
+            foreach ($property in @("unit", "block", "queue", "write", "random")) {
+              if ($actual[0].$property -ne $expectedMeasurement[$property]) {
+                throw "Unexpected $property for measurement $($expectedMeasurement.kind)."
+              }
+            }
+          }
+          Write-Host "Storage collector parsed, benchmark C# compiled, and all eight measurements match the contract."
+
       - name: Check Rust formatting
         run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
 
