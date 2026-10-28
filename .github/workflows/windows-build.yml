@@ -38,6 +38,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Validate frontend JavaScript syntax
+        run: node --check src/main.js
+
       - name: Validate storage collector and execute all eight tests on a temporary file
         shell: pwsh
         run: |
@@ -71,6 +74,88 @@ jobs:
             }
           }
           Write-Host "All eight measurements executed against a disposable temporary file; no physical disk was targeted by the test."
+
+      - name: Validate Windows storage inventory JSON shape
+        shell: pwsh
+        run: |
+          $env:QBOA_STORAGE_MODE = "list"
+          $inventoryOutput = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "src-tauri/scripts/storage_diagnostic.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Storage inventory command failed." }
+          $inventoryJson = ($inventoryOutput -join [Environment]::NewLine)
+          $disks = $inventoryJson | ConvertFrom-Json -NoEnumerate
+          if ($disks -isnot [array]) { throw "Storage inventory must return a flat JSON array." }
+          foreach ($disk in $disks) {
+            foreach ($property in @("id", "disk_number", "model", "capacity_bytes", "volume", "class", "bus_type")) {
+              if ($null -eq $disk.PSObject.Properties[$property]) {
+                throw "Storage inventory item is missing '$property'."
+              }
+            }
+            if ([string]$disk.id -notmatch '^\d+:[A-Z]      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Windows installer
+        run: npm run build
+
+      - name: Normalize installer filename
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*.exe" -File | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found." }
+          Copy-Item $installer.FullName "qboa-digital-3.1.2-x64-installer.exe" -Force
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: qboa-digital-windows-installer
+          path: qboa-digital-3.1.2-x64-installer.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Package portable application
+        shell: pwsh
+        run: |
+          Copy-Item "src-tauri/target/release/qboa-digital.exe" "qboa-digital-3.1.2-x64-portable.exe" -Force
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: qboa-digital-windows-portable
+          path: qboa-digital-3.1.2-x64-portable.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  prepare-draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create draft GitHub Release with build assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: QBoa Digital ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/qboa-digital-3.1.2-x64-installer.exe
+            release-assets/qboa-digital-3.1.2-x64-portable.exe
+) {
+              throw "Storage inventory returned an invalid disk identifier: '$($disk.id)'."
+            }
+          }
+          Write-Host ("Storage inventory returned a flat array with {0} valid item(s)." -f $disks.Count)
 
       - name: Check Rust formatting
         run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
