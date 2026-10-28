@@ -67,17 +67,6 @@ impl AlgorithmReport {
         }
     }
 
-    fn merge(&mut self, other: Self) {
-        self.mismatches_total = self
-            .mismatches_total
-            .saturating_add(other.mismatches_total);
-        for mismatch in other.mismatches {
-            if self.mismatches.len() >= MAX_MISMATCH_DETAILS {
-                break;
-            }
-            self.mismatches.push(mismatch);
-        }
-    }
 }
 
 /// Escritas voláteis impedem que o compilador elimine o padrão do teste.
@@ -133,7 +122,7 @@ pub fn run_a02(buffer: &mut [u8]) -> AlgorithmReport {
 pub fn run_a03(buffer: &mut [u8]) -> AlgorithmReport {
     let mut report = AlgorithmReport::new(AlgorithmId::A03);
     for pattern in [0xAA, 0x55] {
-        buffer.fill(pattern);
+        write_pattern(buffer, |_| pattern);
         verify_pattern(buffer, |_| pattern, &mut report);
     }
     report
