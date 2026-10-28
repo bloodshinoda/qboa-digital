@@ -1712,22 +1712,18 @@ async fn get_diagnostic_reports(
     diagnostics_store::load_all(&app_data_dir)
 }
 
-
 #[cfg(target_os = "windows")]
 fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_json::Value, String> {
     if !matches!(mode, "list" | "test") {
         return Err("Modo de teste de armazenamento inválido.".into());
     }
     if let Some(id) = disk_id {
-        if !id
-            .split_once(':')
-            .is_some_and(|(number, letter)| {
-                !number.is_empty()
-                    && number.bytes().all(|byte| byte.is_ascii_digit())
-                    && letter.len() == 1
-                    && letter.as_bytes()[0].is_ascii_uppercase()
-            })
-        {
+        if !id.split_once(':').is_some_and(|(number, letter)| {
+            !number.is_empty()
+                && number.bytes().all(|byte| byte.is_ascii_digit())
+                && letter.len() == 1
+                && letter.as_bytes()[0].is_ascii_uppercase()
+        }) {
             return Err("Identificador de disco inválido.".into());
         }
     }
@@ -1756,8 +1752,15 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
     if !output.status.success() {
         let stderr = decode_process_output(&output.stderr);
         let stdout = decode_process_output(&output.stdout);
-        let details = if !stderr.trim().is_empty() { stderr } else { stdout };
-        return Err(format!("O coletor de armazenamento falhou: {}", details.trim()));
+        let details = if !stderr.trim().is_empty() {
+            stderr
+        } else {
+            stdout
+        };
+        return Err(format!(
+            "O coletor de armazenamento falhou: {}",
+            details.trim()
+        ));
     }
     serde_json::from_slice::<serde_json::Value>(&output.stdout)
         .map_err(|error| format!("O coletor de armazenamento retornou JSON inválido: {error}"))
@@ -1833,15 +1836,11 @@ fn list_storage_disks() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn run_storage_diagnostic(
-    app: AppHandle,
-    disk_id: String,
-) -> Result<serde_json::Value, String> {
+fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json::Value, String> {
     let started_at = storage_diagnostic::timestamp_now();
     let mut result = execute_storage_script("test", Some(&disk_id))?;
-    let mut report: storage_diagnostic::StorageReport =
-        serde_json::from_value(result.clone())
-            .map_err(|error| format!("Relatório de armazenamento incompleto: {error}"))?;
+    let mut report: storage_diagnostic::StorageReport = serde_json::from_value(result.clone())
+        .map_err(|error| format!("Relatório de armazenamento incompleto: {error}"))?;
     storage_diagnostic::evaluate(&mut report);
     let object = result
         .as_object_mut()
