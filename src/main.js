@@ -1513,7 +1513,7 @@ function openDiagnosticModal(target = null, mode = "quick") {
     runButton.disabled = false;
   }
   const labels = {
-    armazenamento: ["Teste de armazenamento", "Consulta informações disponíveis sobre os volumes e o espaço livre. Isso não substitui uma verificação física SMART ou um teste de superfície."],
+    armazenamento: ["Teste de armazenamento", "Coleta dados SMART disponíveis e executa oito medições sequenciais e aleatórias de leitura/escrita em arquivo temporário. Não executa teste de superfície nem escreve diretamente em setores do disco."],
     memoria_ram: ["Teste de memória RAM", "Analisa os dados de memória expostos pelo Windows. Não é um teste de estresse nem substitui o Diagnóstico de Memória do Windows."],
     placa_de_video: ["Teste de GPU", "Consulta os adaptadores gráficos detectados e as leituras disponíveis. Não executa benchmark nem teste de estresse gráfico."],
     processador: ["Teste de processador", "Consulta a identificação e os dados disponíveis do processador. Não executa benchmark nem teste de estresse."],
