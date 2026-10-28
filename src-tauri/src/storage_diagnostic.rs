@@ -139,7 +139,9 @@ pub(crate) fn timestamp_now() -> String {
 fn safe_storage_report_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 80
-        && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
 pub(crate) fn persist_report(
@@ -155,11 +157,17 @@ pub(crate) fn persist_report(
         .unwrap_or_default()
         .as_nanos();
     let counter = NEXT_STORAGE_REPORT_ID.fetch_add(1, Ordering::Relaxed);
-    let report_id = format!("storage-{nanos:032x}-{:08x}-{counter:08x}", std::process::id());
+    let report_id = format!(
+        "storage-{nanos:032x}-{:08x}-{counter:08x}",
+        std::process::id()
+    );
     if !safe_storage_report_id(&report_id) {
         return Err("Não foi possível gerar o identificador do laudo de armazenamento.".into());
     }
-    object.insert("schema_version".into(), serde_json::json!(STORAGE_REPORT_SCHEMA_VERSION));
+    object.insert(
+        "schema_version".into(),
+        serde_json::json!(STORAGE_REPORT_SCHEMA_VERSION),
+    );
     object.insert("report_id".into(), serde_json::json!(report_id));
     object.insert("started_at".into(), serde_json::json!(started_at));
     object.insert("finished_at".into(), serde_json::json!(timestamp_now()));
@@ -169,22 +177,26 @@ pub(crate) fn persist_report(
         .map_err(|error| format!("Não foi possível criar o histórico de armazenamento: {error}"))?;
     let destination = directory.join(format!("{}.json", report_id));
     let temporary = directory.join(format!(".{}.tmp", report_id));
-    let bytes = serde_json::to_vec_pretty(report)
-        .map_err(|error| format!("Não foi possível serializar o laudo de armazenamento: {error}"))?;
+    let bytes = serde_json::to_vec_pretty(report).map_err(|error| {
+        format!("Não foi possível serializar o laudo de armazenamento: {error}")
+    })?;
     let write_result = (|| -> Result<(), String> {
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&temporary)
-            .map_err(|error| format!("Não foi possível criar o arquivo temporário do laudo: {error}"))?;
+            .map_err(|error| {
+                format!("Não foi possível criar o arquivo temporário do laudo: {error}")
+            })?;
         file.write_all(&bytes)
             .map_err(|error| format!("Falha ao gravar laudo de armazenamento: {error}"))?;
         file.flush()
             .map_err(|error| format!("Falha ao descarregar laudo de armazenamento: {error}"))?;
         file.sync_all()
             .map_err(|error| format!("Falha ao sincronizar laudo de armazenamento: {error}"))?;
-        fs::rename(&temporary, &destination)
-            .map_err(|error| format!("Não foi possível finalizar o laudo de armazenamento: {error}"))?;
+        fs::rename(&temporary, &destination).map_err(|error| {
+            format!("Não foi possível finalizar o laudo de armazenamento: {error}")
+        })?;
         Ok(())
     })();
     if write_result.is_err() {
@@ -198,8 +210,9 @@ pub(crate) fn load_stored_reports(app_data_dir: &Path) -> Result<serde_json::Val
     if !directory.exists() {
         return Ok(serde_json::Value::Array(Vec::new()));
     }
-    let entries = fs::read_dir(&directory)
-        .map_err(|error| format!("Não foi possível listar o histórico de armazenamento: {error}"))?;
+    let entries = fs::read_dir(&directory).map_err(|error| {
+        format!("Não foi possível listar o histórico de armazenamento: {error}")
+    })?;
     let mut reports = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
@@ -219,16 +232,29 @@ pub(crate) fn load_stored_reports(app_data_dir: &Path) -> Result<serde_json::Val
             Ok(report) => report,
             Err(_) => continue,
         };
-        let report_id = report.get("report_id").and_then(serde_json::Value::as_str).unwrap_or("");
-        let schema = report.get("schema_version").and_then(serde_json::Value::as_u64);
-        if !safe_storage_report_id(report_id) || schema != Some(STORAGE_REPORT_SCHEMA_VERSION as u64) {
+        let report_id = report
+            .get("report_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let schema = report
+            .get("schema_version")
+            .and_then(serde_json::Value::as_u64);
+        if !safe_storage_report_id(report_id)
+            || schema != Some(STORAGE_REPORT_SCHEMA_VERSION as u64)
+        {
             continue;
         }
         reports.push(report);
     }
     reports.sort_by(|left, right| {
-        let left_time = left.get("started_at").and_then(serde_json::Value::as_str).unwrap_or("");
-        let right_time = right.get("started_at").and_then(serde_json::Value::as_str).unwrap_or("");
+        let left_time = left
+            .get("started_at")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let right_time = right
+            .get("started_at")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         right_time.cmp(left_time)
     });
     Ok(serde_json::Value::Array(reports))
