@@ -975,3 +975,14 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   .diagnostic-dialog { padding:16px; max-height:94vh; }
   .diagnostic-test-grid { grid-template-columns:1fr; }
 }
+
+
+/* Seletor da unidade do teste exclusivo de armazenamento. */
+.storage-disk-picker { display:grid; gap:7px; margin:14px 0; }
+.storage-disk-picker label { font-size:.9rem; font-weight:700; }
+.storage-disk-picker select { width:100%; min-width:0; padding:10px 12px; border:1px solid rgba(255,255,255,.22); border-radius:8px; background:#101412; color:#f4f4f4; font:inherit; }
+.storage-disk-picker select:focus-visible { outline:2px solid var(--qboa-focus); outline-offset:2px; }
+.storage-disk-picker select:disabled { opacity:.65; }
+.diagnostic-results details { margin-top:8px; }
+.diagnostic-results details summary { cursor:pointer; font-weight:600; }
+.diagnostic-results small { display:block; margin-top:4px; color:var(--qboa-modal-muted,#b8c4bc); line-height:1.4; overflow-wrap:anywhere; }
