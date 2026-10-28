@@ -182,6 +182,7 @@ function Get-DiskEntries {
             if ($null -ne $volume.SizeRemaining) { $free = [long]$volume.SizeRemaining }
             $entries += [pscustomobject]@{
                 id = ([string]$number) + ':' + $letter
+                backend = 'windows'
                 disk_number = $number
                 model = ([string]$disk.Model).Trim()
                 capacity_bytes = $capacity
@@ -462,6 +463,7 @@ $pio = $false
 # A ausência de uma fonte confiável para o modo de transferência não é reportada como falha de disco.
 $report = [pscustomobject]@{
     disk_id = $diskId
+    backend = 'windows'
     disk_name = $entry.model
     volume = $entry.volume
     capacity_bytes = $entry.capacity_bytes
