@@ -1833,7 +1833,11 @@ fn list_storage_disks() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn run_storage_diagnostic(disk_id: String) -> Result<serde_json::Value, String> {
+fn run_storage_diagnostic(
+    app: AppHandle,
+    disk_id: String,
+) -> Result<serde_json::Value, String> {
+    let started_at = storage_diagnostic::timestamp_now();
     let mut result = execute_storage_script("test", Some(&disk_id))?;
     let mut report: storage_diagnostic::StorageReport =
         serde_json::from_value(result.clone())
@@ -1852,7 +1856,21 @@ fn run_storage_diagnostic(disk_id: String) -> Result<serde_json::Value, String> 
         serde_json::to_value(report.reasons)
             .map_err(|error| format!("Falha ao serializar evidências: {error}"))?,
     );
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    storage_diagnostic::persist_report(&app_data_dir, &mut result, started_at)?;
     Ok(result)
+}
+
+#[tauri::command]
+fn get_storage_diagnostic_reports(app: AppHandle) -> Result<serde_json::Value, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    storage_diagnostic::load_stored_reports(&app_data_dir)
 }
 
 #[tauri::command]
@@ -1971,6 +1989,7 @@ fn main() {
             get_diagnostic_reports,
             list_storage_disks,
             run_storage_diagnostic,
+            get_storage_diagnostic_reports,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
