@@ -1113,8 +1113,22 @@ mod tests {
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
         let gpu = result_for(&report, DiagnosticCategory::PlacaDeVideo);
         let cpu = result_for(&report, DiagnosticCategory::Processador);
-        assert!(!gpu.evidence.iter().any(|line| line.contains("°C")));
-        assert!(!cpu.evidence.iter().any(|line| line.contains("°C")));
+        assert!(!gpu
+            .evidence
+            .iter()
+            .any(|line| line.contains("Temperatura da GPU: 151.0 °C")));
+        assert!(!cpu
+            .evidence
+            .iter()
+            .any(|line| line.contains("Temperatura da CPU: NaN °C")));
+        assert!(gpu
+            .evidence
+            .iter()
+            .any(|line| line.contains("leitura ignorada")));
+        assert!(cpu
+            .evidence
+            .iter()
+            .any(|line| line.contains("leitura ignorada")));
         assert_eq!(report.results.len(), 5);
     }
 
