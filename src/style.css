@@ -981,8 +981,21 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .storage-disk-picker { display:grid; gap:7px; margin:14px 0; }
 .storage-disk-picker label { font-size:.9rem; font-weight:700; }
 .storage-disk-picker select { width:100%; min-width:0; padding:10px 12px; border:1px solid rgba(255,255,255,.22); border-radius:8px; background:#101412; color:#f4f4f4; font:inherit; }
+.storage-disk-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.storage-select-all-label { display:flex; align-items:center; gap:8px; cursor:pointer; }
+.storage-select-all-label input, .storage-disk-option input { accent-color:var(--qboa-focus,#facc15); width:16px; height:16px; flex:0 0 auto; }
+.storage-disk-list { display:grid; gap:7px; margin:0; padding:0; list-style:none; max-height:230px; overflow:auto; }
+.storage-disk-option { padding:10px 12px; border:1px solid rgba(255,255,255,.17); border-radius:8px; background:rgba(0,0,0,.16); }
+.storage-disk-option label { display:flex; align-items:flex-start; gap:10px; cursor:pointer; }
+.storage-disk-option input { margin-top:4px; }
+.storage-disk-description { display:grid; gap:3px; min-width:0; }
+.storage-disk-description strong { overflow-wrap:anywhere; }
+.storage-disk-description small { color:rgba(255,255,255,.75); line-height:1.35; overflow-wrap:anywhere; }
+.storage-disk-empty { padding:9px 2px; color:rgba(255,255,255,.8); list-style:none; }
 .storage-disk-picker select:focus-visible { outline:2px solid var(--qboa-focus); outline-offset:2px; }
 .storage-disk-picker select:disabled { opacity:.65; }
+.storage-report-separator { margin-top:18px !important; padding-top:14px !important; border-top:2px solid rgba(255,255,255,.28) !important; list-style:none; font-weight:800; }
+.storage-test-error { border-color:rgba(255,90,90,.4) !important; }
 .diagnostic-results details { margin-top:8px; }
 .diagnostic-results details summary { cursor:pointer; font-weight:600; }
 .diagnostic-results small { display:block; margin-top:4px; color:var(--qboa-modal-muted,#b8c4bc); line-height:1.4; overflow-wrap:anywhere; }
