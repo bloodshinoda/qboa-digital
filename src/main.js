@@ -1365,7 +1365,8 @@ function diagnosticExecutionLabel(status) {
     completed: "concluído",
     partial: "parcial",
     cancelled: "cancelado",
-    failed: "falhou"
+    failed: "falhou",
+    simulated: "simulado"
   }[status] || "estado desconhecido";
 }
 

@@ -374,6 +374,78 @@ function Get-MeasurementSpec {
     )
 }
 
+if ($mode -eq 'selftest') {
+    Add-Type -TypeDefinition $benchSource -Language CSharp -ErrorAction Stop
+    $selfTestFileBytes = 16777216
+    $selfTestMaxBytes = 16777216
+    $selfTestPath = Join-Path $env:TEMP ('.qboa-storage-selftest-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $selfTestResults = @()
+    try {
+        $seed = New-Object System.IO.FileStream($selfTestPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        try {
+            $seedBuffer = New-Object byte[] (1048576)
+            for ($i = 0; $i -lt $seedBuffer.Length; $i++) {
+                $seedBuffer[$i] = [byte](($i * 17 + 91) -band 255)
+            }
+            $remaining = $selfTestFileBytes
+            while ($remaining -gt 0) {
+                $count = [int][Math]::Min($seedBuffer.Length, $remaining)
+                $seed.Write($seedBuffer, 0, $count)
+                $remaining -= $count
+            }
+            $seed.Flush($true)
+        } finally {
+            $seed.Dispose()
+        }
+
+        foreach ($spec in (Get-MeasurementSpec)) {
+            $result = [QboaStorageBench]::Run(
+                $selfTestPath,
+                $selfTestFileBytes,
+                [int]$spec.block,
+                [int]$spec.queue,
+                [bool]$spec.write,
+                [bool]$spec.random,
+                $selfTestMaxBytes,
+                5000
+            )
+            $seconds = [double]$result.DurationMs / 1000.0
+            if ($seconds -le 0 -or $result.Bytes -le 0 -or $result.Operations -le 0) {
+                throw ('A medição de autoteste não produziu I/O: ' + $spec.kind)
+            }
+            if ($spec.unit -eq 'MB/s') {
+                $measuredValue = [Math]::Round(([double]$result.Bytes / 1048576.0 / $seconds), 2)
+            } else {
+                $measuredValue = [Math]::Round(([double]$result.Operations / $seconds), 2)
+            }
+            $selfTestResults += [pscustomobject]@{
+                kind = $spec.kind
+                unit = $spec.unit
+                block = [int]$spec.block
+                queue = [int]$spec.queue
+                write = [bool]$spec.write
+                random = [bool]$spec.random
+                value = $measuredValue
+                bytes_transferred = [long]$result.Bytes
+                duration_ms = [Math]::Round($result.DurationMs, 2)
+                operations = [long]$result.Operations
+                queue_depth = [int]$spec.queue
+                block_size_bytes = [int]$spec.block
+                reason = $null
+            }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $selfTestPath) {
+            Remove-Item -LiteralPath $selfTestPath -Force -ErrorAction Stop
+        }
+        if (Test-Path -LiteralPath $selfTestPath) {
+            throw 'O arquivo temporário do autoteste de armazenamento não foi removido.'
+        }
+    }
+    ConvertTo-Json -InputObject $selfTestResults -Depth 4 -Compress
+    exit 0
+}
+
 if ($mode -eq 'specs') {
     Add-Type -TypeDefinition $benchSource -Language CSharp -ErrorAction Stop
     $specs = @(Get-MeasurementSpec)
@@ -472,7 +544,16 @@ if ($spaceAvailable) {
 }
 
 try { $smartAfter = Get-SmartSnapshot $diskNumber } catch { $issues += ('Falha na leitura final do SMART: ' + $_.Exception.Message) }
-$smart = if ($null -ne $smartAfter) { $smartAfter } else { $smartBefore }
+if ($null -ne $smartAfter -and [bool]$smartAfter.usable) {
+    $smart = $smartAfter
+} elseif ($null -ne $smartBefore -and [bool]$smartBefore.usable) {
+    # Preserva a coleta inicial se o provedor parar de entregar dados válidos ao final.
+    $smart = $smartBefore
+} elseif ($null -ne $smartAfter) {
+    $smart = $smartAfter
+} else {
+    $smart = $smartBefore
+}
 if ($null -eq $smart) {
     $smart = [pscustomobject]@{
         usable = $false; source = ''; predicted_failure = $null; reallocated = $null; pending = $null;
