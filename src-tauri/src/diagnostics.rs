@@ -15,7 +15,6 @@ pub(crate) enum DiagnosticCategory {
     MemoriaRam,
     PlacaDeVideo,
     Processador,
-    Temperatura,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -247,7 +246,7 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
         .filter(|name| !name.trim().is_empty())
         .cloned()
         .collect();
-    let gpu_sources = if gpu_evidence.is_empty() {
+    let mut gpu_sources = if gpu_evidence.is_empty() {
         Vec::new()
     } else {
         vec!["Win32_VideoController".to_string()]
@@ -272,7 +271,7 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
     if let Some(count) = data.processor_logical_count.filter(|count| *count > 0) {
         processor_evidence.push(format!("{count} processadores lógicos"));
     }
-    let processor_sources = if processor_evidence.is_empty() {
+    let mut processor_sources = if processor_evidence.is_empty() {
         Vec::new()
     } else {
         vec!["Win32_Processor".to_string()]
@@ -286,36 +285,23 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
         DiagnosticStatus::Informativo
     };
 
-    let mut temperature_evidence = Vec::new();
-    let mut temperature_sources = Vec::new();
-    let mut has_valid_temperature = append_temperature(
-        &mut temperature_evidence,
-        &mut temperature_sources,
-        "Sensor CPU",
-        data.cpu_sensor_temperature_c,
-        data.cpu_sensor_source.as_deref(),
-    );
-    has_valid_temperature |= append_temperature(
-        &mut temperature_evidence,
-        &mut temperature_sources,
-        "Zona térmica (componente não identificado)",
-        data.thermal_zone_temperature_c,
-        data.thermal_zone_source.as_deref(),
-    );
-    has_valid_temperature |= append_temperature(
-        &mut temperature_evidence,
-        &mut temperature_sources,
-        "Sensor GPU",
-        data.gpu_sensor_temperature_c,
-        data.gpu_sensor_source.as_deref(),
-    );
-    let temperature_status = if has_valid_temperature {
-        DiagnosticStatus::Informativo
-    } else {
-        DiagnosticStatus::Indisponivel
-    };
-    if temperature_evidence.is_empty() {
-        temperature_evidence.push("Leitura de temperatura confiável não disponível.".to_string());
+    if !gpu_sources.is_empty() {
+        append_temperature(
+            &mut gpu_evidence,
+            &mut gpu_sources,
+            "Temperatura da GPU",
+            data.gpu_sensor_temperature_c,
+            data.gpu_sensor_source.as_deref(),
+        );
+    }
+    if !processor_sources.is_empty() {
+        append_temperature(
+            &mut processor_evidence,
+            &mut processor_sources,
+            "Temperatura da CPU",
+            data.cpu_sensor_temperature_c,
+            data.cpu_sensor_source.as_deref(),
+        );
     }
 
     vec![
@@ -348,12 +334,6 @@ fn build_results(data: &DiagnosticData) -> Vec<DiagnosticResult> {
             processor_status,
             processor_evidence,
             processor_sources,
-        ),
-        result(
-            DiagnosticCategory::Temperatura,
-            temperature_status,
-            temperature_evidence,
-            temperature_sources,
         ),
     ]
 }
@@ -835,7 +815,7 @@ mod tests {
         let mut backend = FakeBackend::default();
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
         assert_eq!(backend.extended_calls, 0);
-        assert_eq!(report.results.len(), 6);
+        assert_eq!(report.results.len(), 5);
         assert!(report.checks.is_empty());
     }
 
@@ -1102,152 +1082,45 @@ mod tests {
     }
 
     #[test]
-    fn gpu_and_processor_identification_are_not_health_approvals() {
+    fn component_temperatures_are_attached_to_their_own_diagnostics() {
         let mut backend = FakeBackend::default();
         backend.data.gpu_names = vec!["Example GPU".to_string()];
         backend.data.processor_name = Some("Example CPU".to_string());
         backend.data.processor_logical_count = Some(8);
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        assert_eq!(
-            result_for(&report, DiagnosticCategory::PlacaDeVideo).status,
-            DiagnosticStatus::Informativo
-        );
-        assert_eq!(
-            result_for(&report, DiagnosticCategory::Processador).status,
-            DiagnosticStatus::Informativo
-        );
-        assert_eq!(
-            result_for(&report, DiagnosticCategory::Temperatura).status,
-            DiagnosticStatus::Indisponivel
-        );
-    }
-
-    #[test]
-    fn temperatures_require_a_source_and_plausible_finite_values() {
-        let mut backend = FakeBackend::default();
-        backend.data.thermal_zone_temperature_c = Some(47.0);
-        backend.data.thermal_zone_source = Some("MSAcpi_ThermalZoneTemperature".to_string());
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
-        assert_eq!(temperature.status, DiagnosticStatus::Informativo);
-        assert!(temperature.evidence[0].contains("componente não identificado"));
-        assert!(temperature.evidence[0].contains("sem limite seguro validado"));
-        assert!(!temperature.evidence[0].to_lowercase().contains("cpu"));
-
-        backend.data.thermal_zone_temperature_c = Some(f64::NAN);
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
-        assert_eq!(temperature.status, DiagnosticStatus::Indisponivel);
-        assert!(temperature.evidence[0].contains("não finita"));
-
-        backend.data.thermal_zone_temperature_c = Some(151.0);
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        assert_eq!(
-            result_for(&report, DiagnosticCategory::Temperatura).status,
-            DiagnosticStatus::Indisponivel
-        );
-
-        backend.data.thermal_zone_temperature_c = Some(40.0);
-        backend.data.thermal_zone_source = Some("unknown provider".to_string());
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
-        assert_eq!(temperature.status, DiagnosticStatus::Indisponivel);
-        assert!(temperature.evidence[0].contains("origem não reconhecida"));
-
-        backend.data.thermal_zone_source = Some("MSAcpi_ThermalZoneTemperature".to_string());
-        for temperature_value in [0.0, 150.0] {
-            backend.data.thermal_zone_temperature_c = Some(temperature_value);
-            let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-            assert_eq!(
-                result_for(&report, DiagnosticCategory::Temperatura).status,
-                DiagnosticStatus::Informativo
-            );
-        }
-
-        backend.data.thermal_zone_temperature_c = Some(42.0);
-        backend.data.thermal_zone_source = None;
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
-        assert_eq!(temperature.status, DiagnosticStatus::Indisponivel);
-        assert!(temperature.evidence[0].contains("origem confiável ausente"));
-
-        backend.data.thermal_zone_temperature_c = None;
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        assert_eq!(
-            result_for(&report, DiagnosticCategory::Temperatura).status,
-            DiagnosticStatus::Indisponivel
-        );
-    }
-
-    #[test]
-    fn gpu_identification_without_temperature_sensor_remains_informational() {
-        let mut backend = FakeBackend::default();
-        backend.data.gpu_names = vec!["Example GPU".to_string()];
-        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        let gpu = result_for(&report, DiagnosticCategory::PlacaDeVideo);
-        assert_eq!(gpu.status, DiagnosticStatus::Informativo);
-        assert!(gpu.evidence.iter().any(|line| line == "Example GPU"));
-        assert_eq!(
-            result_for(&report, DiagnosticCategory::Temperatura).status,
-            DiagnosticStatus::Indisponivel
-        );
-    }
-
-    #[test]
-    fn cpu_temperature_sensor_is_reported_separately_from_gpu_and_thermal_zone() {
-        let mut backend = FakeBackend::default();
         backend.data.cpu_sensor_temperature_c = Some(62.5);
         backend.data.cpu_sensor_source = Some("root/LibreHardwareMonitor Sensor".to_string());
         backend.data.gpu_sensor_temperature_c = Some(71.0);
         backend.data.gpu_sensor_source = Some("root/OpenHardwareMonitor Sensor".to_string());
-        backend.data.thermal_zone_temperature_c = Some(39.0);
-        backend.data.thermal_zone_source = Some("MSAcpi_ThermalZoneTemperature".to_string());
 
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        let temperature = result_for(&report, DiagnosticCategory::Temperatura);
-        assert_eq!(temperature.status, DiagnosticStatus::Informativo);
-        assert!(temperature
-            .evidence
-            .iter()
-            .any(|line| line.contains("Sensor CPU: 62.5 °C")));
-        assert!(temperature
-            .evidence
-            .iter()
-            .any(|line| line.contains("Sensor GPU: 71.0 °C")));
-        assert!(temperature
-            .evidence
-            .iter()
-            .any(|line| line.contains("Zona térmica")));
-        assert_eq!(temperature.source.len(), 3);
+        assert_eq!(report.results.len(), 5);
+
+        let gpu = result_for(&report, DiagnosticCategory::PlacaDeVideo);
+        assert_eq!(gpu.status, DiagnosticStatus::Informativo);
+        assert!(gpu.evidence.iter().any(|line| line == "Example GPU"));
+        assert!(gpu.evidence.iter().any(|line| line.contains("Temperatura da GPU: 71.0 °C")));
+
+        let cpu = result_for(&report, DiagnosticCategory::Processador);
+        assert_eq!(cpu.status, DiagnosticStatus::Informativo);
+        assert!(cpu.evidence.iter().any(|line| line.contains("Temperatura da CPU: 62.5 °C")));
     }
 
     #[test]
-    fn temperature_accepts_exact_sources_emitted_by_the_powershell_collector() {
-        let sources = [
-            "MSAcpi_ThermalZoneTemperature",
-            "root/LibreHardwareMonitor Sensor",
-            "root/OpenHardwareMonitor Sensor",
-        ];
-        for source in sources {
-            assert!(temperature_source_is_recognized(source), "{source}");
-            let mut evidence = Vec::new();
-            let mut reported_sources = Vec::new();
-            assert!(append_temperature(
-                &mut evidence,
-                &mut reported_sources,
-                "Sensor",
-                Some(45.0),
-                Some(source)
-            ));
-            assert_eq!(reported_sources, [source]);
-            assert!(evidence[0].contains("45.0 °C"));
-        }
-        assert!(!temperature_source_is_recognized(
-            "root/LibreHardwareMonitor"
-        ));
-        assert!(!temperature_source_is_recognized(
-            "root/OpenHardwareMonitor"
-        ));
+    fn unavailable_or_untrusted_component_temperatures_do_not_create_a_temperature_diagnostic() {
+        let mut backend = FakeBackend::default();
+        backend.data.gpu_names = vec!["Example GPU".to_string()];
+        backend.data.processor_name = Some("Example CPU".to_string());
+        backend.data.cpu_sensor_temperature_c = Some(f64::NAN);
+        backend.data.cpu_sensor_source = Some("root/LibreHardwareMonitor Sensor".to_string());
+        backend.data.gpu_sensor_temperature_c = Some(151.0);
+        backend.data.gpu_sensor_source = Some("root/OpenHardwareMonitor Sensor".to_string());
+
+        let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
+        let gpu = result_for(&report, DiagnosticCategory::PlacaDeVideo);
+        let cpu = result_for(&report, DiagnosticCategory::Processador);
+        assert!(!gpu.evidence.iter().any(|line| line.contains("°C")));
+        assert!(!cpu.evidence.iter().any(|line| line.contains("°C")));
+        assert_eq!(report.results.len(), 5);
     }
 
     #[test]
@@ -1328,7 +1201,7 @@ mod tests {
         backend.data.gpu_names = vec!["Example GPU".to_string()];
         backend.data.processor_name = Some("Example CPU".to_string());
         let report = run(&mut backend, DiagnosticMode::Quick).unwrap();
-        assert_eq!(report.results.len(), 6);
+        assert_eq!(report.results.len(), 5);
         assert!(report
             .results
             .iter()
