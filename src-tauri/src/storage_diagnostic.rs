@@ -1,4 +1,13 @@
 use serde::{Deserialize, Serialize};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const STORAGE_REPORT_SCHEMA_VERSION: u32 = 1;
+const MAX_STORED_STORAGE_REPORT_BYTES: u64 = 4 * 1024 * 1024;
+static NEXT_STORAGE_REPORT_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -96,6 +105,133 @@ pub(crate) struct StorageReport {
     pub reasons: Vec<String>,
     pub execution_status: String,
     pub space_available: bool,
+}
+
+fn storage_reports_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("diagnostics").join("storage-reports")
+}
+
+pub(crate) fn timestamp_now() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let days = (seconds / 86_400) as i64;
+    let day_seconds = seconds % 86_400;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    year += if month <= 2 { 1 } else { 0 };
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        day_seconds / 3600,
+        (day_seconds % 3600) / 60,
+        day_seconds % 60
+    )
+}
+
+fn safe_storage_report_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 80
+        && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+pub(crate) fn persist_report(
+    app_data_dir: &Path,
+    report: &mut serde_json::Value,
+    started_at: String,
+) -> Result<(), String> {
+    let object = report
+        .as_object_mut()
+        .ok_or_else(|| "O laudo de armazenamento precisa ser um objeto JSON.".to_string())?;
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let counter = NEXT_STORAGE_REPORT_ID.fetch_add(1, Ordering::Relaxed);
+    let report_id = format!("storage-{nanos:032x}-{:08x}-{counter:08x}", std::process::id());
+    if !safe_storage_report_id(&report_id) {
+        return Err("Não foi possível gerar o identificador do laudo de armazenamento.".into());
+    }
+    object.insert("schema_version".into(), serde_json::json!(STORAGE_REPORT_SCHEMA_VERSION));
+    object.insert("report_id".into(), serde_json::json!(report_id));
+    object.insert("started_at".into(), serde_json::json!(started_at));
+    object.insert("finished_at".into(), serde_json::json!(timestamp_now()));
+
+    let directory = storage_reports_dir(app_data_dir);
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("Não foi possível criar o histórico de armazenamento: {error}"))?;
+    let destination = directory.join(format!("{}.json", report_id));
+    let temporary = directory.join(format!(".{}.tmp", report_id));
+    let bytes = serde_json::to_vec_pretty(report)
+        .map_err(|error| format!("Não foi possível serializar o laudo de armazenamento: {error}"))?;
+    let write_result = (|| -> Result<(), String> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|error| format!("Não foi possível criar o arquivo temporário do laudo: {error}"))?;
+        file.write_all(&bytes)
+            .map_err(|error| format!("Falha ao gravar laudo de armazenamento: {error}"))?;
+        file.flush()
+            .map_err(|error| format!("Falha ao descarregar laudo de armazenamento: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("Falha ao sincronizar laudo de armazenamento: {error}"))?;
+        fs::rename(&temporary, &destination)
+            .map_err(|error| format!("Não foi possível finalizar o laudo de armazenamento: {error}"))?;
+        Ok(())
+    })();
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    write_result
+}
+
+pub(crate) fn load_stored_reports(app_data_dir: &Path) -> Result<serde_json::Value, String> {
+    let directory = storage_reports_dir(app_data_dir);
+    if !directory.exists() {
+        return Ok(serde_json::Value::Array(Vec::new()));
+    }
+    let entries = fs::read_dir(&directory)
+        .map_err(|error| format!("Não foi possível listar o histórico de armazenamento: {error}"))?;
+    let mut reports = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let metadata = match fs::metadata(&path) {
+            Ok(metadata) if metadata.len() <= MAX_STORED_STORAGE_REPORT_BYTES => metadata,
+            _ => continue,
+        };
+        let _ = metadata;
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        let report: serde_json::Value = match serde_json::from_slice(&bytes) {
+            Ok(report) => report,
+            Err(_) => continue,
+        };
+        let report_id = report.get("report_id").and_then(serde_json::Value::as_str).unwrap_or("");
+        let schema = report.get("schema_version").and_then(serde_json::Value::as_u64);
+        if !safe_storage_report_id(report_id) || schema != Some(STORAGE_REPORT_SCHEMA_VERSION as u64) {
+            continue;
+        }
+        reports.push(report);
+    }
+    reports.sort_by(|left, right| {
+        let left_time = left.get("started_at").and_then(serde_json::Value::as_str).unwrap_or("");
+        let right_time = right.get("started_at").and_then(serde_json::Value::as_str).unwrap_or("");
+        right_time.cmp(left_time)
+    });
+    Ok(serde_json::Value::Array(reports))
 }
 
 fn threshold(class: DiskClass) -> Option<(f64, f64)> {
