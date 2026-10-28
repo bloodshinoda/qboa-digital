@@ -198,15 +198,18 @@ pub fn run_a05(buffer: &mut [u8]) -> AlgorithmReport {
         if actual != 0x00 {
             report.record(offset, 0x00, actual);
         }
-        // SAFETY: offset is within the mutable slice.\n        unsafe { std::ptr::write_volatile(ptr.add(offset), 0xFF) };
+        // SAFETY: offset is within the mutable slice.
+        unsafe { std::ptr::write_volatile(ptr.add(offset), 0xFF) };
     }
 
     for offset in (0..buffer.len()).rev() {
-        // SAFETY: offset is within the mutable slice.\n        let actual = unsafe { std::ptr::read_volatile(ptr.add(offset)) };
+        // SAFETY: offset is within the mutable slice.
+        let actual = unsafe { std::ptr::read_volatile(ptr.add(offset)) };
         if actual != 0xFF {
             report.record(offset, 0xFF, actual);
         }
-        // SAFETY: offset is within the mutable slice.\n        unsafe { std::ptr::write_volatile(ptr.add(offset), 0x00) };
+        // SAFETY: offset is within the mutable slice.
+        unsafe { std::ptr::write_volatile(ptr.add(offset), 0x00) };
     }
 
     report
