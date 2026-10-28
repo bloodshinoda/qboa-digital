@@ -72,6 +72,7 @@ pub(crate) struct Measurement {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
 pub(crate) struct SmartData {
     pub usable: bool,
+    pub predicted_failure: Option<bool>,
     pub reallocated: Option<u64>,
     pub pending: Option<u64>,
     pub uncorrectable: Option<u64>,
@@ -189,6 +190,10 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
     }
 
     if report.smart.usable {
+        if report.smart.predicted_failure == Some(true) {
+            recommendation = recommendation.worst(Recommendation::Trocar);
+            reasons.push("O provedor SMART sinalizou previsão de falha do dispositivo.".into());
+        }
         for (label, count) in [
             ("realocados", report.smart.reallocated),
             ("pendentes", report.smart.pending),
@@ -225,7 +230,7 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
     }
 
     if !report.space_available {
-        recommendation = Recommendation::Inconclusivo;
+        // A falta de espaço invalida apenas o benchmark; não apaga achados SMART independentes.
         reasons.push(
             "Espaço livre insuficiente para iniciar o teste; nenhuma velocidade foi presumida."
                 .into(),
