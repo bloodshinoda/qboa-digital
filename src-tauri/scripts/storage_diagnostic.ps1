@@ -46,7 +46,7 @@ public static class QboaStorageBench {
             maxBytes < blockBytes || maxMilliseconds < 1)
             throw new ArgumentException("Parâmetros de benchmark inválidos.");
 
-        long reservedBytes = 0, completedBytes = 0, operations = 0, sequentialBlock = -1;
+        long reservedBytes = 0, completedBytes = 0, operations = 0, sequentialBlock = 0;
         int stop = 0;
         var failures = new Exception[queueDepth];
         var stopwatch = new Stopwatch();
@@ -99,8 +99,12 @@ public static class QboaStorageBench {
                         }
 
                         long newPosition;
-                        if (!SetFilePointerEx(handle, offset, out newPosition, 0))
-                            throw new Win32Exception(Marshal.GetLastWin32Error(), "Falha ao posicionar a E/S direta.");
+                        if (!SetFilePointerEx(handle, offset, out newPosition, 0)) {
+                            int errorCode = Marshal.GetLastWin32Error();
+                            throw new Win32Exception(errorCode,
+                                "Falha ao posicionar a E/S direta (Win32 " + errorCode + "): " +
+                                new Win32Exception(errorCode).Message);
+                        }
                         uint transferred;
                         bool ok = write
                             ? WriteFile(handle, aligned, (uint)blockBytes, out transferred, IntPtr.Zero)
