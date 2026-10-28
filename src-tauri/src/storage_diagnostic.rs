@@ -285,8 +285,15 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
     let pio_mode = report.smart.pio_mode == Some(true);
     let slow_sata_link = report.smart.slow_sata_link == Some(true);
 
-    if report.class == DiskClass::Unknown {
-        reasons.push("Classe do disco não identificada pelo barramento; desempenho e recomendação inconclusivos.".into());
+    if !report.space_available {
+        reasons.push(
+            "Espaço livre insuficiente para iniciar o teste; nenhuma velocidade foi presumida."
+                .into(),
+        );
+    } else if report.class == DiskClass::Unknown {
+        reasons.push(
+            "Classe do disco não identificada pelo barramento; desempenho inconclusivo.".into(),
+        );
     } else {
         let read = value(report, MeasurementKind::SeqLargeRead);
         let write = value(report, MeasurementKind::SeqLargeWrite);
@@ -393,13 +400,7 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         reasons.push("SMART utilizável indisponível; estado SMART inconclusivo.".into());
     }
 
-    if !report.space_available {
-        // A falta de espaço invalida apenas o benchmark; não apaga achados SMART independentes.
-        reasons.push(
-            "Espaço livre insuficiente para iniciar o teste; nenhuma velocidade foi presumida."
-                .into(),
-        );
-    }
+
     report.recommendation = recommendation;
     report.reasons = reasons;
 }
