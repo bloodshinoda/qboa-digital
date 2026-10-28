@@ -1087,11 +1087,17 @@ mod tests {
         let gpu = result_for(&report, DiagnosticCategory::PlacaDeVideo);
         assert_eq!(gpu.status, DiagnosticStatus::Informativo);
         assert!(gpu.evidence.iter().any(|line| line == "Example GPU"));
-        assert!(gpu.evidence.iter().any(|line| line.contains("Temperatura da GPU: 71.0 °C")));
+        assert!(gpu
+            .evidence
+            .iter()
+            .any(|line| line.contains("Temperatura da GPU: 71.0 °C")));
 
         let cpu = result_for(&report, DiagnosticCategory::Processador);
         assert_eq!(cpu.status, DiagnosticStatus::Informativo);
-        assert!(cpu.evidence.iter().any(|line| line.contains("Temperatura da CPU: 62.5 °C")));
+        assert!(cpu
+            .evidence
+            .iter()
+            .any(|line| line.contains("Temperatura da CPU: 62.5 °C")));
     }
 
     #[test]
