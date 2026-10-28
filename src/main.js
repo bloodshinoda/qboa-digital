@@ -66,6 +66,18 @@ const Qboa = {
     return invoke("get_diagnostic_reports");
   },
 
+  async listStorageDisks() {
+    return invoke("list_storage_disks");
+  },
+
+  async runStorageDiagnostic(diskId) {
+    return invoke("run_storage_diagnostic", { diskId });
+  },
+
+  async getStorageDiagnosticReports() {
+    return invoke("get_storage_diagnostic_reports");
+  },
+
   async listWindowsServices() { return invoke("list_windows_services"); },
 
   async manageWindowsService(name, action, startType = null) { return invoke("manage_windows_service", { name, action, startType }); },
@@ -1205,6 +1217,148 @@ function renderDiagnosticReport(report, target = null) {
   }
 }
 
+function renderStorageReport(report) {
+  const list = document.getElementById("diagnostic-results");
+  list.replaceChildren();
+
+  function addItem(title, detail, meta = "") {
+    const item = document.createElement("li");
+    const heading = document.createElement("strong");
+    heading.textContent = title;
+    item.appendChild(heading);
+    if (detail) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = detail;
+      item.appendChild(paragraph);
+    }
+    if (meta) {
+      const source = document.createElement("small");
+      source.textContent = meta;
+      item.appendChild(source);
+    }
+    list.appendChild(item);
+    return item;
+  }
+
+  const fmt = (value, digits = 2) => Number.isFinite(Number(value))
+    ? Number(value).toLocaleString("pt-BR", { maximumFractionDigits: digits })
+    : "Indisponível";
+  const bytes = (value) => Number.isFinite(Number(value)) && Number(value) >= 0
+    ? (Number(value) / (1024 ** 3)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " GiB"
+    : "Indisponível";
+  const smartValue = (value, suffix = "") => value === null || value === undefined
+    ? "Indisponível"
+    : fmt(value) + suffix;
+  const classNames = {
+    notebook_hdd: "HD de notebook",
+    desktop_hdd: "HD de desktop",
+    sata_ssd: "SSD SATA",
+    nvme: "SSD NVMe",
+    usb: "Armazenamento USB",
+    unknown: "Classe desconhecida"
+  };
+  const threshold = { notebook_hdd: 60, desktop_hdd: 120, sata_ssd: 400, nvme: 1500 };
+
+  addItem("Unidade: " + (report.disk_name || report.disk_id || "Disco"),
+    (report.volume || "Volume indisponível") + " · Capacidade: " + bytes(report.capacity_bytes),
+    "Classe: " + (classNames[report.class] || "Desconhecida") + " · Barramento: " +
+      (report.bus_type || "Indisponível") + " · ID: " + (report.disk_id || "Indisponível"));
+
+  if (report.backend === "fake" || report.execution_status === "simulated") {
+    addItem("MODO SIMULADO", "Valores fictícios para validar a interface; nenhum hardware foi medido.");
+  }
+
+  addItem("As oito medições", "Arquivo temporário local; leituras diretas no Windows usando E/S sem cache de arquivos.");
+  const names = {
+    seq_small_write: "Sequencial pequeno · gravação · 128 KiB · fila 1",
+    seq_small_read: "Sequencial pequeno · leitura · 128 KiB · fila 1",
+    seq_large_write: "Sequencial grande · gravação · 1 MiB · fila 8",
+    seq_large_read: "Sequencial grande · leitura · 1 MiB · fila 8",
+    random_small_write: "Aleatório pequeno · gravação · 4 KiB · fila 1",
+    random_small_read: "Aleatório pequeno · leitura · 4 KiB · fila 1",
+    random_large_write: "Aleatório grande · gravação · 4 KiB · fila 32",
+    random_large_read: "Aleatório grande · leitura · 4 KiB · fila 32"
+  };
+  const measurements = Array.isArray(report.measurements) ? report.measurements : [];
+  Object.keys(names).forEach((kind) => {
+    const measurement = measurements.find((entry) => entry.kind === kind);
+    if (!measurement) {
+      addItem(names[kind], "Indisponível: medição não retornada.");
+      return;
+    }
+    let detail = measurement.value === null || measurement.value === undefined
+      ? "Indisponível. " + (measurement.reason || "Nenhum resultado válido.")
+      : fmt(measurement.value) + " " + (measurement.unit || "");
+    let meta = measurement.bytes_transferred === null || measurement.bytes_transferred === undefined
+      ? ""
+      : "Transferidos: " + bytes(measurement.bytes_transferred) + " · Duração: " + fmt(measurement.duration_ms) + " ms";
+    if ((kind === "seq_large_read" || kind === "seq_large_write") && threshold[report.class]) {
+      const speedStatus = measurement.value === null || measurement.value === undefined
+        ? "Faixa de referência ≥ " + threshold[report.class] + " MB/s; resultado indisponível"
+        : (Number(measurement.value) >= threshold[report.class] ? "Dentro" : "Abaixo") +
+          " da faixa de referência para " + classNames[report.class] + " (≥ " + threshold[report.class] + " MB/s)";
+      meta += (meta ? " · " : "") + speedStatus;
+    } else if ((kind === "seq_large_read" || kind === "seq_large_write") && (report.class === "usb" || report.class === "unknown")) {
+      meta += (meta ? " · " : "") + "Sem faixa de desempenho para esta classe";
+    }
+    addItem(names[kind], detail, meta);
+  });
+
+  const smart = report.smart || {};
+  addItem("SMART", smart.usable ? "Dados SMART utilizáveis retornados." : "Dados SMART utilizáveis indisponíveis; isso não significa que o disco esteja saudável.",
+    smart.source ? "Fontes: " + smart.source : "Fonte SMART indisponível.");
+  addItem("Previsão de falha SMART", smart.predicted_failure === true ? "O provedor sinalizou previsão de falha."
+    : smart.predicted_failure === false ? "O provedor não sinalizou previsão de falha."
+    : "Indisponível: o provedor não expôs o campo.");
+  addItem("Setores realocados", smartValue(smart.reallocated));
+  addItem("Setores pendentes", smartValue(smart.pending));
+  addItem("Setores incorrigíveis", smartValue(smart.uncorrectable));
+  addItem("Erros CRC da interface", smartValue(smart.interface_crc_before) + " → " + smartValue(smart.interface_crc_after),
+    "Comparação antes/depois do teste; aumento indica revisar cabo/porta.");
+  addItem("Desgaste SMART", smart.wear_percent === null || smart.wear_percent === undefined
+    ? "Indisponível" : smartValue(smart.wear_percent, "%") + " de desgaste",
+    smart.wear_limit_percent === null || smart.wear_limit_percent === undefined
+      ? "Limite do dispositivo indisponível" : "Limite informado: " + smartValue(smart.wear_limit_percent, "%"));
+  addItem("Temperatura SMART", smartValue(smart.temperature_c, " °C"));
+  addItem("Modo PIO", smart.pio_mode === true ? "Detectado" : smart.pio_mode === false ? "Não detectado" : "Indisponível");
+  addItem("Link SATA lento", smart.slow_sata_link === true ? "Detectado" : smart.slow_sata_link === false ? "Não detectado" : "Indisponível");
+  if (smart.usb_slow === true) addItem("Interface USB", "Velocidade baixa; revisar cabo/gabinete. Não é usada para condenar o disco.");
+
+  const attributes = Array.isArray(smart.attributes) ? smart.attributes : [];
+  if (attributes.length) {
+    const item = addItem("Atributos SMART brutos", attributes.length + " atributo(s) retornado(s).");
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Ver todos os atributos SMART";
+    const rows = document.createElement("ul");
+    attributes.forEach((attribute) => {
+      const row = document.createElement("li");
+      row.textContent = "ID " + attribute.id + " · " + (attribute.name || "Atributo") +
+        " · atual " + (attribute.current ?? "Indisponível") +
+        " · pior " + (attribute.worst ?? "Indisponível") +
+        " · limite " + (attribute.threshold ?? "Indisponível") +
+        " · bruto " + (attribute.raw_value ?? "Indisponível");
+      rows.appendChild(row);
+    });
+    details.append(summary, rows);
+    item.appendChild(details);
+  }
+  const metrics = Array.isArray(smart.reliability_metrics) ? smart.reliability_metrics : [];
+  if (metrics.length) {
+    const item = addItem("Métricas de confiabilidade adicionais", metrics.length + " métrica(s).");
+    const rows = document.createElement("ul");
+    metrics.forEach((metric) => {
+      const row = document.createElement("li");
+      row.textContent = (metric.name || "Métrica") + ": " + (metric.value ?? "Indisponível");
+      rows.appendChild(row);
+    });
+    item.appendChild(rows);
+  }
+
+  if (report.space_available === false) addItem("Benchmark não executado",
+    "Espaço livre insuficiente para criar o arquivo de teste com a margem de segurança.");
+  (report.issues || []).forEach((issue) => addItem("Aviso de coleta", String(issue)));
+}
 function diagnosticExecutionLabel(status) {
   return {
     running: "em execução",
@@ -1219,41 +1373,70 @@ async function loadDiagnosticHistory(selectLatest = false) {
   const list = document.getElementById("diagnostic-history");
   if (!list) return [];
   try {
-    const reports = await Qboa.getDiagnosticReports();
+    const reportPromise = Qboa.getDiagnosticReports();
+    const storagePromise = Qboa.getStorageDiagnosticReports().catch(() => []);
+    const results = await Promise.all([reportPromise, storagePromise]);
+    const reports = results[0];
+    const storageReports = results[1];
     list.replaceChildren();
-    if (!reports.length) {
+    const combined = [
+      ...storageReports.map((report) => ({ report, storage: true })),
+      ...reports.map((report) => ({ report, storage: false }))
+    ].sort((a, b) => String(b.report.started_at || "").localeCompare(String(a.report.started_at || "")));
+
+    if (!combined.length) {
       const empty = document.createElement("li");
       empty.textContent = "Nenhum laudo salvo ainda.";
       list.appendChild(empty);
-      return reports;
     }
-    reports.forEach((report) => {
+    combined.forEach(({ report, storage }) => {
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.type = "button";
       button.className = "diagnostic-history-item";
       const date = document.createElement("span");
-      date.textContent = new Date(report.started_at).toLocaleString("pt-BR");
+      const parsedDate = report.started_at ? new Date(report.started_at) : null;
+      date.textContent = parsedDate && !Number.isNaN(parsedDate.valueOf())
+        ? parsedDate.toLocaleString("pt-BR") : "Data indisponível";
       const detail = document.createElement("small");
-      detail.textContent = `${report.mode === "complete" ? "Completo" : "Rápido"} · ${diagnosticExecutionLabel(report.execution_status)}`;
+      detail.textContent = storage
+        ? "Armazenamento · " + (report.disk_name || report.disk_id || "disco") + " · " + diagnosticExecutionLabel(report.execution_status)
+        : (report.mode === "complete" ? "Completo" : "Rápido") + " · " + diagnosticExecutionLabel(report.execution_status);
       button.append(date, detail);
       button.addEventListener("click", () => {
-        renderDiagnosticReport(report);
-        document.getElementById("diagnostic-status").textContent =
-          `Laudo recuperado do histórico · ${diagnosticExecutionLabel(report.execution_status)} · ${report.report_id}`;
+        if (storage) {
+          renderStorageReport(report);
+          document.getElementById("diagnostic-status").textContent =
+            "Laudo de armazenamento recuperado · " + (report.report_id || "ID indisponível");
+        } else {
+          renderDiagnosticReport(report);
+          document.getElementById("diagnostic-status").textContent =
+            "Laudo recuperado do histórico · " + diagnosticExecutionLabel(report.execution_status) + " · " + report.report_id;
+        }
       });
       item.appendChild(button);
       list.appendChild(item);
     });
-    if (selectLatest) {
-      renderDiagnosticReport(reports[0]);
-      document.getElementById("diagnostic-status").textContent =
-        `Último laudo recuperado · ${diagnosticExecutionLabel(reports[0].execution_status)}`;
+
+    if (selectLatest && combined.length) {
+      if (activeDiagnosticTarget === "armazenamento" && storageReports.length) {
+        renderStorageReport(storageReports[0]);
+        document.getElementById("diagnostic-status").textContent =
+          "Último laudo de armazenamento recuperado · " + (storageReports[0].report_id || "ID indisponível");
+      } else if (reports.length) {
+        renderDiagnosticReport(reports[0]);
+        document.getElementById("diagnostic-status").textContent =
+          "Último laudo recuperado · " + diagnosticExecutionLabel(reports[0].execution_status);
+      } else if (storageReports.length) {
+        renderStorageReport(storageReports[0]);
+        document.getElementById("diagnostic-status").textContent =
+          "Último laudo de armazenamento recuperado · " + (storageReports[0].report_id || "ID indisponível");
+      }
     }
     return reports;
   } catch (error) {
     const item = document.createElement("li");
-    item.textContent = `Não foi possível carregar o histórico: ${String(error)}`;
+    item.textContent = "Não foi possível carregar o histórico: " + String(error);
     list.replaceChildren(item);
     return [];
   }
