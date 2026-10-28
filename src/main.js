@@ -1217,9 +1217,16 @@ function renderDiagnosticReport(report, target = null) {
   }
 }
 
-function renderStorageReport(report) {
+function renderStorageReport(report, append = false) {
   const list = document.getElementById("diagnostic-results");
-  list.replaceChildren();
+  if (!append) {
+    list.replaceChildren();
+  } else {
+    const separator = document.createElement("li");
+    separator.className = "storage-report-separator";
+    separator.textContent = "Próxima unidade · " + (report.disk_name || report.volume || report.disk_id || "disco");
+    list.appendChild(separator);
+  }
 
   function addItem(title, detail, meta = "") {
     const item = document.createElement("li");
@@ -1374,7 +1381,8 @@ async function loadDiagnosticHistory(selectLatest = false) {
   const list = document.getElementById("diagnostic-history");
   if (!list) return [];
   try {
-    const reportPromise = Qboa.getDiagnosticReports();
+    const storageOnly = activeDiagnosticTarget === "armazenamento";
+    const reportPromise = storageOnly ? Promise.resolve([]) : Qboa.getDiagnosticReports();
     const storagePromise = Qboa.getStorageDiagnosticReports().catch(() => []);
     const results = await Promise.all([reportPromise, storagePromise]);
     const reports = results[0];
@@ -1434,12 +1442,147 @@ async function loadDiagnosticHistory(selectLatest = false) {
           "Último laudo de armazenamento recuperado · " + (storageReports[0].report_id || "ID indisponível");
       }
     }
-    return reports;
+    return activeDiagnosticTarget === "armazenamento" ? storageReports : reports;
   } catch (error) {
     const item = document.createElement("li");
     item.textContent = "Não foi possível carregar o histórico: " + String(error);
     list.replaceChildren(item);
     return [];
+  }
+}
+
+function selectedStorageDiskIds() {
+  const list = document.getElementById("storage-disk-list");
+  if (!list) return [];
+  return Array.from(list.querySelectorAll('input[type="checkbox"][data-storage-disk]:checked'))
+    .map((checkbox) => checkbox.value)
+    .filter(Boolean);
+}
+
+function normalizeStorageDisk(entry) {
+  let disk = entry;
+  while (Array.isArray(disk) && disk.length === 1) disk = disk[0];
+  if (!disk || typeof disk !== "object" || Array.isArray(disk)) return null;
+
+  const volume = disk.volume || disk.mount_point || disk.MountPoint || "";
+  const driveMatch = String(volume).match(/^([A-Z]):\\?$/i);
+  const driveLetter = disk.drive_letter || disk.DriveLetter || (driveMatch ? driveMatch[1] : "");
+  const diskNumber = disk.disk_number ?? disk.DiskNumber ?? disk.Number;
+  const id = disk.id || disk.disk_id ||
+    (diskNumber !== undefined && diskNumber !== null && driveLetter
+      ? String(Number(diskNumber)) + ":" + String(driveLetter).toUpperCase()
+      : "");
+  const bus = String(disk.bus_type || disk.BusType || disk.busType || "");
+  let diskClass = disk.class || disk.disk_class || "unknown";
+  if (/^nvme$/i.test(bus) || /NVME/i.test(String(disk.pnp_device_id || disk.PNPDeviceID || ""))) diskClass = "nvme";
+  else if (/^usb$/i.test(bus)) diskClass = "usb";
+
+  if (!id || !/^\d+:[A-Z]$/.test(id)) return null;
+  return {
+    ...disk,
+    id,
+    model: disk.model || disk.Model || "Disco",
+    volume: volume || (driveLetter ? String(driveLetter).toUpperCase() + ":\\" : ""),
+    capacity_bytes: disk.capacity_bytes ?? disk.CapacityBytes ?? disk.size_bytes ?? disk.Size,
+    free_bytes: disk.free_bytes ?? disk.FreeBytes ?? disk.SizeRemaining,
+    class: diskClass,
+    bus_type: bus || "Barramento desconhecido"
+  };
+}
+
+async function refreshStorageDisks(preserveSelection = true) {
+  const list = document.getElementById("storage-disk-list");
+  const refreshButton = document.getElementById("storage-refresh-disks");
+  const runButton = document.getElementById("diagnostic-run-selected");
+  const selectAll = document.getElementById("storage-select-all");
+  if (!list || !refreshButton || !runButton) return;
+
+  const previous = preserveSelection ? new Set(selectedStorageDiskIds()) : new Set();
+  refreshButton.disabled = true;
+  list.replaceChildren();
+  const loading = document.createElement("li");
+  loading.className = "storage-disk-empty";
+  loading.textContent = "Localizando unidades...";
+  list.appendChild(loading);
+  runButton.disabled = true;
+
+  try {
+    let result = await Qboa.listStorageDisks();
+    if (!Array.isArray(result) && result && Array.isArray(result.disks)) result = result.disks;
+    const entries = Array.isArray(result) ? result.flat(Infinity).map(normalizeStorageDisk).filter(Boolean) : [];
+    const disks = Array.from(new Map(entries.map((disk) => [disk.id, disk])).values());
+    list.replaceChildren();
+
+    if (!disks.length) {
+      const empty = document.createElement("li");
+      empty.className = "storage-disk-empty";
+      empty.textContent = "Nenhuma unidade com letra de volume foi identificada. Atualize a lista ou confira se o Windows expõe o disco.";
+      list.appendChild(empty);
+    }
+
+    disks.forEach((disk, index) => {
+      const item = document.createElement("li");
+      item.className = "storage-disk-option";
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = disk.id;
+      checkbox.dataset.storageDisk = "true";
+      checkbox.checked = previous.size ? previous.has(disk.id) : index === 0;
+      const description = document.createElement("span");
+      description.className = "storage-disk-description";
+      const name = document.createElement("strong");
+      name.textContent = (disk.volume ? disk.volume + " · " : "") + disk.model;
+      const meta = document.createElement("small");
+      const bytes = Number(disk.capacity_bytes);
+      const capacity = disk.capacity_bytes !== undefined && disk.capacity_bytes !== null && Number.isFinite(bytes) && bytes > 0
+        ? (bytes / (1024 ** 3)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " GiB"
+        : "capacidade indisponível";
+      const classNames = {
+        notebook_hdd: "HD notebook", desktop_hdd: "HD desktop", sata_ssd: "SSD SATA",
+        nvme: "NVMe", usb: "USB", unknown: "classe desconhecida"
+      };
+      meta.textContent = (classNames[disk.class] || "classe desconhecida") + " · " + disk.bus_type +
+        " · " + capacity + (disk.smart_available === true ? " · SMART disponível" : "");
+      description.append(name, meta);
+      label.append(checkbox, description);
+      item.appendChild(label);
+      list.appendChild(item);
+      checkbox.addEventListener("change", () => {
+        if (selectAll) {
+          const boxes = Array.from(list.querySelectorAll('input[type="checkbox"][data-storage-disk]'));
+          selectAll.checked = boxes.length > 0 && boxes.every((box) => box.checked);
+          selectAll.indeterminate = boxes.some((box) => box.checked) && !selectAll.checked;
+        }
+        runButton.disabled = selectedStorageDiskIds().length === 0;
+      });
+    });
+
+    if (selectAll) {
+      const boxes = Array.from(list.querySelectorAll('input[type="checkbox"][data-storage-disk]'));
+      selectAll.checked = boxes.length > 0 && boxes.every((box) => box.checked);
+      selectAll.indeterminate = boxes.some((box) => box.checked) && !selectAll.checked;
+      selectAll.disabled = boxes.length === 0;
+    }
+    runButton.disabled = selectedStorageDiskIds().length === 0;
+    document.getElementById("diagnostic-status").textContent = disks.length
+      ? disks.length + " unidade(s) identificada(s). Marque uma ou mais para testar."
+      : "Nenhuma unidade elegível encontrada.";
+  } catch (error) {
+    list.replaceChildren();
+    const failed = document.createElement("li");
+    failed.className = "storage-disk-empty";
+    failed.textContent = "Falha ao localizar unidades: " + String(error);
+    list.appendChild(failed);
+    if (selectAll) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+      selectAll.disabled = true;
+    }
+    document.getElementById("diagnostic-status").textContent = "Não foi possível atualizar as unidades.";
+    runButton.disabled = true;
+  } finally {
+    refreshButton.disabled = false;
   }
 }
 
@@ -1457,62 +1600,47 @@ function openDiagnosticModal(target = null, mode = "quick") {
     const picker = document.createElement("div");
     picker.className = "storage-disk-picker";
     picker.id = "storage-disk-picker";
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "storage-disk-toolbar";
+    const selectAllLabel = document.createElement("label");
+    selectAllLabel.className = "storage-select-all-label";
+    const selectAll = document.createElement("input");
+    selectAll.type = "checkbox";
+    selectAll.id = "storage-select-all";
+    selectAll.disabled = true;
+    selectAllLabel.append(selectAll, document.createTextNode("Selecionar todas"));
+    const refreshButton = document.createElement("button");
+    refreshButton.id = "storage-refresh-disks";
+    refreshButton.type = "button";
+    refreshButton.className = "secondary-button";
+    refreshButton.textContent = "↻ Atualizar unidades";
+    toolbar.append(selectAllLabel, refreshButton);
+
     const label = document.createElement("label");
-    label.htmlFor = "storage-disk-select";
-    label.textContent = "Unidade a testar";
-    const select = document.createElement("select");
-    select.id = "storage-disk-select";
-    select.disabled = true;
-    const loading = document.createElement("option");
-    loading.value = "";
-    loading.textContent = "Localizando unidades...";
-    select.appendChild(loading);
-    select.addEventListener("change", () => { runButton.disabled = !select.value; });
-    picker.append(label, select);
+    label.textContent = "Unidades a testar";
+    label.htmlFor = "storage-disk-list";
+    const list = document.createElement("ul");
+    list.id = "storage-disk-list";
+    list.className = "storage-disk-list";
+    list.setAttribute("aria-label", "Selecione as unidades para o teste");
+    picker.append(toolbar, label, list);
     modal.querySelector(".diagnostic-modal-actions").before(picker);
     runButton.disabled = true;
-    void Qboa.listStorageDisks().then((disks) => {
-      select.replaceChildren();
-      if (!Array.isArray(disks) || !disks.length) {
-        const empty = document.createElement("option");
-        empty.value = "";
-        empty.textContent = "Nenhuma unidade elegível encontrada";
-        select.appendChild(empty);
-        select.disabled = true;
-        runButton.disabled = true;
-        document.getElementById("diagnostic-status").textContent =
-          "O Windows não retornou unidades com letra de volume para testar.";
-        return;
-      }
-      disks.forEach((disk) => {
-        const option = document.createElement("option");
-        option.value = disk.id;
-        const capacity = Number.isFinite(Number(disk.capacity_bytes))
-          ? (Number(disk.capacity_bytes) / (1024 ** 3)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " GiB"
-          : "capacidade indisponível";
-        const diskClass = {
-          notebook_hdd: "HD notebook", desktop_hdd: "HD desktop", sata_ssd: "SSD SATA",
-          nvme: "NVMe", usb: "USB", unknown: "classe desconhecida"
-        }[disk.class] || "classe desconhecida";
-        option.textContent = (disk.volume || "") + " · " + (disk.model || "Disco") +
-          " · " + diskClass + " · " + capacity;
-        select.appendChild(option);
+
+    refreshButton.addEventListener("click", () => { void refreshStorageDisks(true); });
+    selectAll.addEventListener("change", () => {
+      list.querySelectorAll('input[type="checkbox"][data-storage-disk]').forEach((checkbox) => {
+        checkbox.checked = selectAll.checked;
       });
-      select.disabled = false;
-      runButton.disabled = !select.value;
-    }).catch((error) => {
-      select.replaceChildren();
-      const failed = document.createElement("option");
-      failed.value = "";
-      failed.textContent = "Falha ao localizar unidades";
-      select.appendChild(failed);
-      select.disabled = true;
-      runButton.disabled = true;
-      document.getElementById("diagnostic-status").textContent = String(error);
+      selectAll.indeterminate = false;
+      runButton.disabled = selectedStorageDiskIds().length === 0;
     });
+    void refreshStorageDisks(false);
   } else {
     runButton.disabled = false;
   }
+
   const labels = {
     armazenamento: ["Teste de armazenamento", "Coleta dados SMART disponíveis e executa oito medições sequenciais e aleatórias de leitura/escrita em arquivo temporário. Não executa teste de superfície nem escreve diretamente em setores do disco."],
     memoria_ram: ["Teste de memória RAM", "Analisa os dados de memória expostos pelo Windows. Não é um teste de estresse nem substitui o Diagnóstico de Memória do Windows."],
@@ -1530,12 +1658,11 @@ function openDiagnosticModal(target = null, mode = "quick") {
     runButton.textContent = "Executar diagnóstico completo";
   }
   document.getElementById("diagnostic-results").replaceChildren();
-  document.getElementById("diagnostic-status").textContent = "";
+  if (target !== "armazenamento") document.getElementById("diagnostic-status").textContent = "";
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
   void loadDiagnosticHistory(true);
 }
-
 function closeDiagnosticModal() {
   const modal = document.getElementById("diagnostic-modal");
   modal.classList.add("hidden");
@@ -1550,17 +1677,37 @@ async function runDiagnostic(mode, target = null) {
   status.textContent = "Verificando...";
   try {
     if (target === "armazenamento") {
-      const select = document.getElementById("storage-disk-select");
-      if (!select || !select.value) throw new Error("Selecione uma unidade antes de iniciar o teste.");
-      const report = await Qboa.runStorageDiagnostic(select.value);
-      renderStorageReport(report);
+      const selectedIds = selectedStorageDiskIds();
+      if (!selectedIds.length) throw new Error("Marque uma ou mais unidades antes de iniciar o teste.");
+      let completed = 0;
+      const failures = [];
+      for (let index = 0; index < selectedIds.length; index++) {
+        const diskId = selectedIds[index];
+        status.textContent = "Testando unidade " + (index + 1) + " de " + selectedIds.length + " · " + diskId + "...";
+        try {
+          const report = await Qboa.runStorageDiagnostic(diskId);
+          renderStorageReport(report, completed > 0);
+          completed++;
+          if (report.execution_status === "partial") failures.push((report.disk_name || diskId) + ": teste parcial");
+        } catch (error) {
+          failures.push(diskId + ": " + String(error));
+          const item = document.createElement("li");
+          item.className = "storage-test-error";
+          const heading = document.createElement("strong");
+          heading.textContent = "Falha no teste · " + diskId;
+          const detail = document.createElement("p");
+          detail.textContent = String(error);
+          item.append(heading, detail);
+          document.getElementById("diagnostic-results").appendChild(item);
+        }
+      }
       await loadDiagnosticHistory(false);
-      if (report.execution_status === "simulated" || report.backend === "fake") {
-        status.textContent = "Fluxo de armazenamento executado no backend simulado. Os números exibidos não são medições reais.";
-      } else if (report.execution_status === "partial") {
-        status.textContent = "Teste parcial. As medições e os dados SMART indisponíveis estão identificados no laudo salvo.";
+      if (!completed && failures.length) {
+        status.textContent = "Nenhuma unidade concluiu o teste. Consulte os erros listados.";
+      } else if (failures.length) {
+        status.textContent = completed + " unidade(s) testada(s); " + failures.length + " resultado(s) parcial(is) ou falha(s).";
       } else {
-        status.textContent = "Teste de armazenamento concluído. Confira as oito medições e os dados SMART retornados.";
+        status.textContent = "Teste concluído para " + completed + " unidade(s). Abaixo estão somente as oito medições e os dados SMART de cada unidade.";
       }
       return;
     }
@@ -1576,11 +1723,12 @@ async function runDiagnostic(mode, target = null) {
   } catch (error) {
     status.textContent = String(error);
   } finally {
-    const select = document.getElementById("storage-disk-select");
-    runButton.disabled = target === "armazenamento" ? !select || select.disabled || !select.value : false;
+    const list = document.getElementById("storage-disk-list");
+    runButton.disabled = target === "armazenamento"
+      ? !list || selectedStorageDiskIds().length === 0
+      : false;
   }
 }
-
 
 function serviceStartTypeSummary(beforeState, afterState, operation) {
   const before = beforeState?.system?.services;
