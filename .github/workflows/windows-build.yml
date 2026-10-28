@@ -87,10 +87,16 @@ jobs:
           foreach ($disk in $disks) {
             foreach ($property in @("id", "disk_number", "model", "capacity_bytes", "volume", "class", "bus_type")) {
               if ($null -eq $disk.PSObject.Properties[$property]) {
-                throw "Storage inventory item is missing '$property'."
+                throw "Storage inventory item is missing property: $property"
               }
             }
-            if ([string]$disk.id -notmatch '^\d+:[A-Z]      - name: Check Rust formatting
+            if ([string]$disk.id -notmatch '^[0-9]+:[A-Z]$') {
+              throw "Storage inventory returned an invalid disk identifier."
+            }
+          }
+          Write-Host ("Storage inventory returned a flat array with {0} valid item(s)." -f $disks.Count)
+
+      - name: Check Rust formatting
         run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
 
       - name: Run Rust tests
