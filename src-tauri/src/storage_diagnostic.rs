@@ -161,13 +161,28 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
         }
     }
 
-    if report.smart.pio_mode || report.smart.slow_sata_link {
-        recommendation = recommendation.worst(Recommendation::Reparar);
-        reasons.push(if report.smart.pio_mode {
-            "Modo PIO detectado: revisar cabo, porta ou driver.".into()
+    let crc_increased = matches!(
+        (
+            report.smart.interface_crc_before,
+            report.smart.interface_crc_after
+        ),
+        (Some(before), Some(after)) if after > before
+    );
+
+    if report.smart.pio_mode || report.smart.slow_sata_link || crc_increased {
+        // Problemas de interface/transporte não devem condenar o disco pela velocidade.
+        // SMART crítico abaixo ainda pode elevar a recomendação para Trocar.
+        if recommendation == Recommendation::Trocar {
+            recommendation = Recommendation::Reparar;
         } else {
-            "Link SATA lento: revisar cabo, porta ou driver.".into()
-        });
+            recommendation = recommendation.worst(Recommendation::Reparar);
+        }
+        if report.smart.pio_mode {
+            reasons.push("Modo PIO detectado: revisar cabo, porta ou driver.".into());
+        }
+        if report.smart.slow_sata_link {
+            reasons.push("Link SATA lento: revisar cabo, porta ou driver.".into());
+        }
     }
     if report.class == DiskClass::Usb && report.smart.usb_slow {
         recommendation = recommendation.worst(Recommendation::Revisar);
@@ -186,14 +201,7 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
                 reasons.push(format!("Contagem SMART de setores {label} indisponível."));
             }
         }
-        if matches!(
-            (
-                report.smart.interface_crc_before,
-                report.smart.interface_crc_after
-            ),
-            (Some(before), Some(after)) if after > before
-        ) {
-            recommendation = recommendation.worst(Recommendation::Reparar);
+        if crc_increased {
             reasons.push(
                 "Contador CRC da interface aumentou durante o teste; revisar cabo ou porta.".into(),
             );
