@@ -1712,6 +1712,149 @@ async fn get_diagnostic_reports(
     diagnostics_store::load_all(&app_data_dir)
 }
 
+
+#[cfg(target_os = "windows")]
+fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_json::Value, String> {
+    if !matches!(mode, "list" | "test") {
+        return Err("Modo de teste de armazenamento inválido.".into());
+    }
+    if let Some(id) = disk_id {
+        if !id
+            .split_once(':')
+            .is_some_and(|(number, letter)| {
+                !number.is_empty()
+                    && number.bytes().all(|byte| byte.is_ascii_digit())
+                    && letter.len() == 1
+                    && letter.as_bytes()[0].is_ascii_uppercase()
+            })
+        {
+            return Err("Identificador de disco inválido.".into());
+        }
+    }
+
+    let disk_id = disk_id.unwrap_or("");
+    let script = format!(
+        "$env:QBOA_STORAGE_MODE = '{}'; $env:QBOA_STORAGE_DISK_ID = '{}';\n{}",
+        mode,
+        disk_id,
+        include_str!("../scripts/storage_diagnostic.ps1")
+    );
+    let mut command = Command::new("powershell.exe");
+    configure_hidden_console(&mut command);
+    let output = command
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
+        .output()
+        .map_err(|error| format!("Não foi possível iniciar o coletor de armazenamento: {error}"))?;
+    if !output.status.success() {
+        let stderr = decode_process_output(&output.stderr);
+        let stdout = decode_process_output(&output.stdout);
+        let details = if !stderr.trim().is_empty() { stderr } else { stdout };
+        return Err(format!("O coletor de armazenamento falhou: {}", details.trim()));
+    }
+    serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .map_err(|error| format!("O coletor de armazenamento retornou JSON inválido: {error}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+
+    if mode == "list" {
+        return Ok(json!([{
+            "id": "0:C",
+            "disk_number": 0,
+            "model": "Disco fictício para testes de interface",
+            "capacity_bytes": 256000000000u64,
+            "volume": "C:\\",
+            "free_bytes": 128000000000u64,
+            "class": "nvme",
+            "bus_type": "NVMe",
+            "backend": "fake"
+        }]));
+    }
+    if mode != "test" || disk_id != Some("0:C") {
+        return Err("Identificador de disco inválido para o backend fictício.".into());
+    }
+    Ok(json!({
+        "disk_id": "0:C",
+        "disk_name": "Disco fictício para testes de interface",
+        "volume": "C:\\",
+        "capacity_bytes": 256000000000u64,
+        "class": "nvme",
+        "bus_type": "NVMe",
+        "backend": "fake",
+        "measurements": [
+            {"kind":"seq_small_write","value":123.0,"unit":"MB/s","bytes_transferred":10485760,"duration_ms":100.0,"queue_depth":1,"block_size_bytes":131072,"reason":null},
+            {"kind":"seq_small_read","value":130.0,"unit":"MB/s","bytes_transferred":10485760,"duration_ms":100.0,"queue_depth":1,"block_size_bytes":131072,"reason":null},
+            {"kind":"seq_large_write","value":1700.0,"unit":"MB/s","bytes_transferred":134217728,"duration_ms":100.0,"queue_depth":8,"block_size_bytes":1048576,"reason":null},
+            {"kind":"seq_large_read","value":2100.0,"unit":"MB/s","bytes_transferred":134217728,"duration_ms":100.0,"queue_depth":8,"block_size_bytes":1048576,"reason":null},
+            {"kind":"random_small_write","value":12000.0,"unit":"IOPS","bytes_transferred":10485760,"duration_ms":100.0,"queue_depth":1,"block_size_bytes":4096,"reason":null},
+            {"kind":"random_small_read","value":16000.0,"unit":"IOPS","bytes_transferred":10485760,"duration_ms":100.0,"queue_depth":1,"block_size_bytes":4096,"reason":null},
+            {"kind":"random_large_write","value":80000.0,"unit":"IOPS","bytes_transferred":134217728,"duration_ms":100.0,"queue_depth":32,"block_size_bytes":4096,"reason":null},
+            {"kind":"random_large_read","value":95000.0,"unit":"IOPS","bytes_transferred":134217728,"duration_ms":100.0,"queue_depth":32,"block_size_bytes":4096,"reason":null}
+        ],
+        "smart": {
+            "usable": true,
+            "source": "backend fictício (sem hardware real)",
+            "predicted_failure": false,
+            "reallocated": 0,
+            "pending": 0,
+            "uncorrectable": 0,
+            "interface_crc_before": 0,
+            "interface_crc_after": 0,
+            "wear_percent": 4.0,
+            "wear_limit_percent": 100.0,
+            "temperature_c": 36.0,
+            "pio_mode": false,
+            "slow_sata_link": false,
+            "usb_slow": false,
+            "attributes": [],
+            "reliability_metrics": []
+        },
+        "recommendation": "inconclusivo",
+        "reasons": [],
+        "execution_status": "simulated",
+        "space_available": true,
+        "issues": ["Dados simulados para desenvolvimento; nenhuma leitura ou medição de hardware foi executada."]
+    }))
+}
+
+#[tauri::command]
+fn list_storage_disks() -> Result<serde_json::Value, String> {
+    execute_storage_script("list", None)
+}
+
+#[tauri::command]
+fn run_storage_diagnostic(disk_id: String) -> Result<serde_json::Value, String> {
+    let mut result = execute_storage_script("test", Some(&disk_id))?;
+    let mut report: storage_diagnostic::StorageReport =
+        serde_json::from_value(result.clone())
+            .map_err(|error| format!("Relatório de armazenamento incompleto: {error}"))?;
+    storage_diagnostic::evaluate(&mut report);
+    let object = result
+        .as_object_mut()
+        .ok_or_else(|| "Relatório de armazenamento não é um objeto JSON.".to_string())?;
+    object.insert(
+        "recommendation".into(),
+        serde_json::to_value(report.recommendation)
+            .map_err(|error| format!("Falha ao serializar estado interno: {error}"))?,
+    );
+    object.insert(
+        "reasons".into(),
+        serde_json::to_value(report.reasons)
+            .map_err(|error| format!("Falha ao serializar evidências: {error}"))?,
+    );
+    Ok(result)
+}
+
 #[tauri::command]
 async fn get_capability_inventory() -> Result<capability_inventory::CapabilityInventory, String> {
     capability_inventory::collect()
@@ -1826,6 +1969,8 @@ fn main() {
             get_session_history,
             run_diagnostic_check,
             get_diagnostic_reports,
+            list_storage_disks,
+            run_storage_diagnostic,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
