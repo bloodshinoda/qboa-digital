@@ -74,8 +74,6 @@ pub(crate) struct DiagnosticData {
     pub cpu_sensor_source: Option<String>,
     pub processor_name: Option<String>,
     pub processor_logical_count: Option<u32>,
-    pub thermal_zone_temperature_c: Option<f64>,
-    pub thermal_zone_source: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -472,13 +470,6 @@ try {
   $gpus = @(Get-CimInstance Win32_VideoController -ErrorAction Stop | ForEach-Object { [string]$_.Name } | Where-Object { $_ })
 } catch {}
 try { $processors = @(Get-CimInstance Win32_Processor -ErrorAction Stop) } catch {}
-$thermal = @()
-try {
-  $thermal = @(Get-CimInstance -Namespace 'root/wmi' -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop | ForEach-Object {
-    $c = ($_.CurrentTemperature / 10) - 273.15
-    if ($_.CurrentTemperature -ne $null) { [double]$c }
-  })
-} catch {}
 $cpuTemperature = $null
 $cpuTemperatureSource = $null
 $gpuTemperature = $null
@@ -524,8 +515,6 @@ foreach ($namespace in @('root/LibreHardwareMonitor', 'root/OpenHardwareMonitor'
   cpu_sensor_source=$cpuTemperatureSource
   processor_name=if ($processors.Count -gt 0) { [string]$processors[0].Name } else { $null }
   processor_logical_count=if ($processors.Count -gt 0) { [uint32]$processors[0].NumberOfLogicalProcessors } else { $null }
-  thermal_zone_temperature_c=if ($thermal.Count -gt 0) { [double]$thermal[0] } else { $null }
-  thermal_zone_source=if ($thermal.Count -gt 0) { 'MSAcpi_ThermalZoneTemperature' } else { $null }
 } | ConvertTo-Json -Depth 5 -Compress
 "#;
         let output = powershell_output(script)?;
