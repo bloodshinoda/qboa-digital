@@ -846,6 +846,22 @@ mod tests {
     }
 
     #[test]
+    fn extended_profile_runs_two_passes_inside_the_session_budget() {
+        let config = tiny_config(MemoryTestProfile::Extended);
+        let cancel = AtomicBool::new(false);
+        let report = run_with_provider(
+            config,
+            &cancel,
+            SequenceProvider::stable(8 * 1024 * 1024 * 1024, 8 * 1024 * 1024 * 1024),
+            |_| {},
+        );
+        assert_eq!(report.status, MemoryTestStatus::Passed);
+        assert_eq!(report.passes_completed, 2);
+        assert_eq!(report.memory_tested_bytes, 1024 * 1024);
+        assert_eq!(report.blocks_completed, 2);
+    }
+
+    #[test]
     fn extended_profile_has_two_passes_and_five_algorithms() {
         let config = MemoryTestConfig::for_profile(MemoryTestProfile::Extended);
         assert_eq!(config.profile.passes(), 2);
