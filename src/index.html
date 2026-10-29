@@ -181,6 +181,31 @@
         <button id="diagnostic-modal-close" class="diagnostic-close" type="button" aria-label="Fechar diagnóstico">×</button>
       </header>
       <p class="diagnostic-modal-intro" id="diagnostic-modal-intro"></p>
+      <section id="memory-test-panel" class="memory-test-panel" hidden aria-label="Sessão de teste de integridade da RAM">
+        <div class="memory-test-profile-picker">
+          <label for="memory-test-profile">Perfil de cobertura</label>
+          <select id="memory-test-profile">
+            <option value="fast">Rápido · 512 MiB</option>
+            <option value="standard" selected>Padrão · 2 GiB</option>
+            <option value="extended">Prolongado · 4 GiB</option>
+          </select>
+          <p id="memory-test-profile-description">Padrão · 2 GiB · executa A01–A05 nos blocos concluídos.</p>
+        </div>
+        <div class="memory-test-progress" role="group" aria-label="Progresso do teste de RAM">
+          <div class="memory-test-progress-head"><strong id="memory-test-progress-phase">Aguardando início</strong><span id="memory-test-progress-percent">0%</span></div>
+          <div class="memory-test-progress-track" role="progressbar" aria-label="Progresso do teste de RAM" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="memory-test-progress-bar" class="memory-test-progress-bar"></div>
+          </div>
+          <p id="memory-test-progress-detail" aria-live="polite">Aguardando a primeira atualização do runner.</p>
+        </div>
+        <div class="memory-test-actions">
+          <button class="primary-button" id="memory-test-start" type="button">Iniciar teste de RAM</button>
+          <button class="secondary-button" id="memory-test-cancel" type="button" hidden disabled>Cancelar teste</button>
+        </div>
+        <div id="memory-test-result" class="memory-test-result" role="status" aria-live="polite"></div>
+        <ul id="memory-test-result-details" class="memory-test-result-details"></ul>
+        <p class="memory-test-safety-note">O teste usa somente buffers próprios do QBoa. Não acessa endereços físicos, não bloqueia a paginação do Windows e não certifica toda a RAM física. Se o teste for cancelado ou ficar inconclusivo, o resultado não é uma aprovação.</p>
+      </section>
       <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Executar teste</button></div>
       <p id="diagnostic-status" aria-live="polite"></p>
       <ul id="diagnostic-results" class="diagnostic-results"></ul>
