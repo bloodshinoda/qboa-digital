@@ -4,6 +4,7 @@ mod capability_inventory;
 mod cleanup_findings;
 mod diagnostics;
 mod diagnostics_store;
+mod memory_test;
 mod registry_executor;
 mod safety;
 mod service_manager;
@@ -1903,6 +1904,40 @@ fn get_storage_diagnostic_reports(app: AppHandle) -> Result<serde_json::Value, S
 }
 
 #[tauri::command]
+fn start_memory_test(
+    app: AppHandle,
+    profile: memory_test::runner::MemoryTestProfile,
+    memory_budget_bytes: Option<u64>,
+    preferred_block_bytes: Option<usize>,
+    seed: Option<u64>,
+) -> Result<memory_test::session::MemoryTestSessionSnapshot, String> {
+    let mut config = memory_test::runner::MemoryTestConfig::for_profile(profile);
+    if let Some(value) = memory_budget_bytes {
+        config.memory_budget_bytes = value;
+    }
+    if let Some(value) = preferred_block_bytes {
+        config.preferred_block_bytes = value;
+    }
+    if let Some(value) = seed {
+        config.seed = value;
+    }
+    memory_test::session::start(app, config)
+}
+
+#[tauri::command]
+fn get_memory_test_session() -> Option<memory_test::session::MemoryTestSessionSnapshot> {
+    memory_test::session::get_session()
+}
+
+#[tauri::command]
+fn cancel_memory_test(
+    app: AppHandle,
+    session_id: Option<String>,
+) -> Result<memory_test::session::MemoryTestSessionSnapshot, String> {
+    memory_test::session::cancel(&app, session_id.as_deref())
+}
+
+#[tauri::command]
 async fn get_capability_inventory() -> Result<capability_inventory::CapabilityInventory, String> {
     capability_inventory::collect()
 }
@@ -2019,6 +2054,9 @@ fn main() {
             list_storage_disks,
             run_storage_diagnostic,
             get_storage_diagnostic_reports,
+            start_memory_test,
+            get_memory_test_session,
+            cancel_memory_test,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
