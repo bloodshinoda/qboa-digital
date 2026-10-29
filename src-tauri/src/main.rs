@@ -3,10 +3,12 @@
 mod capability_inventory;
 mod cleanup_findings;
 mod diagnostics;
+mod diagnostics_store;
 mod registry_executor;
 mod safety;
 mod service_manager;
 mod service_profiles;
+mod storage_diagnostic;
 mod system_compat;
 mod task_registry;
 mod tweak_profiles;
@@ -18,11 +20,11 @@ use std::io::{BufRead, BufReader, Read};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use safety::{ChangeRecord, SafetyManager};
 use service_profiles::ServiceProfileBackend;
@@ -51,6 +53,9 @@ struct EventPayload {
 }
 
 static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[cfg(target_os = "windows")]
+static STORAGE_SCRIPT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
 
@@ -1676,10 +1681,225 @@ async fn get_session_history() -> Result<Vec<safety::ChangeRecord>, String> {
 
 #[tauri::command]
 async fn run_diagnostic_check(
+    app: AppHandle,
     mode: diagnostics::DiagnosticMode,
-) -> Result<diagnostics::DiagnosticReport, String> {
+) -> Result<diagnostics_store::StoredDiagnosticReport, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    let mut stored = diagnostics_store::StoredDiagnosticReport::new(mode);
+    diagnostics_store::save(&app_data_dir, &stored)?;
+    let started = Instant::now();
     let mut backend = diagnostics::WindowsDiagnosticBackend::default();
-    diagnostics::run(&mut backend, mode)
+    let execution = diagnostics::run_with_checkpoint(&mut backend, mode, |snapshot| {
+        stored.checkpoint(snapshot.clone());
+        diagnostics_store::save(&app_data_dir, &stored)
+    });
+    match execution {
+        Ok(report) => stored.apply_result(report, started.elapsed().as_millis() as u64),
+        Err(error) => stored.fail(error, started.elapsed().as_millis() as u64),
+    }
+    diagnostics_store::save(&app_data_dir, &stored)?;
+    Ok(stored)
+}
+
+#[tauri::command]
+async fn get_diagnostic_reports(
+    app: AppHandle,
+) -> Result<Vec<diagnostics_store::StoredDiagnosticReport>, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    diagnostics_store::load_all(&app_data_dir)
+}
+
+#[cfg(target_os = "windows")]
+fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_json::Value, String> {
+    if !matches!(mode, "list" | "test") {
+        return Err("Modo de teste de armazenamento inválido.".into());
+    }
+    if let Some(id) = disk_id {
+        if !id.split_once(':').is_some_and(|(number, letter)| {
+            !number.is_empty()
+                && number.bytes().all(|byte| byte.is_ascii_digit())
+                && letter.len() == 1
+                && letter.as_bytes()[0].is_ascii_uppercase()
+        }) {
+            return Err("Identificador de disco inválido.".into());
+        }
+    }
+
+    let disk_id = disk_id.unwrap_or("");
+    let counter = STORAGE_SCRIPT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let script_path = std::env::temp_dir().join(format!(
+        "qboa-storage-{}-{counter:016x}.ps1",
+        std::process::id()
+    ));
+    let mut created_script = false;
+    let execution = (|| -> Result<std::process::Output, String> {
+        let mut script_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&script_path)
+            .map_err(|error| {
+                format!("Não foi possível criar o script temporário de armazenamento: {error}")
+            })?;
+        created_script = true;
+        script_file
+            .write_all(include_str!("../scripts/storage_diagnostic.ps1").as_bytes())
+            .map_err(|error| {
+                format!("Não foi possível gravar o script temporário de armazenamento: {error}")
+            })?;
+        drop(script_file);
+
+        let mut command = Command::new("powershell.exe");
+        configure_hidden_console(&mut command);
+        command
+            .env("QBOA_STORAGE_MODE", mode)
+            .env("QBOA_STORAGE_DISK_ID", disk_id)
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&script_path)
+            .output()
+            .map_err(|error| {
+                format!("Não foi possível iniciar o coletor de armazenamento: {error}")
+            })
+    })();
+    if created_script {
+        std::fs::remove_file(&script_path).map_err(|error| {
+            format!("Não foi possível remover o script temporário de armazenamento: {error}")
+        })?;
+    }
+    let output = execution?;
+    if !output.status.success() {
+        let stderr = decode_process_output(&output.stderr);
+        let stdout = decode_process_output(&output.stdout);
+        let details = if !stderr.trim().is_empty() {
+            stderr
+        } else {
+            stdout
+        };
+        return Err(format!(
+            "O coletor de armazenamento falhou: {}",
+            details.trim()
+        ));
+    }
+    serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .map_err(|error| format!("O coletor de armazenamento retornou JSON inválido: {error}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+
+    if mode == "list" {
+        return Ok(json!([{
+            "id": "0:C",
+            "disk_number": 0,
+            "model": "Disco fictício para testes de interface",
+            "capacity_bytes": 256000000000u64,
+            "volume": "C:\\",
+            "free_bytes": 128000000000u64,
+            "class": "nvme",
+            "bus_type": "NVMe",
+            "backend": "fake"
+        }]));
+    }
+    if mode != "test" || disk_id != Some("0:C") {
+        return Err("Identificador de disco inválido para o backend fictício.".into());
+    }
+    Ok(json!({
+        "disk_id": "0:C",
+        "disk_name": "Disco fictício para testes de interface",
+        "volume": "C:\\",
+        "capacity_bytes": 256000000000u64,
+        "class": "nvme",
+        "bus_type": "NVMe",
+        "backend": "fake",
+        "measurements": [
+            {"kind":"seq_small_write","value":123.0,"unit":"MB/s","bytes_transferred":10485760,"duration_ms":100.0,"queue_depth":1,"block_size_bytes":131072,"reason":null},
+            {"kind":"seq_small_read","value":130.0,"unit":"MB/s","bytes_transferred":10485760,"duration_ms":100.0,"queue_depth":1,"block_size_bytes":131072,"reason":null},
+            {"kind":"seq_large_write","value":1700.0,"unit":"MB/s","bytes_transferred":134217728,"duration_ms":100.0,"queue_depth":8,"block_size_bytes":1048576,"reason":null},
+            {"kind":"seq_large_read","value":2100.0,"unit":"MB/s","bytes_transferred":134217728,"duration_ms":100.0,"queue_depth":8,"block_size_bytes":1048576,"reason":null},
+            {"kind":"random_small_write","value":12000.0,"unit":"IOPS","bytes_transferred":10485760,"duration_ms":100.0,"queue_depth":1,"block_size_bytes":4096,"reason":null},
+            {"kind":"random_small_read","value":16000.0,"unit":"IOPS","bytes_transferred":10485760,"duration_ms":100.0,"queue_depth":1,"block_size_bytes":4096,"reason":null},
+            {"kind":"random_large_write","value":80000.0,"unit":"IOPS","bytes_transferred":134217728,"duration_ms":100.0,"queue_depth":32,"block_size_bytes":4096,"reason":null},
+            {"kind":"random_large_read","value":95000.0,"unit":"IOPS","bytes_transferred":134217728,"duration_ms":100.0,"queue_depth":32,"block_size_bytes":4096,"reason":null}
+        ],
+        "smart": {
+            "usable": true,
+            "source": "backend fictício (sem hardware real)",
+            "predicted_failure": false,
+            "reallocated": 0,
+            "pending": 0,
+            "uncorrectable": 0,
+            "interface_crc_before": 0,
+            "interface_crc_after": 0,
+            "wear_percent": 4.0,
+            "wear_limit_percent": 100.0,
+            "temperature_c": 36.0,
+            "pio_mode": false,
+            "slow_sata_link": false,
+            "usb_slow": false,
+            "attributes": [],
+            "reliability_metrics": []
+        },
+        "recommendation": "inconclusivo",
+        "reasons": [],
+        "execution_status": "simulated",
+        "space_available": true,
+        "issues": ["Dados simulados para desenvolvimento; nenhuma leitura ou medição de hardware foi executada."]
+    }))
+}
+
+#[tauri::command]
+fn list_storage_disks() -> Result<serde_json::Value, String> {
+    execute_storage_script("list", None)
+}
+
+#[tauri::command]
+fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json::Value, String> {
+    let started_at = storage_diagnostic::timestamp_now();
+    let mut result = execute_storage_script("test", Some(&disk_id))?;
+    let mut report: storage_diagnostic::StorageReport = serde_json::from_value(result.clone())
+        .map_err(|error| format!("Relatório de armazenamento incompleto: {error}"))?;
+    storage_diagnostic::evaluate(&mut report);
+    let object = result
+        .as_object_mut()
+        .ok_or_else(|| "Relatório de armazenamento não é um objeto JSON.".to_string())?;
+    object.insert(
+        "recommendation".into(),
+        serde_json::to_value(report.recommendation)
+            .map_err(|error| format!("Falha ao serializar estado interno: {error}"))?,
+    );
+    object.insert(
+        "reasons".into(),
+        serde_json::to_value(report.reasons)
+            .map_err(|error| format!("Falha ao serializar evidências: {error}"))?,
+    );
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    storage_diagnostic::persist_report(&app_data_dir, &mut result, started_at)?;
+    Ok(result)
+}
+
+#[tauri::command]
+fn get_storage_diagnostic_reports(app: AppHandle) -> Result<serde_json::Value, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    storage_diagnostic::load_stored_reports(&app_data_dir)
 }
 
 #[tauri::command]
@@ -1795,6 +2015,10 @@ fn main() {
             rollback_session,
             get_session_history,
             run_diagnostic_check,
+            get_diagnostic_reports,
+            list_storage_disks,
+            run_storage_diagnostic,
+            get_storage_diagnostic_reports,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
