@@ -54,6 +54,12 @@ pub fn get_session() -> Option<MemoryTestSessionSnapshot> {
     lock_registry().as_ref().map(|entry| entry.snapshot.clone())
 }
 
+pub fn is_active() -> bool {
+    lock_registry().as_ref().is_some_and(|entry| {
+        entry.snapshot.lifecycle == "running" || entry.snapshot.lifecycle == "cancelling"
+    })
+}
+
 pub fn start<R: Runtime>(
     app: AppHandle<R>,
     config: MemoryTestConfig,
