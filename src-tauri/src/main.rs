@@ -1946,10 +1946,10 @@ async fn start_memory_test(
     if profile == memory_test::runner::MemoryTestProfile::Custom {
         let total_physical_bytes = memory_inventory::collect()?.total_physical_bytes;
         if config.memory_budget_bytes > total_physical_bytes {
-            return Err(format!(
-                "O orçamento personalizado não pode superar a RAM física detectada ({}).",
-                total_physical_bytes
-            ));
+            return Err(
+                "O orçamento personalizado não pode superar o total de RAM física detectada."
+                    .to_string(),
+            );
         }
     }
     memory_test::session::start(app, config)
