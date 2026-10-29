@@ -2033,15 +2033,21 @@ async function loadServiceProfileState() {
 }
 
 async function registerEvents() {
-  void listen("qboa-memory-test-progress", (event) => {
-    renderMemoryTestSession(event.payload?.session);
-  }).catch((error) => console.error("Falha ao receber progresso do teste de RAM:", error));
-  void listen("qboa-memory-test-state", (event) => {
-    renderMemoryTestSession(event.payload?.session);
-  }).catch((error) => console.error("Falha ao receber estado do teste de RAM:", error));
-  void listen("qboa-memory-test-finished", (event) => {
-    renderMemoryTestSession(event.payload?.session);
-  }).catch((error) => console.error("Falha ao receber resultado do teste de RAM:", error));
+  // Instala os listeners de RAM antes de habilitar os controles que podem iniciar
+  // uma sessão, para não perder o estado inicial nem as primeiras atualizações.
+  await Promise.all([
+    listen("qboa-memory-test-progress", (event) => {
+      renderMemoryTestSession(event.payload?.session);
+    }),
+    listen("qboa-memory-test-state", (event) => {
+      renderMemoryTestSession(event.payload?.session);
+    }),
+    listen("qboa-memory-test-finished", (event) => {
+      renderMemoryTestSession(event.payload?.session);
+    })
+  ].map((registration) => registration.catch((error) => {
+    console.error("Falha ao registrar eventos do teste de RAM:", error);
+  })));
 
   // Não bloqueia o vínculo dos controles da interface esperando o listener Tauri.
   // Se listen() demorar ou falhar, os botões de confirmação continuam funcionais.
