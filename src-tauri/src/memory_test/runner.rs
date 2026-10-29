@@ -742,6 +742,30 @@ mod tests {
     }
 
     #[test]
+    fn custom_profile_uses_all_five_algorithms_in_one_pass() {
+        let config = MemoryTestConfig::for_profile(MemoryTestProfile::Custom);
+        assert_eq!(MemoryTestProfile::Custom.passes(), 1);
+        assert_eq!(
+            planned_algorithms(MemoryTestProfile::Custom),
+            vec![
+                AlgorithmId::A01,
+                AlgorithmId::A02,
+                AlgorithmId::A03,
+                AlgorithmId::A04,
+                AlgorithmId::A05,
+            ]
+        );
+        assert_eq!(config.memory_budget_bytes, 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn custom_coverage_can_exceed_the_previous_eight_gib_ceiling() {
+        let mut config = tiny_config(MemoryTestProfile::Custom);
+        config.memory_budget_bytes = 16 * 1024 * 1024 * 1024;
+        assert_eq!(config.effective_budget_bytes(), config.memory_budget_bytes);
+    }
+
+    #[test]
     fn clamps_requested_budget_to_session_safety_ceiling() {
         let mut config = tiny_config(MemoryTestProfile::Fast);
         config.memory_budget_bytes = MAX_SESSION_BYTES + 1;
