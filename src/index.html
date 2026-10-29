@@ -186,14 +186,35 @@
           <button class="primary-button" id="memory-test-start" type="button">Iniciar teste de RAM</button>
           <button class="secondary-button" id="memory-test-cancel" type="button" hidden disabled>Cancelar teste</button>
         </div>
+        <section id="memory-inventory-panel" class="memory-inventory-panel" aria-label="Inventário físico da memória RAM">
+          <div class="memory-inventory-header">
+            <div>
+              <h3>Memória física instalada</h3>
+              <p id="memory-inventory-summary" aria-live="polite">Consultando módulos e slots…</p>
+            </div>
+            <button class="secondary-button" id="memory-inventory-refresh" type="button">Atualizar</button>
+          </div>
+          <div id="memory-modules-list" class="memory-modules-list"></div>
+          <p id="memory-inventory-note" class="memory-inventory-note"></p>
+        </section>
         <div class="memory-test-profile-picker">
           <label for="memory-test-profile">Perfil de cobertura</label>
           <select id="memory-test-profile">
-            <option value="fast" selected>Rápido · 128 MiB (cobertura parcial)</option>
-            <option value="standard">Padrão · 2 GiB</option>
-            <option value="extended">Prolongado · 4 GiB</option>
+            <option value="fast" selected>Rápido · 256 MiB</option>
+            <option value="standard">Padrão · 3 GiB</option>
+            <option value="extended">Prolongado · 6 GiB</option>
+            <option value="custom">Personalizado · escolher tamanho</option>
           </select>
-          <p id="memory-test-profile-description">Rápido · 128 MiB · A01/A03 em cada bloco e A04 amostrado. Cobertura parcial.</p>
+          <p id="memory-test-profile-description">Rápido · 256 MiB · A01/A03 em cada bloco e A04 amostrado. Cobertura parcial.</p>
+        </div>
+        <div id="memory-test-custom-picker" class="memory-test-custom-picker" hidden>
+          <div class="memory-test-custom-heading">
+            <label for="memory-test-custom-budget">Orçamento do teste</label>
+            <output id="memory-test-custom-size" for="memory-test-custom-budget">1 GiB</output>
+          </div>
+          <input id="memory-test-custom-budget" type="range" min="134217728" max="1073741824" step="1048576" value="1073741824" disabled aria-describedby="memory-test-custom-help" />
+          <div class="memory-test-slider-limits"><span>128 MiB</span><span id="memory-test-custom-maximum">RAM total</span></div>
+          <p id="memory-test-custom-help">O limite é a RAM física detectada. O teste usa um bloco por vez e preserva uma reserva de memória para o Windows; a cobertura pode terminar como inconclusiva se houver pouca RAM livre.</p>
         </div>
         <div class="memory-test-progress" role="group" aria-label="Progresso do teste de RAM">
           <div class="memory-test-progress-head"><strong id="memory-test-progress-phase">Aguardando início</strong><span id="memory-test-progress-percent">0%</span></div>
