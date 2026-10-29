@@ -533,13 +533,15 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
 fn planned_algorithms(profile: MemoryTestProfile) -> Vec<AlgorithmId> {
     match profile {
         MemoryTestProfile::Fast => vec![AlgorithmId::A01, AlgorithmId::A03, AlgorithmId::A04],
-        MemoryTestProfile::Standard | MemoryTestProfile::Extended | MemoryTestProfile::Custom => vec![
-            AlgorithmId::A01,
-            AlgorithmId::A02,
-            AlgorithmId::A03,
-            AlgorithmId::A04,
-            AlgorithmId::A05,
-        ],
+        MemoryTestProfile::Standard | MemoryTestProfile::Extended | MemoryTestProfile::Custom => {
+            vec![
+                AlgorithmId::A01,
+                AlgorithmId::A02,
+                AlgorithmId::A03,
+                AlgorithmId::A04,
+                AlgorithmId::A05,
+            ]
+        }
     }
 }
 
