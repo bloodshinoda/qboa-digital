@@ -1920,7 +1920,7 @@ fn get_storage_diagnostic_reports(app: AppHandle) -> Result<serde_json::Value, S
 }
 
 #[tauri::command]
-fn start_memory_test(
+async fn start_memory_test(
     app: AppHandle,
     profile: memory_test::runner::MemoryTestProfile,
     memory_budget_bytes: Option<u64>,
@@ -1969,7 +1969,7 @@ fn cancel_memory_test(
 }
 
 #[tauri::command]
-fn get_memory_inventory() -> Result<memory_inventory::MemoryInventory, String> {
+async fn get_memory_inventory() -> Result<memory_inventory::MemoryInventory, String> {
     memory_inventory::collect()
 }
 
