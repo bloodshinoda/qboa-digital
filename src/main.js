@@ -1738,16 +1738,18 @@ function renderMemoryTestSession(session) {
   }
   if (memoryTestSessionSnapshot) {
     const sameSession = memoryTestSessionSnapshot.session_id === session.session_id;
-    const currentIsActive = ["running", "cancelling"].includes(memoryTestSessionSnapshot.lifecycle);
-    const incomingIsActive = ["running", "cancelling"].includes(session.lifecycle);
-    if (sameSession && !currentIsActive && incomingIsActive) {
-      // Um evento de progresso enfileirado não pode reabrir uma sessão terminal.
-      return;
-    }
-    if (!sameSession) {
+    const lifecycleRank = { running: 1, cancelling: 2, completed: 3, failed: 3 };
+    const currentRank = lifecycleRank[memoryTestSessionSnapshot.lifecycle] || 0;
+    const incomingRank = lifecycleRank[session.lifecycle] || 0;
+    if (sameSession) {
+      if (incomingRank < currentRank) return;
+      const currentBytes = Number(memoryTestSessionSnapshot.progress?.memory_tested_bytes || 0);
+      const incomingBytes = Number(session.progress?.memory_tested_bytes || 0);
+      if (incomingRank === currentRank && incomingBytes < currentBytes) return;
+    } else {
       // O backend só permite uma sessão por vez; IDs diferentes com timestamp
       // anterior pertencem à sessão anterior e devem ser ignorados.
-      if (currentIsActive ||
+      if (currentRank < 3 ||
           String(session.started_at || "") <= String(memoryTestSessionSnapshot.started_at || "")) {
         return;
       }
