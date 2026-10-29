@@ -992,7 +992,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .memory-test-progress-track { height:10px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.15); }
 .memory-test-progress-bar { width:0; height:100%; border-radius:inherit; background:var(--qboa-focus,#facc15); transition:width .18s ease; }
 .memory-test-progress-detail { margin:0; color:rgba(255,255,255,.76); font-size:.87rem; line-height:1.45; overflow-wrap:anywhere; }
-.memory-test-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.memory-test-actions { position:sticky; top:0; z-index:5; display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:10px 0; background:linear-gradient(#063f27 78%,rgba(6,63,39,0)); }
 .memory-test-result { line-height:1.5; }
 .memory-test-result p { margin:7px 0; }
 .memory-test-report-meta { font-size:.9rem; opacity:.88; }
