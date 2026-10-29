@@ -4,3 +4,5 @@
 //! com alocação, cancelamento, eventos Tauri e persistência fica fora deste módulo.
 
 pub mod algorithms;
+
+pub mod runner;
