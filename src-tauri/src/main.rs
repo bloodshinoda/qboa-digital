@@ -4,6 +4,7 @@ mod capability_inventory;
 mod cleanup_findings;
 mod diagnostics;
 mod diagnostics_store;
+mod memory_inventory;
 mod memory_test;
 mod registry_executor;
 mod safety;
@@ -1942,6 +1943,15 @@ fn start_memory_test(
     if let Some(value) = seed {
         config.seed = value;
     }
+    if profile == memory_test::runner::MemoryTestProfile::Custom {
+        let total_physical_bytes = memory_inventory::collect()?.total_physical_bytes;
+        if config.memory_budget_bytes > total_physical_bytes {
+            return Err(format!(
+                "O orçamento personalizado não pode superar a RAM física detectada ({}).",
+                total_physical_bytes
+            ));
+        }
+    }
     memory_test::session::start(app, config)
 }
 
@@ -1956,6 +1966,11 @@ fn cancel_memory_test(
     session_id: Option<String>,
 ) -> Result<memory_test::session::MemoryTestSessionSnapshot, String> {
     memory_test::session::cancel(&app, session_id.as_deref())
+}
+
+#[tauri::command]
+fn get_memory_inventory() -> Result<memory_inventory::MemoryInventory, String> {
+    memory_inventory::collect()
 }
 
 #[tauri::command]
@@ -2078,6 +2093,7 @@ fn main() {
             start_memory_test,
             get_memory_test_session,
             cancel_memory_test,
+            get_memory_inventory,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
