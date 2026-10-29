@@ -304,10 +304,16 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
     let mut seeds = Vec::<u64>::new();
 
     'passes: for pass in 0..passes_planned {
-        let pass_start_tested = tested_bytes;
+        let mut pass_tested_bytes = 0u64;
+        let pass_budget = budget / u64::from(passes_planned)
+            + if pass + 1 == passes_planned {
+                budget % u64::from(passes_planned)
+            } else {
+                0
+            };
         let mut pass_had_block = false;
 
-        while tested_bytes < budget {
+        while pass_tested_bytes < pass_budget {
             if cancel.load(Ordering::Acquire) {
                 stop_reason = StopReason::UserCancelled;
                 break 'passes;
@@ -336,7 +342,7 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
             let safe_available = memory_status
                 .available_physical_bytes
                 .saturating_sub(reserve);
-            let remaining = budget.saturating_sub(tested_bytes);
+            let remaining = pass_budget.saturating_sub(pass_tested_bytes);
             let desired = (config.preferred_block_bytes as u64).min(remaining);
             let allocation_bytes = desired.min(safe_available) as usize;
 
@@ -450,6 +456,7 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
             // A block is counted once per pass and reflects bytes whose planned
             // algorithm set completed; release happens automatically at loop end.
             tested_bytes = tested_bytes.saturating_add(buffer.len() as u64);
+            pass_tested_bytes = pass_tested_bytes.saturating_add(buffer.len() as u64);
             report.blocks_completed = report.blocks_completed.saturating_add(1);
             emit_progress(
                 &mut progress,
@@ -474,8 +481,8 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
         if pass_had_block {
             passes_completed = passes_completed.saturating_add(1);
         }
-        if pass_start_tested == tested_bytes {
-            // Avoid reporting a completed pass if no bytes were actually tested.
+        if pass_tested_bytes < pass_budget {
+            // Do not count a pass as complete when its requested coverage was not reached.
             break;
         }
     }
