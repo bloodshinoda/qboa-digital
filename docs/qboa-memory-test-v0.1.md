@@ -10,14 +10,14 @@ Adicionar um teste de integridade da memória RAM executado durante a sessão at
 - Não exigir elevação de administrador.
 - Trabalhar somente com buffers alocados pelo próprio processo.
 - Não exigir `VirtualLock`; não tentar impedir o sistema de paginar memória.
-- Teto absoluto inicial de alocação: 8 GiB por sessão.
-- Alocação dinâmica em blocos; tamanho inicial sugerido de 64 MiB, ajustável entre 16 e 256 MiB.
+- Orçamento cumulativo configurável até o total de RAM física detectada no perfil personalizado, com teto operacional de segurança de 1 TiB por sessão. Esse orçamento representa bytes processados ao longo dos blocos, não alocação simultânea.
+- Alocação dinâmica em blocos; tamanho padrão de 16 MiB, adaptável entre 4 e 256 MiB conforme a disponibilidade.
 - Considerar a memória física e disponível continuamente; interromper novas alocações e reduzir/encerrar o teste diante de pressão de memória.
 - Uma única sessão e um único worker ativos por vez.
 - Cancelamento cooperativo; sempre liberar os buffers ao encerrar.
 - Não implementar Rowhammer, escrita fora dos buffers, leitura/escrita de endereços físicos ou acesso a outros processos.
 
-A reserva mínima de memória do sistema e o cálculo final do limite adaptativo precisam ser validados em testes antes de serem considerados política definitiva. O teto de 8 GiB é um máximo, não uma meta obrigatória.
+A reserva mínima de memória do sistema e o cálculo final do limite adaptativo precisam ser validados em testes antes de serem considerados política definitiva. O teto operacional de 1 TiB é um limite de segurança, não uma meta obrigatória. O perfil personalizado usa como máximo o total de RAM física que o Windows reporta; a alocação simultânea segue limitada pela disponibilidade e pela reserva de segurança.
 
 ## Algoritmos
 
@@ -37,6 +37,7 @@ Os perfis devem descrever cobertura explícita, e não apenas uma duração esti
 - **Rápido:** A01 e A03; amostragem de A04. Indicar claramente que a cobertura é parcial.
 - **Padrão:** A01–A05 em blocos selecionados de acordo com o orçamento adaptativo.
 - **Prolongado:** A01–A05 com passes adicionais e seeds diferentes no A04.
+- **Personalizado:** um passe de A01–A05 sobre o orçamento definido pelo usuário, limitado ao total de RAM física reportada.
 - **A06:** não faz parte de nenhum perfil enquanto não for validado.
 
 Os critérios exatos de seleção de blocos, passes e conclusão precisam ser implementados como configuração explícita e cobertos por testes; a interface não deve prometer cobertura total da RAM física.
