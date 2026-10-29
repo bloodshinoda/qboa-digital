@@ -47,7 +47,9 @@ fn registry() -> &'static Mutex<Option<SessionEntry>> {
 }
 
 fn lock_registry() -> std::sync::MutexGuard<'static, Option<SessionEntry>> {
-    registry().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    registry()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub fn get_session() -> Option<MemoryTestSessionSnapshot> {
@@ -181,7 +183,9 @@ pub fn cancel<R: Runtime>(
 
         if let Some(expected_id) = session_id {
             if expected_id != entry.snapshot.session_id {
-                return Err("O identificador não corresponde à sessão atual de memória.".to_string());
+                return Err(
+                    "O identificador não corresponde à sessão atual de memória.".to_string()
+                );
             }
         }
 
@@ -285,9 +289,9 @@ mod tests {
         let second = new_session_id();
         assert_ne!(first, second);
         assert!(first.starts_with("mem-"));
-        assert!(first.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
-        }));
+        assert!(first
+            .bytes()
+            .all(|byte| { byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' }));
     }
 
     #[test]
