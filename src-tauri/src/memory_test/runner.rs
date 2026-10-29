@@ -3,9 +3,7 @@
 //! Executa somente sobre buffers alocados pelo próprio processo. O limite de
 //! memória é um teto da sessão; o runner mantém apenas um bloco alocado por vez.
 
-use super::algorithms::{
-    self, AlgorithmId, MemoryMismatch, MAX_MISMATCH_DETAILS,
-};
+use super::algorithms::{self, AlgorithmId, MemoryMismatch, MAX_MISMATCH_DETAILS};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -330,15 +328,16 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
             };
 
             if memory_status.total_physical_bytes == 0 {
-                report.warnings.push("Memória física total inválida.".to_string());
+                report
+                    .warnings
+                    .push("Memória física total inválida.".to_string());
                 stop_reason = StopReason::MemoryStatusUnavailable;
                 fatal_error = true;
                 break 'passes;
             }
 
             // Reserva dinâmica: o maior valor entre 1 GiB e 20% da RAM física.
-            let reserve = MIN_AVAILABLE_RESERVE_BYTES
-                .max(memory_status.total_physical_bytes / 5);
+            let reserve = MIN_AVAILABLE_RESERVE_BYTES.max(memory_status.total_physical_bytes / 5);
             let safe_available = memory_status
                 .available_physical_bytes
                 .saturating_sub(reserve);
@@ -368,9 +367,8 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
                 break 'passes;
             }
             buffer.resize(allocation_bytes, 0);
-            report.largest_block_allocated_bytes = report
-                .largest_block_allocated_bytes
-                .max(buffer.len());
+            report.largest_block_allocated_bytes =
+                report.largest_block_allocated_bytes.max(buffer.len());
 
             pass_had_block = true;
             block_index = block_index.saturating_add(1);
@@ -422,7 +420,9 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
                     AlgorithmId::A01 => algorithms::run_a01(&mut buffer),
                     AlgorithmId::A02 => algorithms::run_a02(&mut buffer),
                     AlgorithmId::A03 => algorithms::run_a03(&mut buffer),
-                    AlgorithmId::A04 => algorithms::run_a04(&mut buffer, seed.unwrap_or(config.seed)),
+                    AlgorithmId::A04 => {
+                        algorithms::run_a04(&mut buffer, seed.unwrap_or(config.seed))
+                    },
                     AlgorithmId::A05 => algorithms::run_a05(&mut buffer),
                 };
                 report.mismatches_total = report
@@ -436,7 +436,10 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
                     block_index,
                     seed,
                 );
-                if !algorithms_executed.iter().any(|name| name == algorithm.as_str()) {
+                if !algorithms_executed
+                    .iter()
+                    .any(|name| name == algorithm.as_str())
+                {
                     algorithms_executed.push(algorithm.as_str().to_string());
                 }
 
@@ -510,12 +513,8 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
         StopReason::MemoryPressure | StopReason::MemoryStatusUnavailable => {
             MemoryTestStatus::Inconclusive
         }
-        StopReason::AllocationFailed | StopReason::InvalidConfiguration => {
-            MemoryTestStatus::Failed
-        }
-        StopReason::Completed if report.mismatches_total > 0 => {
-            MemoryTestStatus::ErrorsDetected
-        }
+        StopReason::AllocationFailed | StopReason::InvalidConfiguration => MemoryTestStatus::Failed,
+        StopReason::Completed if report.mismatches_total > 0 => MemoryTestStatus::ErrorsDetected,
         StopReason::Completed => MemoryTestStatus::Passed,
     };
 
@@ -550,7 +549,11 @@ fn derive_seed(base: u64, pass: u32, block_index: u64) -> u64 {
     let mixed = base
         ^ (u64::from(pass).wrapping_mul(0x9E37_79B9_7F4A_7C15))
         ^ block_index.wrapping_mul(0xD1B5_4A32_D192_ED03);
-    if mixed == 0 { 0xA076_1D64_78BD_642F } else { mixed }
+    if mixed == 0 {
+        0xA076_1D64_78BD_642F
+    } else {
+        mixed
+    }
 }
 
 fn append_mismatches(
@@ -608,13 +611,15 @@ fn emit_progress(
 fn coverage_description(profile: MemoryTestProfile) -> String {
     match profile {
         MemoryTestProfile::Fast => {
-            "Cobertura parcial: A01 e A03 em cada bloco; A04 amostrado em um a cada quatro blocos.".to_string()
+            "Cobertura parcial: A01 e A03 em cada bloco; A04 amostrado em um a cada quatro blocos."
+                .to_string()
         }
         MemoryTestProfile::Standard => {
             "A01–A05 aplicados a cada bloco concluído no orçamento configurado.".to_string()
         }
         MemoryTestProfile::Extended => {
-            "A01–A05 repetidos em dois passes; A04 usa seeds distintas por passe e bloco.".to_string()
+            "A01–A05 repetidos em dois passes; A04 usa seeds distintas por passe e bloco."
+                .to_string()
         }
     }
 }
@@ -625,7 +630,11 @@ fn default_seed() -> u64 {
         .unwrap_or_default()
         .as_nanos() as u64
         ^ (std::process::id() as u64).rotate_left(17);
-    if seed == 0 { 0xA076_1D64_78BD_642F } else { seed }
+    if seed == 0 {
+        0xA076_1D64_78BD_642F
+    } else {
+        seed
+    }
 }
 
 fn finish_report(mut report: MemoryTestReport, started: Instant) -> MemoryTestReport {
@@ -826,22 +835,8 @@ mod tests {
             };
             MAX_SESSION_MISMATCH_DETAILS + 5
         ];
-        append_mismatches(
-            &mut destination,
-            &source,
-            AlgorithmId::A01,
-            1,
-            1,
-            None,
-        );
-        append_mismatches(
-            &mut destination,
-            &source,
-            AlgorithmId::A02,
-            1,
-            2,
-            None,
-        );
+        append_mismatches(&mut destination, &source, AlgorithmId::A01, 1, 1, None);
+        append_mismatches(&mut destination, &source, AlgorithmId::A02, 1, 2, None);
         assert_eq!(destination.len(), MAX_SESSION_MISMATCH_DETAILS);
     }
 
