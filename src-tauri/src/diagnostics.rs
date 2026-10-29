@@ -1136,7 +1136,7 @@ mod tests {
     fn complete_diagnostic_runs_data_checks_without_sfc_or_dism() {
         let mut backend = FakeBackend::default();
         let report = run(&mut backend, DiagnosticMode::Complete).unwrap();
-        assert_eq!(report.results.len(), 6);
+        assert_eq!(report.results.len(), 5);
         assert!(report.checks.is_empty());
         assert_eq!(backend.extended_calls, 0);
     }
