@@ -29,6 +29,7 @@ let showAllSessionChanges = false;
 let activeDiagnosticTarget = null;
 let activeDiagnosticMode = "quick";
 let memoryTestSessionSnapshot = null;
+let memoryInventorySnapshot = null;
 
 const Qboa = {
   async analyze() {
@@ -79,13 +80,17 @@ const Qboa = {
     return invoke("get_storage_diagnostic_reports");
   },
 
-  async startMemoryTest(profile) {
+  async startMemoryTest(profile, memoryBudgetBytes = null) {
     return invoke("start_memory_test", {
       profile,
-      memoryBudgetBytes: null,
+      memoryBudgetBytes,
       preferredBlockBytes: null,
       seed: null
     });
+  },
+
+  async getMemoryInventory() {
+    return invoke("get_memory_inventory");
   },
 
   async getMemoryTestSession() {
@@ -245,8 +250,7 @@ function renderCards() {
     recoveryPanel.hidden = true;
     const tests = [
       { id: "armazenamento", name: "Armazenamento", desc: "Espaço livre e informações disponíveis sobre os volumes." },
-      { id: "memoria_ram", name: "Memória RAM", desc: "Memória total e disponível durante a coleta." },
-      { id: "teste_memoria", name: "Integridade da RAM", desc: "Executa padrões de integridade em blocos de memória do próprio processo, com progresso e cancelamento." },
+      { id: "teste_memoria", name: "Memória RAM", desc: "Inventaria os módulos e a frequência reportada, mostra as limitações de leitura de timings e executa o teste de integridade com perfil selecionável." },
       { id: "placa_de_video", name: "GPU", desc: "Adaptadores gráficos detectados e leituras disponíveis." },
       { id: "processador", name: "Processador", desc: "Identificação do processador e dados disponíveis." },
       { id: "temperatura", name: "Temperaturas", desc: "Leituras de sensores compatíveis, quando expostas pelo sistema." },
@@ -1667,8 +1671,7 @@ function openDiagnosticModal(target = null, mode = "quick") {
 
   const labels = {
     armazenamento: ["Teste de armazenamento", "Coleta dados SMART disponíveis e executa oito medições sequenciais e aleatórias de leitura/escrita em arquivo temporário. Não executa teste de superfície nem escreve diretamente em setores do disco."],
-    memoria_ram: ["Teste de memória RAM", "Analisa os dados de memória expostos pelo Windows. Não é um teste de estresse nem substitui o Diagnóstico de Memória do Windows."],
-    teste_memoria: ["Teste de integridade da RAM", "Executa padrões A01–A05 em buffers próprios do QBoa, conforme o perfil selecionado. O teste não acessa endereços físicos, não certifica toda a RAM e pode ser cancelado a qualquer momento."],
+    teste_memoria: ["Memória RAM", "Inventário dos módulos físicos reportados pelo Windows e teste de integridade com cobertura configurável. O teste usa buffers próprios do QBoa, não acessa endereços físicos e não certifica toda a RAM física."],
     placa_de_video: ["Teste de GPU", "Consulta os adaptadores gráficos detectados e as leituras disponíveis. Não executa benchmark nem teste de estresse gráfico."],
     processador: ["Teste de processador", "Consulta a identificação e os dados disponíveis do processador. Não executa benchmark nem teste de estresse."],
     temperatura: ["Teste de temperaturas", "Consulta leituras de sensores compatíveis quando o Windows ou os provedores disponíveis as expõem. Sensor indisponível não significa temperatura normal."]
@@ -1687,6 +1690,7 @@ function openDiagnosticModal(target = null, mode = "quick") {
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
   if (isMemoryTest) {
+    void loadMemoryInventory();
     void loadMemoryTestSession();
     return;
   }
@@ -1703,6 +1707,103 @@ function formatMemoryBytes(value) {
     unit++;
   }
   return amount.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " " + units[unit];
+}
+
+const MIN_CUSTOM_MEMORY_BYTES = 128 * 1024 * 1024;
+const CUSTOM_MEMORY_STEP_BYTES = 1024 * 1024;
+
+function updateCustomMemoryBudgetLabel() {
+  const slider = document.getElementById("memory-test-custom-budget");
+  const output = document.getElementById("memory-test-custom-size");
+  if (slider && output) output.textContent = formatMemoryBytes(slider.value);
+}
+
+async function loadMemoryInventory() {
+  const summary = document.getElementById("memory-inventory-summary");
+  const modulesList = document.getElementById("memory-modules-list");
+  const note = document.getElementById("memory-inventory-note");
+  const refresh = document.getElementById("memory-inventory-refresh");
+  if (!summary || !modulesList || !note) return;
+  refresh.disabled = true;
+  summary.textContent = "Consultando módulos, slots e memória disponível…";
+  modulesList.replaceChildren();
+  try {
+    const inventory = await Qboa.getMemoryInventory();
+    memoryInventorySnapshot = inventory;
+    const modules = Array.isArray(inventory.modules) ? inventory.modules : [];
+    const total = Number(inventory.total_physical_bytes || 0);
+    const available = Number(inventory.available_physical_bytes || 0);
+    const slots = Number(inventory.slot_count || 0);
+    summary.textContent = formatMemoryBytes(total) + " de RAM física · " +
+      modules.length + " módulo(s) detectado(s)" +
+      (slots > 0 ? " · " + modules.length + " de " + slots + " slot(s) ocupado(s)" : "") +
+      " · " + formatMemoryBytes(available) + " disponível(is) agora";
+
+    modules.forEach((module, index) => {
+      const card = document.createElement("article");
+      card.className = "memory-module-card";
+      const heading = document.createElement("h4");
+      heading.textContent = [module.manufacturer, module.part_number].filter(Boolean).join(" · ") || ("Módulo de RAM " + (index + 1));
+      card.appendChild(heading);
+      const detailGrid = document.createElement("dl");
+      detailGrid.className = "memory-module-details";
+      const fields = [
+        ["Capacidade", formatMemoryBytes(module.capacity_bytes)],
+        ["Tipo", module.memory_type || "Não informado"],
+        ["Formato", module.form_factor || "Não informado"],
+        ["Slot / banco", [module.device_locator, module.bank_label].filter(Boolean).join(" · ") || "Não informado"],
+        ["Frequência configurada", module.configured_speed_mhz ? module.configured_speed_mhz + " MHz" : "Não informada pelo SMBIOS"],
+        ["Velocidade nominal reportada", module.rated_speed_mhz ? module.rated_speed_mhz + " MHz" : "Não informada pelo SMBIOS"],
+        ["Máximo XMP/EXPO", module.xmp_expo_max_speed_mhz ? module.xmp_expo_max_speed_mhz + " MHz" : "Não exposto pela API padrão do Windows"],
+        ["Latência CAS", module.cas_latency ? "CL" + module.cas_latency : "Não exposta pela API padrão do Windows"],
+        ["Largura de dados", module.data_width_bits ? module.data_width_bits + " bits" : "Não informada"],
+        ["Largura total", module.total_width_bits ? module.total_width_bits + " bits" : "Não informada"],
+        ["Tensão configurada", module.configured_voltage_mv ? (module.configured_voltage_mv / 1000).toLocaleString("pt-BR") + " V" : "Não informada"]
+      ];
+      fields.forEach(([label, value]) => {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        detailGrid.append(dt, dd);
+      });
+      card.appendChild(detailGrid);
+      modulesList.appendChild(card);
+    });
+    if (!modules.length) {
+      const empty = document.createElement("p");
+      empty.className = "memory-inventory-empty";
+      empty.textContent = "O Windows não retornou módulos individuais. O teste de integridade continua disponível.";
+      modulesList.appendChild(empty);
+    }
+    const slider = document.getElementById("memory-test-custom-budget");
+    const maxBytes = Math.max(MIN_CUSTOM_MEMORY_BYTES, total);
+    slider.min = String(Math.min(MIN_CUSTOM_MEMORY_BYTES, total));
+    slider.max = String(maxBytes);
+    slider.step = String(CUSTOM_MEMORY_STEP_BYTES);
+    if (!slider.dataset.userAdjusted) {
+      slider.value = String(Math.min(1024 * 1024 * 1024, maxBytes));
+    } else {
+      slider.value = String(Math.min(Number(slider.value), maxBytes));
+    }
+    slider.disabled = !total || ["running", "cancelling"].includes(memoryTestSessionSnapshot?.lifecycle);
+    document.getElementById("memory-test-custom-maximum").textContent = formatMemoryBytes(total) + " (RAM total)";
+    updateCustomMemoryBudgetLabel();
+    note.textContent = inventory.timing_limitation ||
+      "Alguns dados de temporização e perfis de memória não são expostos pela API padrão do Windows.";
+    (inventory.warnings || []).forEach((warning) => {
+      const line = document.createElement("p");
+      line.textContent = warning;
+      modulesList.appendChild(line);
+    });
+  } catch (error) {
+    memoryInventorySnapshot = null;
+    summary.textContent = "Não foi possível consultar o inventário físico: " + String(error);
+    note.textContent = "O teste de integridade continua disponível, mas o perfil personalizado precisa da leitura da RAM física para definir seu limite.";
+    document.getElementById("memory-test-custom-budget").disabled = true;
+  } finally {
+    refresh.disabled = false;
+  }
 }
 
 function memoryPhaseLabel(phase) {
@@ -1758,11 +1859,19 @@ function renderMemoryTestSession(session) {
   memoryTestSessionSnapshot = session;
   const active = ["running", "cancelling"].includes(session.lifecycle);
   const profile = document.getElementById("memory-test-profile");
+  if (session.profile && ["fast", "standard", "extended", "custom"].includes(session.profile)) {
+    profile.value = session.profile;
+  }
+  const customPicker = document.getElementById("memory-test-custom-picker");
+  const customBudget = document.getElementById("memory-test-custom-budget");
+  customPicker.hidden = profile.value !== "custom";
+  customBudget.disabled = active || !memoryInventorySnapshot?.total_physical_bytes;
   const start = document.getElementById("memory-test-start");
   const cancel = document.getElementById("memory-test-cancel");
   const progress = session.progress;
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   profile.disabled = active;
+  customBudget.disabled = active || !memoryInventorySnapshot?.total_physical_bytes;
   start.disabled = active;
   start.textContent = active ? "Teste em andamento" : "Iniciar teste de RAM";
   cancel.hidden = !active;
@@ -1836,12 +1945,14 @@ async function loadMemoryTestSession() {
 
 async function startMemoryTestFromUi() {
   const profile = document.getElementById("memory-test-profile").value;
+  const customBudget = document.getElementById("memory-test-custom-budget");
+  const memoryBudgetBytes = profile === "custom" ? Number(customBudget.value) : null;
   const result = document.getElementById("memory-test-result");
   const start = document.getElementById("memory-test-start");
   start.disabled = true;
   result.textContent = "Solicitando início da sessão…";
   try {
-    const session = await Qboa.startMemoryTest(profile);
+    const session = await Qboa.startMemoryTest(profile, memoryBudgetBytes);
     renderMemoryTestSession(session);
     await loadMemoryTestSession();
   } catch (error) {
@@ -2239,14 +2350,21 @@ async function registerEvents() {
     void cancelMemoryTestFromUi();
   });
   document.getElementById("memory-test-profile").addEventListener("change", () => {
+    const profile = document.getElementById("memory-test-profile").value;
     const descriptions = {
-      fast: "Rápido · 128 MiB · A01/A03 em cada bloco e A04 amostrado. Cobertura parcial.",
-      standard: "Padrão · 2 GiB · executa A01–A05 nos blocos concluídos.",
-      extended: "Prolongado · 4 GiB · dois passes de A01–A05 e seeds diferentes no A04."
+      fast: "Rápido · 256 MiB · A01/A03 em cada bloco e A04 amostrado. Cobertura parcial.",
+      standard: "Padrão · 3 GiB · executa A01–A05 nos blocos concluídos.",
+      extended: "Prolongado · 6 GiB · dois passes de A01–A05 e seeds diferentes no A04.",
+      custom: "Personalizado · executa A01–A05 em um passe, no orçamento escolhido pelo slider."
     };
-    document.getElementById("memory-test-profile-description").textContent =
-      descriptions[document.getElementById("memory-test-profile").value];
+    document.getElementById("memory-test-profile-description").textContent = descriptions[profile];
+    document.getElementById("memory-test-custom-picker").hidden = profile !== "custom";
   });
+  document.getElementById("memory-test-custom-budget").addEventListener("input", (event) => {
+    event.currentTarget.dataset.userAdjusted = "true";
+    updateCustomMemoryBudgetLabel();
+  });
+  document.getElementById("memory-inventory-refresh").addEventListener("click", () => { void loadMemoryInventory(); });
   document.getElementById("diagnostic-modal-close").addEventListener("click", closeDiagnosticModal);
   document.getElementById("diagnostic-modal").addEventListener("click", (event) => {
     if (event.target === event.currentTarget) closeDiagnosticModal();
