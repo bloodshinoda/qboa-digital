@@ -6,3 +6,4 @@
 
 pub mod algorithms;
 pub mod runner;
+pub mod session;
