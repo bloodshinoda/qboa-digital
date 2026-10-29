@@ -1757,6 +1757,7 @@ function renderMemoryTestSession(session) {
   cancel.textContent = session.lifecycle === "cancelling" ? "Cancelando…" : "Cancelar teste";
 
   document.getElementById("memory-test-progress-bar").style.width = percent + "%";
+  document.querySelector(".memory-test-progress-track").setAttribute("aria-valuenow", String(percent));
   document.getElementById("memory-test-progress-percent").textContent = percent + "%";
   const tested = formatMemoryBytes(progress?.memory_tested_bytes);
   const budget = formatMemoryBytes(progress?.memory_budget_bytes);
