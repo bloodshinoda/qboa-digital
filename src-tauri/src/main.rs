@@ -60,6 +60,12 @@ static STORAGE_SCRIPT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
 
+static OPERATION_START_GATE: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+
+fn operation_start_gate() -> &'static Mutex<()> {
+    OPERATION_START_GATE.get_or_init(|| Mutex::new(()))
+}
+
 static RESTORE_POINT_RESPONSES: std::sync::OnceLock<
     Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>,
 > = std::sync::OnceLock::new();
@@ -1020,6 +1026,15 @@ fn start_task(
     task: Task,
     shutdown_on_complete: bool,
 ) -> Result<safety::ExecutionHandle, String> {
+    let _start_guard = operation_start_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if memory_test::session::is_active() {
+        return Err(
+            "O teste de integridade da RAM está em andamento. Aguarde ou cancele a sessão antes de iniciar outra tarefa."
+                .to_string(),
+        );
+    }
     let task_id_for_spawn = task.id.clone();
     let app_for_spawn = app.clone();
     let task_name = task.name.clone();
@@ -1911,6 +1926,12 @@ fn start_memory_test(
     preferred_block_bytes: Option<usize>,
     seed: Option<u64>,
 ) -> Result<memory_test::session::MemoryTestSessionSnapshot, String> {
+    let _start_guard = operation_start_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if safety_state().lock().unwrap().is_task_running() {
+        return Err("Já existe uma tarefa do QBoa em andamento. Aguarde sua conclusão antes de testar a RAM.".to_string());
+    }
     let mut config = memory_test::runner::MemoryTestConfig::for_profile(profile);
     if let Some(value) = memory_budget_bytes {
         config.memory_budget_bytes = value;
