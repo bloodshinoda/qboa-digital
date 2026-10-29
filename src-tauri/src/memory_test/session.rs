@@ -52,6 +52,18 @@ fn lock_registry() -> std::sync::MutexGuard<'static, Option<SessionEntry>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+fn ensure_session_available(current: Option<&SessionEntry>) -> Result<(), String> {
+    if let Some(entry) = current {
+        if entry.snapshot.lifecycle == "running" || entry.snapshot.lifecycle == "cancelling" {
+            return Err(format!(
+                "Já existe um teste de memória em andamento (sessão {}). Aguarde ou cancele essa sessão antes de iniciar outra.",
+                entry.snapshot.session_id
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn get_session() -> Option<MemoryTestSessionSnapshot> {
     lock_registry().as_ref().map(|entry| entry.snapshot.clone())
 }
@@ -82,14 +94,7 @@ pub fn start<R: Runtime>(
 
     {
         let mut current = lock_registry();
-        if let Some(entry) = current.as_ref() {
-            if entry.snapshot.lifecycle == "running" || entry.snapshot.lifecycle == "cancelling" {
-                return Err(format!(
-                    "Já existe um teste de memória em andamento (sessão {}). Aguarde ou cancele essa sessão antes de iniciar outra.",
-                    entry.snapshot.session_id
-                ));
-            }
-        }
+        ensure_session_available(current.as_ref())?;
         *current = Some(SessionEntry {
             snapshot: snapshot.clone(),
             cancel: Arc::clone(&cancel),
@@ -282,6 +287,27 @@ fn timestamp_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_session_blocks_a_second_execution_but_terminal_state_can_be_replaced() {
+        let make_entry = |lifecycle: &str| SessionEntry {
+            snapshot: MemoryTestSessionSnapshot {
+                session_id: "existing-session".to_string(),
+                lifecycle: lifecycle.to_string(),
+                profile: runner::MemoryTestProfile::Standard,
+                started_at: "2026-01-01T00:00:00Z".to_string(),
+                progress: None,
+                report: None,
+                error: None,
+            },
+            cancel: Arc::new(AtomicBool::new(false)),
+        };
+        assert!(ensure_session_available(None).is_ok());
+        assert!(ensure_session_available(Some(&make_entry("completed"))).is_ok());
+        assert!(ensure_session_available(Some(&make_entry("failed"))).is_ok());
+        assert!(ensure_session_available(Some(&make_entry("running"))).is_err());
+        assert!(ensure_session_available(Some(&make_entry("cancelling"))).is_err());
+    }
 
     #[test]
     fn session_ids_are_safe_and_unique() {
