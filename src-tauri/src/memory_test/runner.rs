@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-pub const MAX_SESSION_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+pub const MAX_SESSION_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 pub const DEFAULT_BLOCK_BYTES: usize = 16 * 1024 * 1024;
 pub const MIN_BLOCK_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_BLOCK_BYTES: usize = 256 * 1024 * 1024;
@@ -21,6 +21,7 @@ pub enum MemoryTestProfile {
     Fast,
     Standard,
     Extended,
+    Custom,
 }
 
 impl MemoryTestProfile {
@@ -29,20 +30,22 @@ impl MemoryTestProfile {
             Self::Fast => "fast",
             Self::Standard => "standard",
             Self::Extended => "extended",
+            Self::Custom => "custom",
         }
     }
 
     const fn default_budget_bytes(self) -> u64 {
         match self {
-            Self::Fast => 128 * 1024 * 1024,
-            Self::Standard => 2 * 1024 * 1024 * 1024,
-            Self::Extended => 4 * 1024 * 1024 * 1024,
+            Self::Fast => 256 * 1024 * 1024,
+            Self::Standard => 3 * 1024 * 1024 * 1024,
+            Self::Extended => 6 * 1024 * 1024 * 1024,
+            Self::Custom => 1024 * 1024 * 1024,
         }
     }
 
     const fn passes(self) -> u32 {
         match self {
-            Self::Fast | Self::Standard => 1,
+            Self::Fast | Self::Standard | Self::Custom => 1,
             Self::Extended => 2,
         }
     }
@@ -51,7 +54,7 @@ impl MemoryTestProfile {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MemoryTestConfig {
     pub profile: MemoryTestProfile,
-    /// Orçamento cumulativo de bytes a percorrer, limitado a 8 GiB.
+    /// Orçamento cumulativo de bytes a percorrer, limitado a 1 TiB por sessão.
     pub memory_budget_bytes: u64,
     /// Tamanho desejado de cada bloco; o runner reduz conforme a pressão.
     pub preferred_block_bytes: usize,
@@ -530,7 +533,7 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
 fn planned_algorithms(profile: MemoryTestProfile) -> Vec<AlgorithmId> {
     match profile {
         MemoryTestProfile::Fast => vec![AlgorithmId::A01, AlgorithmId::A03, AlgorithmId::A04],
-        MemoryTestProfile::Standard | MemoryTestProfile::Extended => vec![
+        MemoryTestProfile::Standard | MemoryTestProfile::Extended | MemoryTestProfile::Custom => vec![
             AlgorithmId::A01,
             AlgorithmId::A02,
             AlgorithmId::A03,
@@ -619,6 +622,10 @@ fn coverage_description(profile: MemoryTestProfile) -> String {
         }
         MemoryTestProfile::Extended => {
             "A01–A05 repetidos em dois passes; A04 usa seeds distintas por passe e bloco."
+                .to_string()
+        }
+        MemoryTestProfile::Custom => {
+            "Perfil personalizado: aplica A01–A05 em um passe ao orçamento escolhido pelo usuário."
                 .to_string()
         }
     }
@@ -733,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn clamps_requested_budget_to_eight_gib() {
+    fn clamps_requested_budget_to_session_safety_ceiling() {
         let mut config = tiny_config(MemoryTestProfile::Fast);
         config.memory_budget_bytes = MAX_SESSION_BYTES + 1;
         assert_eq!(config.effective_budget_bytes(), MAX_SESSION_BYTES);
