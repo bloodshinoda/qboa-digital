@@ -2240,7 +2240,7 @@ async function registerEvents() {
   });
   document.getElementById("memory-test-profile").addEventListener("change", () => {
     const descriptions = {
-      fast: "Rápido · 512 MiB · A01/A03 em cada bloco e A04 amostrado. Cobertura parcial.",
+      fast: "Rápido · 128 MiB · A01/A03 em cada bloco e A04 amostrado. Cobertura parcial.",
       standard: "Padrão · 2 GiB · executa A01–A05 nos blocos concluídos.",
       extended: "Prolongado · 4 GiB · dois passes de A01–A05 e seeds diferentes no A04."
     };
