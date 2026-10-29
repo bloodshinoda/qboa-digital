@@ -422,7 +422,7 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
                     AlgorithmId::A03 => algorithms::run_a03(&mut buffer),
                     AlgorithmId::A04 => {
                         algorithms::run_a04(&mut buffer, seed.unwrap_or(config.seed))
-                    },
+                    }
                     AlgorithmId::A05 => algorithms::run_a05(&mut buffer),
                 };
                 report.mismatches_total = report
