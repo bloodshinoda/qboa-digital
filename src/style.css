@@ -1005,6 +1005,32 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   .memory-test-progress-bar { transition:none; }
 }
 
+.memory-inventory-panel { display:grid; gap:12px; padding:15px; border:1px solid rgba(255,255,255,.16); border-radius:10px; background:rgba(0,0,0,.14); }
+.memory-inventory-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.memory-inventory-header h3 { margin:0 0 5px; font-size:1.04rem; }
+.memory-inventory-header p { margin:0; font-size:.88rem; line-height:1.45; color:rgba(255,255,255,.78); }
+.memory-modules-list { display:grid; gap:10px; }
+.memory-module-card { padding:12px; min-width:0; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:rgba(0,0,0,.14); }
+.memory-module-card h4 { margin:0 0 10px; overflow-wrap:anywhere; font-size:.94rem; }
+.memory-module-details { margin:0; display:grid; grid-template-columns:minmax(145px,.75fr) minmax(0,1.25fr); gap:7px 12px; font-size:.86rem; line-height:1.4; }
+.memory-module-details dt { color:rgba(255,255,255,.7); }
+.memory-module-details dd { margin:0; overflow-wrap:anywhere; font-weight:600; }
+.memory-inventory-empty { margin:0; font-size:.9rem; }
+.memory-inventory-note { margin:0; font-size:.82rem; line-height:1.45; color:rgba(255,255,255,.7); }
+.memory-test-custom-picker { display:grid; gap:9px; padding:13px; border:1px solid rgba(255,255,255,.16); border-radius:10px; background:rgba(0,0,0,.15); }
+.memory-test-custom-picker[hidden] { display:none; }
+.memory-test-custom-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.memory-test-custom-heading label { font-weight:750; }
+.memory-test-custom-heading output { font-weight:850; font-variant-numeric:tabular-nums; }
+#memory-test-custom-budget { width:100%; accent-color:var(--qboa-focus,#facc15); cursor:pointer; }
+#memory-test-custom-budget:disabled { opacity:.55; cursor:not-allowed; }
+.memory-test-slider-limits { display:flex; justify-content:space-between; gap:12px; font-size:.82rem; color:rgba(255,255,255,.72); }
+#memory-test-custom-help { margin:0; font-size:.84rem; line-height:1.45; color:rgba(255,255,255,.74); }
+@media (max-width:600px) {
+  .memory-module-details { grid-template-columns:minmax(100px,.85fr) minmax(0,1.15fr); gap:7px 8px; }
+  .memory-module-details dt, .memory-module-details dd { overflow-wrap:anywhere; }
+}
+
 /* Seletor da unidade do teste exclusivo de armazenamento. */
 .storage-disk-picker { display:grid; gap:7px; margin:14px 0; }
 .storage-disk-picker label { font-size:.9rem; font-weight:700; }
