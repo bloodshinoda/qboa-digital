@@ -9,10 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 pub const MAX_SESSION_BYTES: u64 = 8 * 1024 * 1024 * 1024;
-pub const DEFAULT_BLOCK_BYTES: usize = 64 * 1024 * 1024;
-pub const MIN_BLOCK_BYTES: usize = 16 * 1024 * 1024;
+pub const DEFAULT_BLOCK_BYTES: usize = 16 * 1024 * 1024;
+pub const MIN_BLOCK_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_BLOCK_BYTES: usize = 256 * 1024 * 1024;
-pub const MIN_AVAILABLE_RESERVE_BYTES: u64 = 1024 * 1024 * 1024;
+pub const MIN_AVAILABLE_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAX_SESSION_MISMATCH_DETAILS: usize = MAX_MISMATCH_DETAILS;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -34,7 +34,7 @@ impl MemoryTestProfile {
 
     const fn default_budget_bytes(self) -> u64 {
         match self {
-            Self::Fast => 512 * 1024 * 1024,
+            Self::Fast => 128 * 1024 * 1024,
             Self::Standard => 2 * 1024 * 1024 * 1024,
             Self::Extended => 4 * 1024 * 1024 * 1024,
         }
@@ -336,8 +336,8 @@ pub fn run_with_provider<P: MemoryStatusProvider>(
                 break 'passes;
             }
 
-            // Reserva dinâmica: o maior valor entre 1 GiB e 20% da RAM física.
-            let reserve = MIN_AVAILABLE_RESERVE_BYTES.max(memory_status.total_physical_bytes / 5);
+            // Reserva dinâmica conservadora: mantém pelo menos 256 MiB ou 10% da RAM física.
+            let reserve = MIN_AVAILABLE_RESERVE_BYTES.max(memory_status.total_physical_bytes / 10);
             let safe_available = memory_status
                 .available_physical_bytes
                 .saturating_sub(reserve);
@@ -764,7 +764,7 @@ mod tests {
         let report = run_with_provider(
             config,
             &cancel,
-            SequenceProvider::stable(8 * 1024 * 1024 * 1024, 1024 * 1024 * 1024),
+            SequenceProvider::stable(8 * 1024 * 1024 * 1024, 256 * 1024 * 1024),
             |_| {},
         );
         assert_eq!(report.status, MemoryTestStatus::Inconclusive);
