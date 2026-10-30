@@ -1555,7 +1555,7 @@ async function loadCpuInventory() {
       ["Núcleos físicos", inventory.physical_cores || "Não informado"],
       ["Threads lógicos", inventory.logical_processors || "Não informado"],
       ["Clock máximo reportado", inventory.max_clock_mhz ? Number(inventory.max_clock_mhz).toLocaleString("pt-BR") + " MHz" : "Não informado"],
-      ["Sensores de temperatura", (inventory.temperature_sensors || []).length]
+      ["Sensores de temperatura", (inventory.temperature_sensors || []).join(", ") || "Nenhum"]
     ];
     values.forEach(([label, value]) => {
       const item = document.createElement("article");
@@ -1643,6 +1643,7 @@ function updateCpuLiveMetrics(samples) {
   const maxOf = (items) => items.length ? Math.max(...items) : null;
   document.getElementById("cpu-test-temperature").textContent = cpuFormat(latest.temperature_c, " °C");
   document.getElementById("cpu-test-temperature-max").textContent = "Máxima: " + cpuFormat(maxOf(temperatures), " °C");
+  document.getElementById("cpu-test-temperature-source").textContent = "Sensor: " + (latest.temperature_sensor || "indisponível");
   document.getElementById("cpu-test-utilization").textContent = cpuFormat(latest.cpu_utilization_percent, "%");
   document.getElementById("cpu-test-utilization-max").textContent = "Pico: " + cpuFormat(maxOf(usages), "%");
   document.getElementById("cpu-test-frequency").textContent = cpuFormat(latest.frequency_mhz, " MHz", 0);
