@@ -142,7 +142,9 @@ fn registry() -> &'static Mutex<Option<SessionEntry>> {
 }
 
 fn lock_registry() -> std::sync::MutexGuard<'static, Option<SessionEntry>> {
-    registry().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    registry()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub(crate) fn get_session() -> Option<CpuTestSessionSnapshot> {
@@ -213,9 +215,9 @@ fn run_powershell_once(script: &str) -> Result<String, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .creation_flags(0x08000000);
-    let output = command
-        .output()
-        .map_err(|error| format!("Não foi possível consultar sensores/CPU via PowerShell: {error}"))?;
+    let output = command.output().map_err(|error| {
+        format!("Não foi possível consultar sensores/CPU via PowerShell: {error}")
+    })?;
     if !output.status.success() {
         return Err(format!(
             "A consulta de CPU falhou: {}",
@@ -350,7 +352,12 @@ pub(crate) fn start<R: Runtime>(
                             Some(entry) if entry.snapshot.session_id == worker_session_id => {
                                 entry.snapshot.lifecycle = "completed".into();
                                 entry.snapshot.elapsed_ms = report.duration_ms;
-                                entry.snapshot.progress_percent = if report.execution_status == "completed" { 100 } else { entry.snapshot.progress_percent };
+                                entry.snapshot.progress_percent =
+                                    if report.execution_status == "completed" {
+                                        100
+                                    } else {
+                                        entry.snapshot.progress_percent
+                                    };
                                 entry.snapshot.iterations = report.iterations;
                                 entry.snapshot.calculation_errors = report.calculation_errors;
                                 entry.snapshot.report = Some(report);
@@ -362,7 +369,10 @@ pub(crate) fn start<R: Runtime>(
                     if let Some(session) = finished {
                         let _ = worker_app.emit(
                             EVENT_FINISHED,
-                            CpuTestSessionEvent { session_id: worker_session_id, session },
+                            CpuTestSessionEvent {
+                                session_id: worker_session_id,
+                                session,
+                            },
                         );
                     }
                 }
@@ -381,7 +391,10 @@ pub(crate) fn start<R: Runtime>(
                     if let Some(session) = failed {
                         let _ = worker_app.emit(
                             EVENT_FINISHED,
-                            CpuTestSessionEvent { session_id: worker_session_id, session },
+                            CpuTestSessionEvent {
+                                session_id: worker_session_id,
+                                session,
+                            },
                         );
                     }
                 }
@@ -466,7 +479,8 @@ fn run_test<R: Runtime>(
         .ok_or_else(|| inventory.sensor_note.clone())?;
     let child = start_telemetry_process(provider)?;
     let mut child = TelemetryProcess(child);
-    let stdout = child.0
+    let stdout = child
+        .0
         .stdout
         .take()
         .ok_or_else(|| "O coletor de telemetria não abriu stdout.".to_string())?;
@@ -486,13 +500,24 @@ fn run_test<R: Runtime>(
 
     let first_line = receiver
         .recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS))
-        .map_err(|_| "O sensor térmico não forneceu uma primeira leitura dentro do prazo.".to_string())?;
+        .map_err(|_| {
+            "O sensor térmico não forneceu uma primeira leitura dentro do prazo.".to_string()
+        })?;
     let first_raw: RawTelemetrySample = serde_json::from_str(&first_line)
         .map_err(|error| format!("A primeira amostra de telemetria é inválida: {error}"))?;
     let first_temperature = first_raw
         .temperature_c
         .filter(|value| value.is_finite() && (0.0..=150.0).contains(value))
-        .ok_or_else(|| "O sensor de CPU não forneceu uma temperatura válida. O teste não será iniciado sem monitoramento térmico.".to_string())?;
+        .ok_or_else(|| {
+            "O sensor de CPU não forneceu uma temperatura válida. O teste não será iniciado sem monitoramento térmico."
+                .to_string()
+        })?;
+    if first_temperature >= THERMAL_STOP_C {
+        return Err(format!(
+            "A CPU já está a {:.1} °C antes do teste. Aguarde o resfriamento abaixo de {:.0} °C.",
+            first_temperature, THERMAL_STOP_C
+        ));
+    }
 
     let started_clock = Instant::now();
     let started_at = timestamp_now();
@@ -506,7 +531,9 @@ fn run_test<R: Runtime>(
         let stop = Arc::clone(&stop_workers);
         let count = Arc::clone(&iterations);
         let failures = Arc::clone(&errors);
-        workers.push(thread::spawn(move || cpu_load_worker(worker_index as u64, stop, count, failures)));
+        workers.push(thread::spawn(move || {
+            cpu_load_worker(worker_index as u64, stop, count, failures)
+        }));
     }
 
     let mut samples = Vec::new();
@@ -516,10 +543,20 @@ fn run_test<R: Runtime>(
         temperature_c: Some(first_temperature),
         temperature_sensor: first_raw.temperature_sensor,
         cpu_utilization_percent: first_raw.cpu_utilization_percent,
-        frequency_mhz: first_raw.frequency_mhz,
+        frequency_mhz: first_raw
+            .frequency_mhz
+            .filter(|value| value.is_finite() && *value > 0.0 && *value < 20000.0),
     };
     samples.push(first_sample.clone());
-    publish_progress(app, session_id, 0, duration_seconds * 1000, &first_sample, &iterations, &errors);
+    publish_progress(
+        app,
+        session_id,
+        0,
+        duration_seconds * 1000,
+        &first_sample,
+        &iterations,
+        &errors,
+    );
 
     let mut missing_sensor_samples = 0u8;
     let report_id = new_report_id();
@@ -537,7 +574,9 @@ fn run_test<R: Runtime>(
                     Err(_) => continue,
                 };
                 let elapsed_ms = started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let temperature = raw.temperature_c.filter(|value| value.is_finite() && (0.0..=150.0).contains(value));
+                let temperature = raw
+                    .temperature_c
+                    .filter(|value| value.is_finite() && (0.0..=150.0).contains(value));
                 if let Some(value) = temperature {
                     missing_sensor_samples = 0;
                     if value >= THERMAL_STOP_C {
@@ -554,14 +593,36 @@ fn run_test<R: Runtime>(
                     timestamp_utc: raw.timestamp_utc,
                     temperature_c: temperature,
                     temperature_sensor: raw.temperature_sensor,
-                    cpu_utilization_percent: raw.cpu_utilization_percent.filter(|v| v.is_finite() && (0.0..=200.0).contains(v)),
-                    frequency_mhz: raw.frequency_mhz.filter(|v| v.is_finite() && (v > 0.0) && (v < 20000.0)),
+                    cpu_utilization_percent: raw
+                        .cpu_utilization_percent
+                        .filter(|v| v.is_finite() && (0.0..=200.0).contains(v)),
+                    frequency_mhz: raw
+                        .frequency_mhz
+                        .filter(|v| v.is_finite() && (v > 0.0) && (v < 20000.0)),
                 };
                 samples.push(sample.clone());
-                publish_progress(app, session_id, elapsed_ms, duration_seconds * 1000, &sample, &iterations, &errors);
+                publish_progress(
+                    app,
+                    session_id,
+                    elapsed_ms,
+                    duration_seconds * 1000,
+                    &sample,
+                    &iterations,
+                    &errors,
+                );
 
                 if last_checkpoint.elapsed() >= Duration::from_secs(15) {
-                    let checkpoint = build_report(report_id.clone(), &inventory, profile, started_at.clone(), elapsed_ms, samples.clone(), iterations.load(Ordering::Relaxed), errors.load(Ordering::Relaxed), "running");
+                    let checkpoint = build_report(
+                        report_id.clone(),
+                        &inventory,
+                        profile,
+                        started_at.clone(),
+                        elapsed_ms,
+                        samples.clone(),
+                        iterations.load(Ordering::Relaxed),
+                        errors.load(Ordering::Relaxed),
+                        "running",
+                    );
                     persist_report(app_data_dir, &checkpoint)?;
                     last_checkpoint = Instant::now();
                 }
@@ -570,8 +631,14 @@ fn run_test<R: Runtime>(
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if started_clock.elapsed() > Duration::from_secs(SAMPLE_TIMEOUT_SECS) &&
-                    samples.last().is_some_and(|sample| started_clock.elapsed().saturating_sub(Duration::from_millis(sample.elapsed_ms)) > Duration::from_secs(SAMPLE_TIMEOUT_SECS)) {
+                if started_clock.elapsed() > Duration::from_secs(SAMPLE_TIMEOUT_SECS)
+                    && samples.last().is_some_and(|sample| {
+                        started_clock
+                            .elapsed()
+                            .saturating_sub(Duration::from_millis(sample.elapsed_ms))
+                            > Duration::from_secs(SAMPLE_TIMEOUT_SECS)
+                    })
+                {
                     terminal_status = "sensor_lost".into();
                     break;
                 }
@@ -605,13 +672,22 @@ fn run_test<R: Runtime>(
     );
     if report.calculation_errors > 0 {
         report.execution_status = "errors_detected".into();
-        report.warnings.push("Foram encontradas divergências em cálculos redundantes durante a carga.".into());
+        report
+            .warnings
+            .push("Foram encontradas divergências em cálculos redundantes durante a carga.".into());
     } else if report.execution_status == "thermal_limit_reached" {
-        report.warnings.push(format!("Teste interrompido ao atingir o limite conservador de {:.0} °C.", THERMAL_STOP_C));
+        report.warnings.push(format!(
+            "Teste interrompido ao atingir o limite conservador de {:.0} °C.",
+            THERMAL_STOP_C
+        ));
     } else if report.execution_status == "sensor_lost" {
-        report.warnings.push("A telemetria térmica deixou de responder; a carga foi encerrada.".into());
+        report
+            .warnings
+            .push("A telemetria térmica deixou de responder; a carga foi encerrada.".into());
     } else if report.execution_status == "cancelled" {
-        report.warnings.push("Execução cancelada pelo usuário; os dados parciais foram preservados.".into());
+        report
+            .warnings
+            .push("Execução cancelada pelo usuário; os dados parciais foram preservados.".into());
     }
     report.warnings.push("O teste aplica carga sintética de inteiros e não certifica estabilidade universal nem substitui testes especializados de longo prazo.".into());
     persist_report(app_data_dir, &report)?;
@@ -632,7 +708,9 @@ fn publish_progress<R: Runtime>(
         match current.as_mut() {
             Some(entry) if entry.snapshot.session_id == session_id => {
                 entry.snapshot.elapsed_ms = elapsed_ms;
-                entry.snapshot.progress_percent = if target_ms == 0 { 0 } else {
+                entry.snapshot.progress_percent = if target_ms == 0 {
+                    0
+                } else {
                     ((elapsed_ms.saturating_mul(100) / target_ms).min(100)) as u8
                 };
                 entry.snapshot.latest_sample = Some(sample.clone());
@@ -724,21 +802,46 @@ fn build_report(
     calculation_errors: u64,
     status: &str,
 ) -> CpuTestReport {
-    let temperatures = samples.iter().filter_map(|sample| sample.temperature_c).filter(|value| value.is_finite()).collect::<Vec<_>>();
-    let utilization = samples.iter().filter_map(|sample| sample.cpu_utilization_percent).filter(|value| value.is_finite()).collect::<Vec<_>>();
-    let frequencies = samples.iter().filter_map(|sample| sample.frequency_mhz).filter(|value| value.is_finite()).collect::<Vec<_>>();
-    let average = |values: &[f64]| if values.is_empty() { None } else { Some(values.iter().sum::<f64>() / values.len() as f64) };
+    let temperatures = samples
+        .iter()
+        .filter_map(|sample| sample.temperature_c)
+        .filter(|value| value.is_finite())
+        .collect::<Vec<_>>();
+    let utilization = samples
+        .iter()
+        .filter_map(|sample| sample.cpu_utilization_percent)
+        .filter(|value| value.is_finite())
+        .collect::<Vec<_>>();
+    let frequencies = samples
+        .iter()
+        .filter_map(|sample| sample.frequency_mhz)
+        .filter(|value| value.is_finite())
+        .collect::<Vec<_>>();
+    let average = |values: &[f64]| {
+        if values.is_empty() {
+            None
+        } else {
+            Some(values.iter().sum::<f64>() / values.len() as f64)
+        }
+    };
     CpuTestReport {
         schema_version: REPORT_SCHEMA_VERSION,
         report_id,
         processor_name: inventory.name.clone(),
         physical_cores: inventory.physical_cores,
         logical_processors: inventory.logical_processors,
-        sensor_provider: inventory.sensor_provider.clone().unwrap_or_else(|| "indisponível".into()),
+        sensor_provider: inventory
+            .sensor_provider
+            .clone()
+            .unwrap_or_else(|| "indisponível".into()),
         target_duration_seconds: profile.duration_seconds(),
         duration_ms,
         started_at,
-        finished_at: if status == "running" { None } else { Some(timestamp_now()) },
+        finished_at: if status == "running" {
+            None
+        } else {
+            Some(timestamp_now())
+        },
         execution_status: status.to_string(),
         samples,
         iterations,
@@ -767,8 +870,11 @@ fn cpu_reports_dir(app_data_dir: &Path) -> PathBuf {
 }
 
 fn safe_report_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 80 &&
-        id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    !id.is_empty()
+        && id.len() <= 80
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
 fn persist_report(app_data_dir: &Path, report: &CpuTestReport) -> Result<(), String> {
@@ -776,19 +882,35 @@ fn persist_report(app_data_dir: &Path, report: &CpuTestReport) -> Result<(), Str
         return Err("Identificador inválido no laudo de CPU.".into());
     }
     let directory = cpu_reports_dir(app_data_dir);
-    fs::create_dir_all(&directory).map_err(|error| format!("Não foi possível criar o histórico de CPU: {error}"))?;
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("Não foi possível criar o histórico de CPU: {error}"))?;
     let destination = directory.join(format!("{}.json", report.report_id));
-    let temporary = directory.join(format!(".{}.{}.tmp", report.report_id, NEXT_REPORT_ID.fetch_add(1, Ordering::Relaxed)));
-    let bytes = serde_json::to_vec_pretty(report).map_err(|error| format!("Não foi possível serializar o laudo de CPU: {error}"))?;
+    let temporary = directory.join(format!(
+        ".{}.{}.tmp",
+        report.report_id,
+        NEXT_REPORT_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    let bytes = serde_json::to_vec_pretty(report)
+        .map_err(|error| format!("Não foi possível serializar o laudo de CPU: {error}"))?;
     let result = (|| -> Result<(), String> {
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary)
-            .map_err(|error| format!("Não foi possível criar arquivo temporário do laudo de CPU: {error}"))?;
-        file.write_all(&bytes).map_err(|error| format!("Falha ao gravar laudo de CPU: {error}"))?;
-        file.flush().map_err(|error| format!("Falha ao descarregar laudo de CPU: {error}"))?;
-        file.sync_all().map_err(|error| format!("Falha ao sincronizar laudo de CPU: {error}"))?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|error| {
+                format!("Não foi possível criar arquivo temporário do laudo de CPU: {error}")
+            })?;
+        file.write_all(&bytes)
+            .map_err(|error| format!("Falha ao gravar laudo de CPU: {error}"))?;
+        file.flush()
+            .map_err(|error| format!("Falha ao descarregar laudo de CPU: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("Falha ao sincronizar laudo de CPU: {error}"))?;
         replace_report_file(&temporary, &destination)
     })();
-    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
     result
 }
 
@@ -802,36 +924,62 @@ fn replace_report_file(source: &Path, destination: &Path) -> Result<(), String> 
         fn MoveFileExW(existing: *const u16, new_name: *const u16, flags: u32) -> i32;
     }
     let source_wide: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
-    let destination_wide: Vec<u16> = destination.as_os_str().encode_wide().chain(Some(0)).collect();
-    let result = unsafe { MoveFileExW(source_wide.as_ptr(), destination_wide.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) };
+    let destination_wide: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let result = unsafe {
+        MoveFileExW(
+            source_wide.as_ptr(),
+            destination_wide.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
     if result == 0 {
-        Err(format!("Não foi possível finalizar o laudo de CPU: {}", std::io::Error::last_os_error()))
-    } else { Ok(()) }
+        Err(format!(
+            "Não foi possível finalizar o laudo de CPU: {}",
+            std::io::Error::last_os_error()
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(not(windows))]
 fn replace_report_file(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::rename(source, destination).map_err(|error| format!("Não foi possível finalizar o laudo de CPU: {error}"))
+    fs::rename(source, destination)
+        .map_err(|error| format!("Não foi possível finalizar o laudo de CPU: {error}"))
 }
 
 pub(crate) fn load_reports(app_data_dir: &Path) -> Result<Vec<CpuTestReport>, String> {
     let directory = cpu_reports_dir(app_data_dir);
-    if !directory.exists() { return Ok(Vec::new()); }
-    let entries = fs::read_dir(&directory).map_err(|error| format!("Não foi possível listar laudos de CPU: {error}"))?;
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let entries = fs::read_dir(&directory)
+        .map_err(|error| format!("Não foi possível listar laudos de CPU: {error}"))?;
     let mut reports = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json") { continue; }
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
         let metadata = match fs::metadata(&path) {
             Ok(metadata) if metadata.len() <= MAX_REPORT_BYTES => metadata,
             _ => continue,
         };
         let _ = metadata;
-        let mut report: CpuTestReport = match fs::read(&path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()) {
+        let mut report: CpuTestReport = match fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        {
             Some(report) => report,
             None => continue,
         };
-        if !safe_report_id(&report.report_id) || report.schema_version != REPORT_SCHEMA_VERSION { continue; }
+        if !safe_report_id(&report.report_id) || report.schema_version != REPORT_SCHEMA_VERSION {
+            continue;
+        }
         if report.execution_status == "running" {
             report.execution_status = "partial".into();
             report.finished_at = Some(timestamp_now());
@@ -845,17 +993,35 @@ pub(crate) fn load_reports(app_data_dir: &Path) -> Result<Vec<CpuTestReport>, St
 }
 
 fn new_report_id() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    format!("cpu-{:032x}-{:08x}-{:08x}", nanos, std::process::id(), NEXT_REPORT_ID.fetch_add(1, Ordering::Relaxed))
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!(
+        "cpu-{:032x}-{:08x}-{:08x}",
+        nanos,
+        std::process::id(),
+        NEXT_REPORT_ID.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 fn new_session_id() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    format!("cpu-session-{:032x}-{:08x}", nanos, NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed))
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!(
+        "cpu-session-{:032x}-{:08x}",
+        nanos,
+        NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 fn timestamp_now() -> String {
-    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let days = (seconds / 86_400) as i64;
     let day_seconds = seconds % 86_400;
     let z = days + 719_468;
@@ -868,7 +1034,12 @@ fn timestamp_now() -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = mp + if mp < 10 { 3 } else { -9 };
     year += if month <= 2 { 1 } else { 0 };
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", day_seconds / 3600, (day_seconds % 3600) / 60, day_seconds % 60)
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        day_seconds / 3600,
+        (day_seconds % 3600) / 60,
+        day_seconds % 60
+    )
 }
 
 #[cfg(test)]
