@@ -19,7 +19,7 @@ mod tweak_profiles;
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufReader, Read};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
