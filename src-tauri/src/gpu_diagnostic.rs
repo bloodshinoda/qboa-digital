@@ -545,7 +545,7 @@ void main(uint3 tid : SV_DispatchThreadID) {
         let create_buffer: unsafe extern "system" fn(*mut c_void,*const BufferDesc,*const c_void,*mut *mut c_void)->i32 = unsafe { method(self.device,3) };
         check_hr(unsafe { create_buffer(self.device,&output_desc,std::ptr::null(),&mut self.output) }, "criar buffer de saída")?;
         check_hr(unsafe { create_buffer(self.device,&staging_desc,std::ptr::null(),&mut self.staging) }, "criar buffer de leitura")?;
-        let uav_desc = UavDesc { format: 0, dimension: 1, buffer: [0, THREADS as u64] };
+        let uav_desc = UavDesc { format: 0, dimension: 1, buffer: [0, THREADS, 0, 0] };
         let create_uav: unsafe extern "system" fn(*mut c_void,*mut c_void,*const UavDesc,*mut *mut c_void)->i32 = unsafe { method(self.device,8) };
         check_hr(unsafe { create_uav(self.device,self.output,&uav_desc,&mut self.uav) }, "criar view de acesso à saída")?;
         let set_shader: unsafe extern "system" fn(*mut c_void,*mut c_void,*const *mut c_void,u32) = unsafe { method(self.context,69) };
@@ -586,7 +586,7 @@ impl Drop for D3d11Engine {
 #[cfg(target_os = "windows")]
 #[repr(C)] struct BufferDesc { byte_width:u32, usage:u32, bind_flags:u32, cpu_access_flags:u32, misc_flags:u32, structure_byte_stride:u32 }
 #[cfg(target_os = "windows")]
-#[repr(C)] struct UavDesc { format:i32, dimension:u32, buffer:[u64;2] }
+#[repr(C)] struct UavDesc { format:i32, dimension:u32, buffer:[u32;4] }
 #[cfg(target_os = "windows")]
 #[repr(C)] struct Mapped { data:*mut c_void, row_pitch:u32, depth_pitch:u32 }
 

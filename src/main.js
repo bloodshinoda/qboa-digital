@@ -1859,7 +1859,8 @@ function gpuTestStatusLabel(status) {
     cancelled: "Teste cancelado. Este resultado não representa aprovação.",
     thermal_limit_reached: "Teste interrompido pelo limite térmico conservador do QBoa.",
     sensor_lost: "Teste interrompido porque a telemetria térmica foi perdida.",
-    failed: "Falha operacional: o teste não pôde ser concluído."
+    failed: "Falha operacional: o teste não pôde ser concluído.",
+    device_error: "O dispositivo gráfico deixou de responder ou foi reiniciado pelo driver."
   })[status] || "Aguardando resultado.";
 }
 
@@ -1896,6 +1897,7 @@ async function loadGpuInventory() {
       ? "Sensor térmico disponível pelo coletor integrado."
       : "Sensor térmico indisponível. O teste de carga não será iniciado.");
     sensor.dataset.available = inventory.sensor_available ? "true" : "false";
+    sensor.classList.toggle("available", inventory.sensor_available);
     document.getElementById("gpu-test-start").disabled =
       !inventory.sensor_available || ["running", "cancelling"].includes(gpuTestSessionSnapshot?.lifecycle);
   } catch (error) {
@@ -1934,9 +1936,15 @@ function renderGpuTestSession(session) {
     active ? "Teste em execução" : session.lifecycle === "failed" ? "Falha ao iniciar" : "Execução finalizada";
   document.getElementById("gpu-test-progress-label").textContent = active ? elapsed + " / " + target :
     gpuTestStatusLabel(session.report?.execution_status || session.lifecycle);
+  const live = session.latest_sample;
+  const liveTemperature = live?.temperature_c == null ? "temperatura indisponível" :
+    Number(live.temperature_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
+  const liveLoad = live?.utilization_percent == null ? "utilização indisponível" :
+    Number(live.utilization_percent).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + "% de utilização";
   document.getElementById("gpu-test-progress-detail").textContent = active
-    ? elapsed + " de " + target + " · " + Number(session.dispatches || 0).toLocaleString("pt-BR") +
-      " lotes processados · " + Number(session.validation_errors || 0) + " divergência(s)"
+    ? elapsed + " de " + target + " · " + liveTemperature + " · " + liveLoad + " · " +
+      Number(session.dispatches || 0).toLocaleString("pt-BR") + " lotes · " +
+      Number(session.validation_errors || 0) + " divergência(s)"
     : session.error || session.report?.warnings?.join(" ") || "Teste finalizado.";
   const result = document.getElementById("gpu-test-result");
   const details = document.getElementById("gpu-test-result-details");

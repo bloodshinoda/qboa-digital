@@ -1087,7 +1087,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .cpu-test-progress-heading strong { font-size:.9rem; }
 .cpu-test-progress-heading span { font-variant-numeric:tabular-nums; font-weight:800; }
 .cpu-test-progress-track { height:9px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.14); }
-#cpu-test-progress-bar { width:0; height:100%; border-radius:inherit; background:var(--qboa-focus,#facc15); transition:width .2s ease; }
+#cpu-test-progress-bar,#gpu-test-progress-bar { width:0; height:100%; border-radius:inherit; background:var(--qboa-focus,#facc15); transition:width .2s ease; }
 .cpu-test-result { display:grid; gap:6px; line-height:1.5; }
 .cpu-test-result p { margin:0; }
 .cpu-test-result ul { margin:5px 0 0; padding-left:20px; display:grid; gap:5px; }
