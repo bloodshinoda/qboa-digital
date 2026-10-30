@@ -275,9 +275,9 @@ while ($true) {
   $sensors = [System.Collections.Generic.List[object]]::new()
   Find-CpuTemperatureSensors -Node $tree -WithinCpu $false -Result $sensors
   $selected = $sensors | Sort-Object { [double]$_.Value } -Descending | Select-Object -First 1
-  $perf = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" |
+  $perf = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" -ErrorAction SilentlyContinue |
     Select-Object -First 1
-  $utilization = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" |
+  $utilization = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" -ErrorAction SilentlyContinue |
     Select-Object -First 1
   [pscustomobject]@{
     timestamp_utc = [DateTimeOffset]::UtcNow.ToString('o')
