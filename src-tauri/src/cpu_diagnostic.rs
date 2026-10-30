@@ -319,6 +319,9 @@ while ($true) {
 }
 
 fn telemetry_script(provider: &str) -> String {
+    if provider == "none" {
+        return native_telemetry_script().to_string();
+    }
     if provider == "hardware_monitor_rest" {
         return rest_telemetry_script().to_string();
     }
