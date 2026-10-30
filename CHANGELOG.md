@@ -2,6 +2,31 @@
 
 Todas as mudanças relevantes do QBoa Digital são registradas neste arquivo.
 
+## [3.2.0] — 2026-10-30
+
+### Diagnóstico e hardware
+- Adiciona teste de integridade da memória RAM com perfis Rápido, Padrão, Prolongado e Personalizado, inventário por módulo e progresso/cancelamento.
+- Adiciona teste de carga controlada da CPU com telemetria térmica, limite de segurança e relatório persistente.
+- Adiciona teste de estabilidade da GPU via Direct3D 11 Compute Shader, com validação dos resultados e interrupção por limite térmico ou perda de telemetria.
+- Integra o Diagnóstico completo em uma sequência com confirmação prévia, progresso por etapa, cancelamento e resumo consolidado.
+- Mantém os diagnósticos separados das operações de limpeza e manutenção; não gera recomendações automáticas.
+
+### Laudos e histórico
+- Define contrato JSON versionado para os laudos, com identificação do sistema, resultados, evidências, fontes e problemas por componente.
+- Persiste relatórios localmente em arquivos independentes, com gravação segura e checkpoints durante a execução.
+- Adiciona histórico local e recuperação de relatórios interrompidos como parciais, preservando os dados já coletados.
+- Mantém os laudos individuais dos motores de RAM, CPU e GPU, além do laudo consolidado.
+
+### Validação e distribuição
+- Amplia o CI do Windows com testes do coletor de armazenamento, formatação Rust, testes automatizados e build do aplicativo.
+- Atualiza os metadados de versão para 3.2.0 e padroniza a geração dos artefatos de release a partir da versão do Tauri.
+- Mantém a distribuição Windows x64 em instalador NSIS e executável portátil individual.
+
+### Limitações conhecidas
+- A aprovação dos testes cobre apenas as regiões/buffers efetivamente exercitados e não certifica integralmente a RAM, CPU ou GPU.
+- O teste de GPU exige Direct3D 11 Feature Level 11_0 e sensor térmico compatível; não testa rasterização nem toda a VRAM.
+- A validação final de longa duração e dos limites térmicos deve ser realizada em hardware físico representativo.
+
 ## [3.1.2] — 2026-10-27
 
 ### Serviços do Windows
