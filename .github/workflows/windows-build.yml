@@ -24,6 +24,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Read application version
+        id: app-version
+        shell: pwsh
+        run: |
+          $version = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          if (-not $version) { throw "Application version not found in tauri.conf.json." }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
       - name: Setup .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -91,26 +99,26 @@ jobs:
         run: |
           $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*.exe" -File | Select-Object -First 1
           if (-not $installer) { throw "NSIS installer not found." }
-          Copy-Item $installer.FullName "qboa-digital-3.1.2-x64-installer.exe" -Force
+          Copy-Item $installer.FullName "qboa-digital-${{ steps.app-version.outputs.value }}-x64-installer.exe" -Force
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
           name: qboa-digital-windows-installer
-          path: qboa-digital-3.1.2-x64-installer.exe
+          path: qboa-digital-${{ steps.app-version.outputs.value }}-x64-installer.exe
           if-no-files-found: error
           retention-days: 14
 
       - name: Package portable application
         shell: pwsh
         run: |
-          Copy-Item "src-tauri/target/release/qboa-digital.exe" "qboa-digital-3.1.2-x64-portable.exe" -Force
+          Copy-Item "src-tauri/target/release/qboa-digital.exe" "qboa-digital-${{ steps.app-version.outputs.value }}-x64-portable.exe" -Force
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
         with:
           name: qboa-digital-windows-portable
-          path: qboa-digital-3.1.2-x64-portable.exe
+          path: qboa-digital-${{ steps.app-version.outputs.value }}-x64-portable.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -136,5 +144,5 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            release-assets/qboa-digital-3.1.2-x64-installer.exe
-            release-assets/qboa-digital-3.1.2-x64-portable.exe
+            release-assets/qboa-digital-${{ steps.app-version.outputs.value }}-x64-installer.exe
+            release-assets/qboa-digital-${{ steps.app-version.outputs.value }}-x64-portable.exe
