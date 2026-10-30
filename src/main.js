@@ -1747,14 +1747,19 @@ async function loadMemoryInventory() {
       card.appendChild(heading);
       const detailGrid = document.createElement("dl");
       detailGrid.className = "memory-module-details";
+      const profileLabel = /DDR5/i.test(module.memory_type || "")
+        ? "Perfil XMP/EXPO máximo"
+        : /DDR4|DDR3/i.test(module.memory_type || "")
+          ? "Perfil XMP/DOCP máximo"
+          : "Perfil de memória máximo";
       const fields = [
         ["Capacidade", formatMemoryBytes(module.capacity_bytes)],
         ["Tipo", module.memory_type || "Não informado"],
         ["Formato", module.form_factor || "Não informado"],
         ["Slot / banco", [module.device_locator, module.bank_label].filter(Boolean).join(" · ") || "Não informado"],
         ["Frequência configurada", module.configured_speed_mhz ? module.configured_speed_mhz + " MHz" : "Não informada pelo SMBIOS"],
-        ["Velocidade nominal reportada", module.rated_speed_mhz ? module.rated_speed_mhz + " MHz" : "Não informada pelo SMBIOS"],
-        ["Máximo XMP/EXPO", module.xmp_expo_max_speed_mhz ? module.xmp_expo_max_speed_mhz + " MHz" : "Não exposto pela API padrão do Windows"],
+        ["Ciclo reportado pelo SMBIOS", module.smbios_speed_ns ? module.smbios_speed_ns + " ns" : "Não informado"],
+        [profileLabel, module.xmp_expo_max_speed_mhz ? module.xmp_expo_max_speed_mhz + " MHz" : "Não exposto pela API padrão do Windows"],
         ["Latência CAS", module.cas_latency ? "CL" + module.cas_latency : "Não exposta pela API padrão do Windows"],
         ["Largura de dados", module.data_width_bits ? module.data_width_bits + " bits" : "Não informada"],
         ["Largura total", module.total_width_bits ? module.total_width_bits + " bits" : "Não informada"],
