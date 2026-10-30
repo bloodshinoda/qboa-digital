@@ -1053,3 +1053,51 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .diagnostic-results details { margin-top:8px; }
 .diagnostic-results details summary { cursor:pointer; font-weight:600; }
 .diagnostic-results small { display:block; margin-top:4px; color:var(--qboa-modal-muted,#b8c4bc); line-height:1.4; overflow-wrap:anywhere; }
+
+
+/* Teste dedicado de CPU: carga controlada, telemetria térmica e série temporal. */
+.cpu-test-panel { display:grid; gap:15px; margin:18px 0 8px; }
+.cpu-test-panel[hidden] { display:none; }
+.cpu-inventory-panel,.cpu-test-profile-picker,.cpu-test-chart-panel,.cpu-test-progress { display:grid; gap:10px; padding:14px; border:1px solid rgba(255,255,255,.16); border-radius:10px; background:rgba(0,0,0,.15); }
+.cpu-inventory-heading,.cpu-test-chart-heading,.cpu-test-progress-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.cpu-inventory-heading h3 { margin:0 0 5px; font-size:1.02rem; }
+.cpu-inventory-heading p,.cpu-test-profile-picker p,.cpu-sensor-status,.cpu-test-progress p,.cpu-test-safety-note { margin:0; color:rgba(255,255,255,.76); font-size:.86rem; line-height:1.5; }
+.cpu-inventory-details { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.cpu-inventory-detail { display:grid; gap:3px; padding:9px 10px; border-radius:7px; background:rgba(255,255,255,.055); min-width:0; }
+.cpu-inventory-detail span { color:rgba(255,255,255,.68); font-size:.78rem; }
+.cpu-inventory-detail strong { overflow-wrap:anywhere; font-size:.9rem; }
+.cpu-sensor-status { padding:9px 11px; border-left:3px solid #f6c66a; background:rgba(246,198,106,.08); border-radius:0 6px 6px 0; }
+.cpu-sensor-status.available { border-left-color:#6ee7a0; background:rgba(110,231,160,.08); }
+.cpu-test-profile-picker label { font-size:.92rem; font-weight:750; }
+.cpu-test-profile-picker select { width:100%; min-width:0; padding:10px 12px; border:1px solid rgba(255,255,255,.22); border-radius:8px; background:#101412; color:#f4f4f4; font:inherit; }
+.cpu-test-actions { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 0; background:linear-gradient(#063f27 78%,rgba(6,63,39,0)); }
+.cpu-test-actions span { color:rgba(255,255,255,.78); font-size:.86rem; }
+.cpu-test-live-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
+.cpu-test-live-metrics article { display:grid; gap:5px; padding:12px; min-width:0; border:1px solid rgba(255,255,255,.15); border-radius:9px; background:rgba(0,0,0,.2); }
+.cpu-test-live-metrics article span { font-size:.8rem; color:rgba(255,255,255,.7); }
+.cpu-test-live-metrics article strong { font-size:1.35rem; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.cpu-test-live-metrics article small { font-size:.77rem; color:rgba(255,255,255,.68); }
+.cpu-test-chart-panel { min-width:0; }
+.cpu-test-chart-heading strong { font-size:.93rem; }
+.cpu-test-chart-heading span { color:rgba(255,255,255,.7); font-size:.8rem; }
+#cpu-test-chart { display:block; width:100%; height:190px; }
+.cpu-test-chart-legend { display:flex; flex-wrap:wrap; gap:16px; font-size:.8rem; }
+.cpu-legend-temperature { color:#fbbf24; }
+.cpu-legend-usage { color:#60a5fa; }
+.cpu-test-progress-heading strong { font-size:.9rem; }
+.cpu-test-progress-heading span { font-variant-numeric:tabular-nums; font-weight:800; }
+.cpu-test-progress-track { height:9px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.14); }
+#cpu-test-progress-bar { width:0; height:100%; border-radius:inherit; background:var(--qboa-focus,#facc15); transition:width .2s ease; }
+.cpu-test-result { display:grid; gap:6px; line-height:1.5; }
+.cpu-test-result p { margin:0; }
+.cpu-test-result ul { margin:5px 0 0; padding-left:20px; display:grid; gap:5px; }
+.cpu-test-safety-note { font-size:.81rem; }
+.cpu-test-panel button:disabled,.cpu-test-panel select:disabled { opacity:.55; cursor:not-allowed; }
+@media(max-width:560px) {
+  .cpu-inventory-details { grid-template-columns:1fr; }
+  .cpu-test-live-metrics { grid-template-columns:1fr; }
+  .cpu-test-live-metrics article { grid-template-columns:1fr auto; align-items:center; }
+  .cpu-test-live-metrics article strong { grid-column:2; grid-row:1 / span 2; }
+  .cpu-test-live-metrics article small { grid-column:1; }
+}
+@media(prefers-reduced-motion:reduce) { #cpu-test-progress-bar { transition:none; } }
