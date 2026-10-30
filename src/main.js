@@ -100,6 +100,10 @@ const Qboa = {
     return invoke("get_cpu_inventory");
   },
 
+  async installPawnIo() {
+    return invoke("install_pawnio");
+  },
+
   async startCpuTest(profile) {
     return invoke("start_cpu_test", { profile });
   },
@@ -1572,6 +1576,34 @@ async function loadCpuInventory() {
       ? "Temperatura disponível via " + providerLabel + ". " + (inventory.sensor_note || "")
       : (inventory.sensor_note || "Sensor térmico de CPU não encontrado. O teste não poderá ser iniciado.");
     status.classList.toggle("available", Boolean(inventory.sensor_available));
+    if (!inventory.pawnio_installed) {
+      const installButton = document.createElement("button");
+      installButton.type = "button";
+      installButton.className = refresh.className;
+      installButton.textContent = "Instalar PawnIO";
+      installButton.addEventListener("click", async () => {
+        const confirmed = await askConfirmation(
+          "O PawnIO é um driver de sistema (kernel) usado para acessar sensores de hardware. Ao continuar, o instalador oficial será aberto e poderá solicitar autorização do Windows (UAC). Uma reinicialização pode ser necessária. O QBoa não fará a instalação sem esta confirmação.",
+          "Instalar dependência térmica PawnIO"
+        );
+        if (!confirmed) return;
+        installButton.disabled = true;
+        installButton.textContent = "Aguardando instalador...";
+        status.appendChild(document.createTextNode("\\n"));
+        try {
+          const message = await Qboa.installPawnIo();
+          status.textContent = message;
+          await loadCpuInventory();
+        } catch (error) {
+          status.textContent = "Falha na instalação do PawnIO: " + String(error);
+          installButton.disabled = false;
+          installButton.textContent = "Tentar instalar novamente";
+          status.appendChild(installButton);
+        }
+      });
+      status.appendChild(document.createTextNode(" "));
+      status.appendChild(installButton);
+    }
     start.disabled = !inventory.sensor_available || ["running", "cancelling"].includes(cpuTestSessionSnapshot?.lifecycle);
   } catch (error) {
     cpuInventorySnapshot = null;
