@@ -231,6 +231,10 @@ if (-not $cpu) { throw 'O Windows não retornou Win32_Processor.' }
 
 // O PowerShell 5.1 pode herdar a página de código OEM do Windows ao escrever
 // em stdout redirecionado. Fixamos UTF-8 sem BOM antes de qualquer saída JSON.
+fn is_valid_cpu_temperature(value: f64) -> bool {
+    value.is_finite() && value > 0.0 && value <= 150.0
+}
+
 fn powershell_utf8_preamble() -> &'static str {
     "$utf8NoBom = New-Object System.Text.UTF8Encoding($false); [Console]::OutputEncoding = $utf8NoBom; $OutputEncoding = $utf8NoBom"
 }
@@ -555,7 +559,7 @@ fn run_test<R: Runtime>(
             .map_err(|e| format!("A amostra térmica de pré-verificação é inválida: {e}"))?;
         let temperature = raw
             .temperature_c
-            .filter(|v| v.is_finite() && (0.0..=150.0).contains(v))
+            .filter(|v| is_valid_cpu_temperature(*v))
             .ok_or_else(|| {
                 format!(
                     "O sensor térmico não forneceu leitura válida na pré-verificação ({sample_number}/3). O teste não foi iniciado."
@@ -1169,6 +1173,17 @@ fn timestamp_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_and_non_finite_cpu_temperatures_are_rejected() {
+        assert!(!is_valid_cpu_temperature(0.0));
+        assert!(!is_valid_cpu_temperature(-1.0));
+        assert!(!is_valid_cpu_temperature(f64::NAN));
+        assert!(!is_valid_cpu_temperature(f64::INFINITY));
+        assert!(is_valid_cpu_temperature(0.1));
+        assert!(is_valid_cpu_temperature(45.0));
+        assert!(is_valid_cpu_temperature(150.0));
+    }
 
     #[test]
     fn powershell_output_is_explicitly_configured_as_utf8_without_bom() {
