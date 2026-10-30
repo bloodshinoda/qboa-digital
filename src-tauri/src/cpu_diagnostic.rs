@@ -637,7 +637,7 @@ fn run_test<R: Runtime>(
                 let elapsed_ms = started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
                 let temperature = raw
                     .temperature_c
-                    .filter(|v| v.is_finite() && (0.0..=150.0).contains(v));
+                    .filter(|v| is_valid_cpu_temperature(*v));
                 let sensor_name = raw
                     .temperature_sensor
                     .as_deref()
