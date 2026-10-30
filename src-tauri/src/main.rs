@@ -2011,6 +2011,15 @@ async fn get_cpu_inventory(app: AppHandle) -> Result<cpu_diagnostic::CpuInventor
 }
 
 #[tauri::command]
+fn install_pawnio(app: AppHandle) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    cpu_diagnostic::install_pawnio(&app_data_dir)
+}
+
+#[tauri::command]
 fn start_cpu_test(
     app: AppHandle,
     profile: cpu_diagnostic::CpuTestProfile,
@@ -2187,6 +2196,7 @@ fn main() {
             cancel_memory_test,
             get_memory_inventory,
             get_cpu_inventory,
+            install_pawnio,
             start_cpu_test,
             get_cpu_test_session,
             cancel_cpu_test,
