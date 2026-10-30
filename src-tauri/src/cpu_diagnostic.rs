@@ -190,9 +190,13 @@ if (-not $cpu) { throw 'O Windows não retornou Win32_Processor.' }
         let mut inventory: CpuInventory = serde_json::from_str(&output)
             .map_err(|error| format!("Resposta de inventário da CPU inválida: {error}"))?;
         let discovery_output = run_hardware_monitor_once(app_data_dir, "discover")?;
-        let discovery: serde_json::Value = serde_json::from_str(&discovery_output)
-            .map_err(|error| format!("O coletor térmico retornou uma resposta inválida: {error}"))?;
-        let sensors = discovery.get("sensors")
+        let discovery: serde_json::Value =
+            serde_json::from_str(&discovery_output)
+            .map_err(|error| {
+                format!("O coletor térmico retornou uma resposta inválida: {error}")
+            })?;
+        let sensors = discovery
+            .get("sensors")
             .and_then(serde_json::Value::as_array)
             .map(|items| {
                 items
@@ -545,7 +549,7 @@ fn run_test<R: Runtime>(
     });
 
     let mut last_preflight_sample = None;
-     for sample_number in 1..=3 {
+    for sample_number in 1..=3 {
         let line = receiver.recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS))
             .map_err(|_| "O coletor integrado não forneceu três leituras térmicas consecutivas. O teste não foi iniciado.".to_string())?;
         let raw: RawTelemetrySample = serde_json::from_str(&line)
@@ -613,7 +617,7 @@ fn run_test<R: Runtime>(
     let mut terminal_status = "completed".to_string();
     let mut last_checkpoint = Instant::now();
     let mut last_temperature_at = Instant::now();
-     while started_clock.elapsed() < Duration::from_secs(duration_seconds) {
+    while started_clock.elapsed() < Duration::from_secs(duration_seconds) {
         if cancel.load(Ordering::Acquire) {
             terminal_status = "cancelled".into();
             break;
