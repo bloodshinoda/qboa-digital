@@ -216,7 +216,7 @@ if (-not $provider) {
   sensor_available = ($sensors.Count -gt 0)
   sensor_provider = $provider
   temperature_sensors = @($sensors | ForEach-Object { [string]$_.Name } | Select-Object -Unique)
-  sensor_note = if ($provider) { 'Sensores térmicos de CPU detectados.' } else { 'Nenhum sensor térmico de CPU foi encontrado. Inicie o LibreHardwareMonitor com Options > Remote Web Server > Run (padrão 127.0.0.1:8085) ou o Open Hardware Monitor com sensores WMI habilitados e mantenha o provedor aberto durante o teste.' }
+  sensor_note = if ($provider) { 'Sensores térmicos de CPU detectados.' } else { 'Nenhum sensor térmico de CPU foi encontrado. Inicie o LibreHardwareMonitor com Options > Remote Web Server > Run e configure o servidor para escutar apenas em 127.0.0.1:8085; ou use o Open Hardware Monitor com sensores WMI habilitados. Mantenha o provedor aberto durante o teste.' }
 } | ConvertTo-Json -Compress -Depth 5
 "#;
         let output = run_powershell_once(script)?;
