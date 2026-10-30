@@ -571,7 +571,6 @@ fn run_test<R: Runtime>(
 ) -> Result<CpuTestReport, String> {
     // A telemetria térmica é opcional. Sem provedor, o coletor nativo
     // continua publicando utilização/frequência e a carga segue normalmente.
-    let has_temperature_provider = inventory.sensor_provider.is_some();
     let provider = inventory.sensor_provider.as_deref().unwrap_or("none");
     let child = start_telemetry_process(provider)?;
     let mut child = TelemetryProcess(child);
@@ -594,13 +593,19 @@ fn run_test<R: Runtime>(
         }
     });
 
-    let first_line = receiver
+    let first_raw: RawTelemetrySample = match receiver
         .recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS))
-        .map_err(|_| {
-            "O sensor térmico não forneceu uma primeira leitura dentro do prazo.".to_string()
-        })?;
-    let first_raw: RawTelemetrySample = serde_json::from_str(&first_line)
-        .map_err(|error| format!("A primeira amostra de telemetria é inválida: {error}"))?;
+    {
+        Ok(line) => serde_json::from_str(&line)
+            .map_err(|error| format!("A primeira amostra de telemetria é inválida: {error}"))?,
+        Err(_) => RawTelemetrySample {
+            timestamp_utc: timestamp_now(),
+            temperature_c: None,
+            temperature_sensor: None,
+            cpu_utilization_percent: None,
+            frequency_mhz: None,
+        },
+    };
     let first_temperature = first_raw
         .temperature_c
         .filter(|value| value.is_finite() && (0.0..=150.0).contains(value));
@@ -718,12 +723,6 @@ fn run_test<R: Runtime>(
                             > Duration::from_secs(SAMPLE_TIMEOUT_SECS)
                     })
                 {
-                    if has_temperature_provider {
-                        // O desaparecimento do sensor não invalida a carga: a próxima
-                        // versão do coletor pode continuar sem temperatura.
-                        terminal_status = "sensor_lost".into();
-                        break;
-                    }
                     let elapsed_ms = started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
                     let sample = CpuTelemetrySample {
                         elapsed_ms,
@@ -734,13 +733,28 @@ fn run_test<R: Runtime>(
                         frequency_mhz: None,
                     };
                     samples.push(sample.clone());
-                    publish_progress(app, session_id, elapsed_ms, duration_seconds * 1000,
-                        &sample, &iterations, &errors);
+                    publish_progress(
+                        app, session_id, elapsed_ms, duration_seconds * 1000,
+                        &sample, &iterations, &errors,
+                    );
                 }
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                terminal_status = "sensor_lost".into();
-                break;
+                let elapsed_ms = started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                let sample = CpuTelemetrySample {
+                    elapsed_ms,
+                    timestamp_utc: timestamp_now(),
+                    temperature_c: None,
+                    temperature_sensor: None,
+                    cpu_utilization_percent: None,
+                    frequency_mhz: None,
+                };
+                samples.push(sample.clone());
+                publish_progress(
+                    app, session_id, elapsed_ms, duration_seconds * 1000,
+                    &sample, &iterations, &errors,
+                );
+                thread::sleep(Duration::from_millis(500));
             }
         }
     }
@@ -1199,6 +1213,15 @@ mod tests {
         assert!(script.contains("SensorId"));
         assert!(script.contains("RawValue"));
         assert!(!script.contains("root\\LibreHardwareMonitor"));
+    }
+
+    #[test]
+    fn missing_temperature_provider_uses_native_metrics_collector() {
+        let script = telemetry_script("none");
+        assert!(script.contains("Win32_PerfFormattedData_PerfOS_Processor"));
+        assert!(script.contains("Win32_PerfFormattedData_Counters_ProcessorInformation"));
+        assert!(script.contains("temperature_c = $null"));
+        assert!(!script.contains("8085"));
     }
 
     #[test]
