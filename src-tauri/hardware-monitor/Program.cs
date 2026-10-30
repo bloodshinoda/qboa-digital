@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Management;
 using System.Text.Json;
+using Microsoft.Win32;
 using LibreHardwareMonitor.Hardware;
 
 namespace QBoa.HardwareMonitor;
@@ -15,7 +16,7 @@ internal static class Program
     };
 
     private sealed record SensorInfo(string Name, string Identifier, double Value);
-    private sealed record Discovery(bool Available, string Provider, IReadOnlyList<SensorInfo> Sensors, string Note);
+    private sealed record Discovery(bool Available, string Provider, IReadOnlyList<SensorInfo> Sensors, string Note, bool PawnioInstalled, string? PawnioVersion);
     private sealed record Telemetry(string TimestampUtc, double? TemperatureC, string? TemperatureSensor,
         double? CpuUtilizationPercent, double? FrequencyMhz);
 
@@ -35,11 +36,15 @@ internal static class Program
             if (mode == "discover")
             {
                 var sensors = monitor.ReadCpuTemperatures();
-                Console.WriteLine(JsonSerializer.Serialize(new Discovery(
-                    sensors.Count > 0, Provider, sensors,
-                    sensors.Count > 0
+                var pawnio = ReadPawnIoInstallation();
+                var available = pawnio.Installed && sensors.Count > 0;
+                var note = !pawnio.Installed
+                    ? "O driver PawnIO não está instalado. Ele é necessário para que o LibreHardwareMonitor acesse determinados sensores térmicos da CPU. Instale-o pelo instalador oficial e atualize esta tela. O teste não será iniciado."
+                    : sensors.Count > 0
                         ? "Sensores térmicos de CPU detectados pelo coletor integrado."
-                        : "A biblioteca integrada não encontrou sensores térmicos de CPU neste hardware. O teste não será iniciado."
+                        : "PawnIO está instalado, mas o coletor não encontrou leituras térmicas válidas de CPU neste hardware. O teste não será iniciado.";
+                Console.WriteLine(JsonSerializer.Serialize(new Discovery(
+                    available, Provider, sensors, note, pawnio.Installed, pawnio.Version
                 ), JsonOptions));
                 return 0;
             }
@@ -59,6 +64,26 @@ internal static class Program
         {
             Console.Error.WriteLine(exception.ToString());
             return 1;
+        }
+    }
+
+    private static (bool Installed, string? Version) ReadPawnIoInstallation()
+    {
+        const string uninstallKey = @"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PawnIO";
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(uninstallKey);
+            if (key is null)
+                return (false, null);
+
+            var version = key.GetValue("DisplayVersion") as string;
+            return (true, string.IsNullOrWhiteSpace(version) ? null : version.Trim());
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // A leitura de HKLM normalmente é permitida; falha de acesso não deve
+            // ser interpretada como ausência comprovada do driver.
+            return (false, null);
         }
     }
 
