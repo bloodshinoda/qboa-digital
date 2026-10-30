@@ -41,15 +41,7 @@
           <li>Nenhuma alteração registrada.</li>
         </ul>
       </div>
-      <div class="recovery-box">
-        <h3>Diagnóstico pontual</h3>
-        <div class="diagnostic-actions">
-          <button id="diagnostic-quick-btn" type="button">Verificação rápida</button>
-          <button id="diagnostic-complete-btn" type="button">Verificação completa</button>
-        </div>
-        <p id="diagnostic-status" aria-live="polite"></p>
-        <ul id="diagnostic-results" class="diagnostic-results"></ul>
-      </div>
+
     </aside>
   </main>
 
@@ -179,6 +171,21 @@
         <button id="confirmation-confirm" type="button" class="primary-button">Continuar</button>
       </div>
     </div>
+  </div>
+
+
+  <div class="diagnostic-modal hidden" id="diagnostic-modal" aria-hidden="true">
+    <section class="diagnostic-dialog" role="dialog" aria-modal="true" aria-labelledby="diagnostic-modal-title">
+      <header class="diagnostic-dialog-header">
+        <div><span class="eyebrow">QBoa Digital · análise</span><h2 id="diagnostic-modal-title">Diagnóstico do computador</h2></div>
+        <button id="diagnostic-modal-close" class="diagnostic-close" type="button" aria-label="Fechar diagnóstico">×</button>
+      </header>
+      <p class="diagnostic-modal-intro" id="diagnostic-modal-intro"></p>
+      <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Executar teste</button></div>
+      <p id="diagnostic-status" aria-live="polite"></p>
+      <ul id="diagnostic-results" class="diagnostic-results"></ul>
+      <details class="diagnostic-saved-reports"><summary>Laudos salvos neste computador</summary><p>Os relatórios ficam localmente e não são apagados automaticamente.</p><ul id="diagnostic-history" class="diagnostic-history"></ul></details>
+    </section>
   </div>
 
   <script type="module" src="main.js"></script>

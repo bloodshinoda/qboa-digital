@@ -38,6 +38,40 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Validate storage collector and execute all eight tests on a temporary file
+        shell: pwsh
+        run: |
+          $env:QBOA_STORAGE_MODE = "selftest"
+          $output = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "src-tauri/scripts/storage_diagnostic.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Storage collector self-test failed." }
+          $measurements = ($output -join [Environment]::NewLine) | ConvertFrom-Json
+          if ($measurements.Count -ne 8) { throw "Expected eight executed storage measurements; found $($measurements.Count)." }
+
+          $expected = @(
+            @{ kind = "seq_small_write"; unit = "MB/s"; block = 131072; queue = 1; write = $true; random = $false },
+            @{ kind = "seq_small_read"; unit = "MB/s"; block = 131072; queue = 1; write = $false; random = $false },
+            @{ kind = "seq_large_write"; unit = "MB/s"; block = 1048576; queue = 8; write = $true; random = $false },
+            @{ kind = "seq_large_read"; unit = "MB/s"; block = 1048576; queue = 8; write = $false; random = $false },
+            @{ kind = "random_small_write"; unit = "IOPS"; block = 4096; queue = 1; write = $true; random = $true },
+            @{ kind = "random_small_read"; unit = "IOPS"; block = 4096; queue = 1; write = $false; random = $true },
+            @{ kind = "random_large_write"; unit = "IOPS"; block = 4096; queue = 32; write = $true; random = $true },
+            @{ kind = "random_large_read"; unit = "IOPS"; block = 4096; queue = 32; write = $false; random = $true }
+          )
+
+          foreach ($expectedMeasurement in $expected) {
+            $actual = @($measurements | Where-Object { $_.kind -eq $expectedMeasurement.kind })
+            if ($actual.Count -ne 1) { throw "Missing or duplicate measurement: $($expectedMeasurement.kind)." }
+            foreach ($property in @("unit", "block", "queue", "write", "random")) {
+              if ($actual[0].$property -ne $expectedMeasurement[$property]) {
+                throw "Unexpected $property for measurement $($expectedMeasurement.kind)."
+              }
+            }
+            if ([double]$actual[0].value -le 0 -or [long]$actual[0].bytes_transferred -le 0 -or [long]$actual[0].operations -le 0) {
+              throw "Measurement $($expectedMeasurement.kind) did not perform successful I/O."
+            }
+          }
+          Write-Host "All eight measurements executed against a disposable temporary file; no physical disk was targeted by the test."
+
       - name: Check Rust formatting
         run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
 
