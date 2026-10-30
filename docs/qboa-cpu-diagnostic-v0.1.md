@@ -20,8 +20,8 @@ A temperatura é lida de sensores de CPU publicados por uma instância em execu�
 
 A ordem de descoberta é:
 
-1. API REST local em `http://127.0.0.1:8085/data.json`, com identificação do hardware por `HardwareId` e leitura térmica por `RawValue`. No LibreHardwareMonitor, habilite `Options > Remote Web Server > Run`; o QBoa consulta somente loopback, sem acesso remoto.
-2. WMI em `root\\OpenHardwareMonitor` ou `root\\LibreHardwareMonitor`, como alternativa para instalações que exponham esses namespaces.
+1. API REST local em `http://127.0.0.1:8085/data.json`, com identificação do hardware por `HardwareId` e leitura térmica por `RawValue`. No LibreHardwareMonitor, habilite `Options > Remote Web Server > Run` e configure o IP de escuta como `127.0.0.1`. Não exponha o servidor de sensores em interfaces de rede.
+2. WMI em `root\\OpenHardwareMonitor` ou `root\\LibreHardwareMonitor`, como alternativa para instalações que exponham esses namespaces
 
 O QBoa não inventa temperatura a partir de zonas ACPI genéricas. Se não houver sensor de CPU identificado e fornecendo uma leitura válida, o teste acompanhado de carga não começa.
 
