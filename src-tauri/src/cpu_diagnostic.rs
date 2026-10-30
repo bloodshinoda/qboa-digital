@@ -85,6 +85,7 @@ pub(crate) struct CpuTestReport {
     pub processor_name: String,
     pub physical_cores: u32,
     pub logical_processors: u32,
+    #[serde(default)]
     pub worker_threads: u32,
     pub sensor_provider: String,
     #[serde(default)]
