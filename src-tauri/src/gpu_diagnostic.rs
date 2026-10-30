@@ -306,16 +306,26 @@ fn run_test<R: Runtime>(
     let mut dispatches = 0u64;
     let mut errors = 0u64;
     let mut status = "completed".to_string();
+    let mut engine_error: Option<String> = None;
     let mut last_sensor = Instant::now();
     while started.elapsed() < Duration::from_secs(target) {
         if cancel.load(Ordering::Acquire) { status = "cancelled".into(); break; }
         let active_until = Instant::now() + Duration::from_millis(650);
         while Instant::now() < active_until && started.elapsed() < Duration::from_secs(target) {
             if cancel.load(Ordering::Acquire) { status = "cancelled".into(); break; }
-            errors = errors.saturating_add(engine.dispatch_and_verify()?);
-            dispatches = dispatches.saturating_add(1);
+            match engine.dispatch_and_verify() {
+                Ok(found) => {
+                    errors = errors.saturating_add(found);
+                    dispatches = dispatches.saturating_add(1);
+                }
+                Err(error) => {
+                    status = "device_error".into();
+                    engine_error = Some(error);
+                    break;
+                }
+            }
         }
-        if status == "cancelled" { break; }
+        if status != "completed" { break; }
         thread::sleep(Duration::from_millis(350));
         match receiver.recv_timeout(Duration::from_millis(300)) {
             Ok(line) => {
@@ -353,9 +363,10 @@ fn run_test<R: Runtime>(
         if report.execution_status == "completed" { report.execution_status = "errors_detected".into(); }
     }
     match status.as_str() {
-        "thermal_limit_reached" => report.warnings.push(format!("Teste interrompido ao atingir o limite térmico conservador do QBoa ({THERMAL_STOP_C:.0} °C); isso não representa o limite oficial do fabricante.".into())),
+        "thermal_limit_reached" => report.warnings.push(format!("Teste interrompido ao atingir o limite térmico conservador do QBoa ({THERMAL_STOP_C:.0} °C); isso não representa o limite oficial do fabricante.")),
         "sensor_lost" => report.warnings.push("A telemetria térmica da GPU foi perdida; a carga foi encerrada e as amostras parciais foram preservadas.".into()),
         "cancelled" => report.warnings.push("Teste cancelado pelo usuário; os dados parciais foram preservados.".into()),
+        "device_error" => report.warnings.push(engine_error.unwrap_or_else(|| "O dispositivo Direct3D apresentou erro.".into())),
         _ => {}
     }
     report.warnings.push("O motor executa carga sintética por compute shader Direct3D 11 no adaptador de hardware selecionado pelo Windows. Não testa todos os recursos gráficos, toda a VRAM nem certifica estabilidade universal.".into());
@@ -524,18 +535,18 @@ void main(uint3 tid : SV_DispatchThreadID) {
         unsafe { release(errors); }
         let code_ptr = unsafe { blob_pointer(bytecode) };
         let code_len = unsafe { blob_size(bytecode) };
-        let create_shader: unsafe extern "system" fn(*mut c_void,*const c_void,usize,*mut c_void,*mut *mut c_void)->i32 = unsafe { method(self.device,22) };
+        let create_shader: unsafe extern "system" fn(*mut c_void,*const c_void,usize,*mut c_void,*mut *mut c_void)->i32 = unsafe { method(self.device,18) };
         let hr = unsafe { create_shader(self.device, code_ptr, code_len, std::ptr::null_mut(), &mut self.shader) };
         unsafe { release(bytecode); }
         check_hr(hr, "criar compute shader")?;
 
         let output_desc = BufferDesc { byte_width: BYTES, usage: 0, bind_flags: 0x80, cpu_access_flags: 0, misc_flags: 0x40, structure_byte_stride: 16 };
         let staging_desc = BufferDesc { byte_width: BYTES, usage: 3, bind_flags: 0, cpu_access_flags: 0x20000, misc_flags: 0x40, structure_byte_stride: 16 };
-        let create_buffer: unsafe extern "system" fn(*mut c_void,*const BufferDesc,*const c_void,*mut *mut c_void)->i32 = unsafe { method(self.device,7) };
+        let create_buffer: unsafe extern "system" fn(*mut c_void,*const BufferDesc,*const c_void,*mut *mut c_void)->i32 = unsafe { method(self.device,3) };
         check_hr(unsafe { create_buffer(self.device,&output_desc,std::ptr::null(),&mut self.output) }, "criar buffer de saída")?;
         check_hr(unsafe { create_buffer(self.device,&staging_desc,std::ptr::null(),&mut self.staging) }, "criar buffer de leitura")?;
         let uav_desc = UavDesc { format: 0, dimension: 1, buffer: [0, THREADS as u64] };
-        let create_uav: unsafe extern "system" fn(*mut c_void,*mut c_void,*const UavDesc,*mut *mut c_void)->i32 = unsafe { method(self.device,12) };
+        let create_uav: unsafe extern "system" fn(*mut c_void,*mut c_void,*const UavDesc,*mut *mut c_void)->i32 = unsafe { method(self.device,8) };
         check_hr(unsafe { create_uav(self.device,self.output,&uav_desc,&mut self.uav) }, "criar view de acesso à saída")?;
         let set_shader: unsafe extern "system" fn(*mut c_void,*mut c_void,*const *mut c_void,u32) = unsafe { method(self.context,69) };
         let set_uav: unsafe extern "system" fn(*mut c_void,u32,u32,*const *mut c_void,*const u32) = unsafe { method(self.context,68) };
@@ -560,7 +571,7 @@ void main(uint3 tid : SV_DispatchThreadID) {
             if values[offset..offset+4] != expected { errors += 1; }
         }
         unsafe { unmap(self.context,self.staging,0); }
-        let removed: unsafe extern "system" fn(*mut c_void)->i32 = unsafe { method(self.device,43) };
+        let removed: unsafe extern "system" fn(*mut c_void)->i32 = unsafe { method(self.device,39) };
         let reason = unsafe { removed(self.device) };
         if reason < 0 { return Err(format!("O dispositivo Direct3D foi removido ou reiniciado (HRESULT 0x{:08X}).", reason as u32)); }
         Ok(errors)

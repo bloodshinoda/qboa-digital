@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/qboa-memory-test
+      - feat/gpu-stability-diagnostic
     paths:
       - "src-tauri/**"
       - ".github/workflows/qboa-memory-test.yml"
