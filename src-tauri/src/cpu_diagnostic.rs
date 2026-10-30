@@ -525,18 +525,13 @@ fn run_test<R: Runtime>(
     let started_at = timestamp_now();
     let duration_seconds = profile.duration_seconds();
     let worker_count = inventory.logical_processors.clamp(1, 64) as usize;
-    let stop_workers = Arc::new(AtomicBool::new(false));
     let iterations = Arc::new(AtomicU64::new(0));
     let errors = Arc::new(AtomicU64::new(0));
-    let mut workers = Vec::with_capacity(worker_count);
-    for worker_index in 0..worker_count {
-        let stop = Arc::clone(&stop_workers);
-        let count = Arc::clone(&iterations);
-        let failures = Arc::clone(&errors);
-        workers.push(thread::spawn(move || {
-            cpu_load_worker(worker_index as u64, stop, count, failures)
-        }));
-    }
+    let workers = CpuWorkerGroup::spawn(
+        worker_count,
+        Arc::clone(&iterations),
+        Arc::clone(&errors),
+    )?;
 
     let mut samples = Vec::new();
     let first_sample = CpuTelemetrySample {
@@ -652,10 +647,7 @@ fn run_test<R: Runtime>(
         }
     }
 
-    stop_workers.store(true, Ordering::Release);
-    for worker in workers {
-        let _ = worker.join();
-    }
+    drop(workers);
     let _ = child.0.kill();
     let _ = child.0.wait();
     let _ = reader.join();
@@ -731,6 +723,44 @@ fn publish_progress<R: Runtime>(
                 session,
             },
         );
+    }
+}
+
+struct CpuWorkerGroup {
+    stop: Arc<AtomicBool>,
+    handles: Vec<thread::JoinHandle<()>>,
+}
+
+impl CpuWorkerGroup {
+    fn spawn(
+        worker_count: usize,
+        iterations: Arc<AtomicU64>,
+        errors: Arc<AtomicU64>,
+    ) -> Result<Self, String> {
+        let mut group = Self {
+            stop: Arc::new(AtomicBool::new(false)),
+            handles: Vec::with_capacity(worker_count),
+        };
+        for worker_index in 0..worker_count {
+            let stop = Arc::clone(&group.stop);
+            let count = Arc::clone(&iterations);
+            let failures = Arc::clone(&errors);
+            let worker = thread::Builder::new()
+                .name(format!("qboa-cpu-load-{worker_index}"))
+                .spawn(move || cpu_load_worker(worker_index as u64, stop, count, failures))
+                .map_err(|error| format!("Não foi possível criar trabalhador de carga: {error}"))?;
+            group.handles.push(worker);
+        }
+        Ok(group)
+    }
+}
+
+impl Drop for CpuWorkerGroup {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        for worker in self.handles.drain(..) {
+            let _ = worker.join();
+        }
     }
 }
 
