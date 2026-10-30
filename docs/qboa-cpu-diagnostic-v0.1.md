@@ -16,10 +16,12 @@ O perfil padrão é de 15 minutos. O usuário inicia e cancela o teste explicita
 
 ## Pré-requisitos de telemetria
 
-A temperatura é lida de sensores WMI publicados por uma instância em execução de LibreHardwareMonitor ou Open Hardware Monitor:
+A temperatura é lida de sensores de CPU publicados por uma instância em execução de LibreHardwareMonitor ou Open Hardware Monitor.
 
-- `root\\LibreHardwareMonitor`
-- `root\\OpenHardwareMonitor`
+A ordem de descoberta é:
+
+1. API REST local em `http://127.0.0.1:8085/data.json`, com identificação do hardware por `HardwareId` e leitura térmica por `RawValue`. No LibreHardwareMonitor, habilite `Options > Remote Web Server > Run`; o QBoa consulta somente loopback, sem acesso remoto.
+2. WMI em `root\\OpenHardwareMonitor` ou `root\\LibreHardwareMonitor`, como alternativa para instalações que exponham esses namespaces.
 
 O QBoa não inventa temperatura a partir de zonas ACPI genéricas. Se não houver sensor de CPU identificado e fornecendo uma leitura válida, o teste acompanhado de carga não começa.
 
