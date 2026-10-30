@@ -81,7 +81,7 @@ internal static class Program
             {
                 using var appKey = uninstall.OpenSubKey(subKeyName);
                 var displayName = appKey?.GetValue("DisplayName") as string;
-                if (!string.Equals(displayName?.Trim(), "PawnIO", StringComparison.OrdinalIgnoreCase))
+                if (!(displayName?.Trim().StartsWith("PawnIO", StringComparison.OrdinalIgnoreCase) ?? false))
                     continue;
 
                 var version = appKey?.GetValue("DisplayVersion") as string;
