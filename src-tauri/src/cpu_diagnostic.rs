@@ -87,6 +87,7 @@ pub(crate) struct CpuTestReport {
     pub logical_processors: u32,
     pub worker_threads: u32,
     pub sensor_provider: String,
+    pub profile: CpuTestProfile,
     pub target_duration_seconds: u64,
     pub duration_ms: u64,
     pub started_at: String,
@@ -871,6 +872,7 @@ fn build_report(
             .sensor_provider
             .clone()
             .unwrap_or_else(|| "indisponível".into()),
+        profile,
         target_duration_seconds: profile.duration_seconds(),
         duration_ms,
         started_at,
