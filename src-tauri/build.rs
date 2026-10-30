@@ -19,7 +19,11 @@ fn sha256_file(path: &PathBuf) -> Option<String> {
 
     String::from_utf8_lossy(&output.stdout)
         .lines()
-        .map(|line| line.chars().filter(|character| character.is_ascii_hexdigit()).collect::<String>())
+        .map(|line| {
+            line.chars()
+                .filter(|character| character.is_ascii_hexdigit())
+                .collect::<String>()
+        })
         .find(|line| line.len() == 64)
         .map(|hash| hash.to_ascii_uppercase())
 }
@@ -35,7 +39,13 @@ fn ensure_pawnio_installer(output_dir: &PathBuf) {
     }
 
     let status = Command::new("curl.exe")
-        .args(["--fail", "--location", "--silent", "--show-error", "--output"])
+        .args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--output",
+        ])
         .arg(&installer)
         .arg(PAWNIO_URL)
         .status()
