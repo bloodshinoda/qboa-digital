@@ -62,7 +62,7 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
 - Presets Express, Normal e Turbo; tarefas avançadas podem exigir confirmação.
 - Proteções por ponto de restauração quando disponível, snapshots e rollback de alterações reversíveis.
 
-O diagnóstico de armazenamento informa capacidade e espaço livre; não substitui SMART nem verificação de integridade do sistema de arquivos. A temperatura depende de um provedor de sensores compatível.
+O diagnóstico de armazenamento informa capacidade e espaço livre e oferece medições de desempenho; não substitui SMART nem verificação de integridade do sistema de arquivos. Os testes de CPU e GPU dependem de telemetria térmica compatível e aplicam limites conservadores de segurança. O teste de GPU exige Direct3D 11 Feature Level 11_0 e sensor térmico compatível; não cobre rasterização, VRAM ou todos os recursos gráficos. Os resultados não certificam integralmente os componentes.
 
 ## Arquitetura
 
@@ -220,7 +220,7 @@ O workflow `.github/workflows/windows-build.yml` compila o aplicativo Windows em
 - `qboa-digital-windows-installer`: instalador NSIS `.exe`
 - `qboa-digital-windows-portable`: executável portátil `.exe`
 
-O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. Ao publicar a tag `v3.2.0`, o workflow compila os pacotes `qboa-digital-3.2.0-x64-installer.exe` e `qboa-digital-3.2.0-x64-portable.exe` e cria uma release em rascunho com ambos os arquivos anexados. Depois, revise e publique o rascunho em [Releases](https://github.com/bloodshinoda/qboa-digital/releases). Os artefatos temporários das execuções também ficam disponíveis no GitHub Actions por 14 dias. A versão portátil é distribuída como `.exe` individual, não como ZIP, e ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
+O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. Ao publicar uma tag `v*`, o workflow lê a versão de `src-tauri/tauri.conf.json`, compila os pacotes `qboa-digital-<versão>-x64-installer.exe` e `qboa-digital-<versão>-x64-portable.exe` e cria uma release em rascunho com ambos os arquivos anexados. Depois, revise e publique o rascunho em [Releases](https://github.com/bloodshinoda/qboa-digital/releases). Os artefatos temporários das execuções também ficam disponíveis no GitHub Actions por 14 dias. A versão portátil é distribuída como `.exe` individual, não como ZIP, e ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
 
 ## Validação P0 no Windows
 
