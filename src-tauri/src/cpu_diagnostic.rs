@@ -1221,6 +1221,15 @@ mod tests {
         assert_eq!(report.temperature_average_c, Some(60.0));
         assert_eq!(report.cpu_utilization_average_percent, Some(50.0));
         assert_eq!(report.frequency_peak_mhz, Some(4200.0));
+
+        let mut legacy_json = serde_json::to_value(&report).expect("report serialization");
+        let legacy_fields = legacy_json.as_object_mut().expect("report object");
+        legacy_fields.remove("profile");
+        legacy_fields.remove("worker_threads");
+        let legacy_report: CpuTestReport =
+            serde_json::from_value(legacy_json).expect("legacy report compatibility");
+        assert_eq!(legacy_report.profile, None);
+        assert_eq!(legacy_report.worker_threads, 0);
     }
 
     #[test]
