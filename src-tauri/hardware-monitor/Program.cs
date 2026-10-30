@@ -69,20 +69,29 @@ internal static class Program
 
     private static (bool Installed, string? Version) ReadPawnIoInstallation()
     {
-        const string uninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO";
+        const string uninstallPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(uninstallKey);
-            if (key is null)
+            using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var uninstall = machine.OpenSubKey(uninstallPath);
+            if (uninstall is null)
                 return (false, null);
 
-            var version = key.GetValue("DisplayVersion") as string;
-            return (true, string.IsNullOrWhiteSpace(version) ? null : version.Trim());
+            foreach (var subKeyName in uninstall.GetSubKeyNames())
+            {
+                using var appKey = uninstall.OpenSubKey(subKeyName);
+                var displayName = appKey?.GetValue("DisplayName") as string;
+                if (!string.Equals(displayName?.Trim(), "PawnIO", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var version = appKey?.GetValue("DisplayVersion") as string;
+                return (true, string.IsNullOrWhiteSpace(version) ? null : version.Trim());
+            }
+            return (false, null);
         }
         catch (UnauthorizedAccessException)
         {
-            // A leitura de HKLM normalmente é permitida; falha de acesso não deve
-            // ser interpretada como ausência comprovada do driver.
+            // Não interpretar uma falha de acesso como ausência comprovada do driver.
             return (false, null);
         }
     }
