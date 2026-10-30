@@ -2,6 +2,7 @@
 
 mod capability_inventory;
 mod cleanup_findings;
+mod complete_diagnostic;
 mod cpu_diagnostic;
 mod diagnostics;
 mod diagnostics_store;
@@ -2264,6 +2265,7 @@ fn main() {
             rollback_session,
             get_session_history,
             run_diagnostic_check,
+            complete_diagnostic::update_complete_diagnostic_report,
             get_diagnostic_reports,
             list_storage_disks,
             run_storage_diagnostic,

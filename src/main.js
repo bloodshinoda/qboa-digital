@@ -28,6 +28,10 @@ let browserCleanupDecision = null;
 let showAllSessionChanges = false;
 let activeDiagnosticTarget = null;
 let activeDiagnosticMode = "quick";
+let completeDiagnosticRunning = false;
+let completeDiagnosticCancelRequested = false;
+let completeDiagnosticCurrentSession = null;
+let completeDiagnosticCancelSent = false;
 let memoryTestSessionSnapshot = null;
 let memoryInventorySnapshot = null;
 let cpuTestSessionSnapshot = null;
@@ -71,6 +75,10 @@ const Qboa = {
 
   async getDiagnosticReports() {
     return invoke("get_diagnostic_reports");
+  },
+
+  async updateCompleteDiagnosticReport(reportId, results, issues, system, executionStatus, durationMs = null) {
+    return invoke("update_complete_diagnostic_report", { reportId, results, issues, system, executionStatus, durationMs });
   },
 
   async listStorageDisks() {
@@ -2580,12 +2588,439 @@ async function cancelMemoryTestFromUi() {
 }
 
 function closeDiagnosticModal() {
+  if (completeDiagnosticRunning) return;
   const modal = document.getElementById("diagnostic-modal");
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
 }
 
+
+const COMPLETE_DIAGNOSTIC_STAGES = [
+  { label: "Sistema e identificação do Windows", start: 0, span: 8 },
+  { label: "Armazenamento", start: 8, span: 20 },
+  { label: "Memória RAM", start: 28, span: 18 },
+  { label: "Processador", start: 46, span: 27 },
+  { label: "Placa de vídeo", start: 73, span: 27 }
+];
+
+function setCompleteDiagnosticStage(index, state, detail = "") {
+  const item = document.querySelector('#complete-diagnostic-steps [data-step="' + index + '"]');
+  if (!item) return;
+  item.dataset.state = state;
+  const status = item.querySelector("small");
+  if (status) status.textContent = detail || ({
+    pending: "Aguardando",
+    running: "Em andamento",
+    completed: "Concluído",
+    warning: "Concluído com alerta",
+    failed: "Falha",
+    skipped: "Não executado"
+  }[state] || state);
+}
+
+function updateCompleteDiagnosticProgress(index, localPercent, detail) {
+  const stage = COMPLETE_DIAGNOSTIC_STAGES[index];
+  const percent = Math.max(0, Math.min(100, Math.round(stage.start + stage.span * localPercent / 100)));
+  document.getElementById("complete-diagnostic-stage").textContent = stage.label;
+  document.getElementById("complete-diagnostic-detail").textContent = detail || "";
+  document.getElementById("complete-diagnostic-percent").textContent = percent + "%";
+  const bar = document.getElementById("complete-diagnostic-progress-bar");
+  bar.style.width = percent + "%";
+  document.getElementById("complete-diagnostic-progress-track").setAttribute("aria-valuenow", String(percent));
+  setCompleteDiagnosticStage(index, "running", detail || "Em andamento");
+}
+
+function addCompleteDiagnosticResult(results, category, status, evidence, source) {
+  const result = {
+    category,
+    status,
+    evidence: Array.isArray(evidence) && evidence.length ? evidence : ["Não foi possível obter evidências confiáveis."],
+    source: Array.isArray(source) && source.length ? source : ["Motor de diagnóstico QBoa"]
+  };
+  const index = results.findIndex((item) => item.category === category);
+  if (index >= 0) results[index] = result;
+  else results.push(result);
+  return result;
+}
+
+function completeDiagnosticStatus(status, errors = 0) {
+  if (status === "passed" || status === "completed") return errors > 0 ? "falha" : "ok";
+  if (status === "errors_detected" || status === "failed" || status === "device_error") return "falha";
+  if (status === "thermal_limit_reached" || status === "inconclusive" || status === "partial") return "atencao";
+  return "indisponivel";
+}
+
+function completeDiagnosticNumber(value, suffix = "", digits = 1) {
+  const number = Number(value);
+  return value === null || value === undefined || !Number.isFinite(number)
+    ? "indisponível"
+    : number.toLocaleString("pt-BR", { maximumFractionDigits: digits }) + suffix;
+}
+
+async function waitForCompleteDiagnosticSession(kind, initial, getSession, progressIndex) {
+  const cancelMethods = {
+    memory: (id) => Qboa.cancelMemoryTest(id),
+    cpu: (id) => Qboa.cancelCpuTest(id),
+    gpu: (id) => Qboa.cancelGpuTest(id)
+  };
+  completeDiagnosticCurrentSession = { kind, sessionId: initial.session_id };
+  let session = initial;
+  while (["running", "cancelling"].includes(session?.lifecycle)) {
+    if (completeDiagnosticCancelRequested && !completeDiagnosticCancelSent) {
+      completeDiagnosticCancelSent = true;
+      try { await cancelMethods[kind](initial.session_id); } catch (error) {
+        console.warn("Não foi possível solicitar cancelamento do teste " + kind + ":", error);
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const latest = await getSession();
+    if (latest && latest.session_id === initial.session_id) session = latest;
+    const local = kind === "memory"
+      ? Number(session?.progress?.percent || 0)
+      : Number(session?.progress_percent || 0);
+    const label = kind === "memory"
+      ? (session?.progress?.phase || "Executando teste de memória")
+      : "Execução " + Math.max(0, Math.min(100, local)) + "%";
+    updateCompleteDiagnosticProgress(progressIndex, local, label);
+    if (kind === "memory") renderMemoryTestSession(session);
+    if (kind === "cpu") renderCpuTestSession(session);
+    if (kind === "gpu") renderGpuTestSession(session);
+  }
+  completeDiagnosticCurrentSession = null;
+  return session;
+}
+
+async function cancelCompleteDiagnostic() {
+  if (!completeDiagnosticRunning || completeDiagnosticCancelRequested) return;
+  completeDiagnosticCancelRequested = true;
+  const button = document.getElementById("complete-diagnostic-cancel");
+  button.disabled = true;
+  button.textContent = "Cancelamento solicitado…";
+  const current = completeDiagnosticCurrentSession;
+  if (!current) return;
+  completeDiagnosticCancelSent = true;
+  try {
+    if (current.kind === "memory") await Qboa.cancelMemoryTest(current.sessionId);
+    else if (current.kind === "cpu") await Qboa.cancelCpuTest(current.sessionId);
+    else if (current.kind === "gpu") await Qboa.cancelGpuTest(current.sessionId);
+  } catch (error) {
+    document.getElementById("complete-diagnostic-detail").textContent =
+      "Não foi possível confirmar o cancelamento: " + String(error);
+  }
+}
+
+async function runCompleteDiagnostic() {
+  if (completeDiagnosticRunning) return;
+  if (activeTaskId || launchPending || presetSequenceRunning) {
+    document.getElementById("diagnostic-status").textContent = "Conclua a limpeza ou manutenção em andamento antes de iniciar o diagnóstico completo.";
+    return;
+  }
+  const confirmed = await askConfirmation(
+    "O diagnóstico completo executa medições em todas as unidades de armazenamento, um teste padrão de RAM e testes de carga de CPU e GPU. Os testes de CPU e GPU duram 5 minutos cada; o tempo total depende da quantidade e velocidade dos discos e do hardware. Durante os testes de carga, o computador pode ficar mais lento. A temperatura é monitorada e os testes são interrompidos pelos limites de segurança do QBoa. Deseja iniciar?",
+    "Diagnóstico completo · operação demorada"
+  );
+  if (!confirmed) return;
+
+  const runButton = document.getElementById("diagnostic-run-selected");
+  const progressPanel = document.getElementById("complete-diagnostic-progress");
+  const summaryPanel = document.getElementById("complete-diagnostic-summary");
+  const resultsList = document.getElementById("diagnostic-results");
+  const statusLine = document.getElementById("diagnostic-status");
+  const closeButton = document.getElementById("diagnostic-modal-close");
+  const cancelButton = document.getElementById("complete-diagnostic-cancel");
+  const startedAt = Date.now();
+  let reportId = null;
+  let system = null;
+  const results = [];
+  const issues = [];
+  completeDiagnosticRunning = true;
+  completeDiagnosticCancelRequested = false;
+  completeDiagnosticCancelSent = false;
+  completeDiagnosticCurrentSession = null;
+  runButton.hidden = true;
+  runButton.disabled = true;
+  closeButton.disabled = true;
+  progressPanel.hidden = false;
+  summaryPanel.hidden = true;
+  resultsList.hidden = true;
+  resultsList.replaceChildren();
+  statusLine.textContent = "Preparando diagnóstico completo…";
+  cancelButton.disabled = false;
+  cancelButton.textContent = "Cancelar diagnóstico";
+  COMPLETE_DIAGNOSTIC_STAGES.forEach((stage, index) => setCompleteDiagnosticStage(index, "pending"));
+  updateCompleteDiagnosticProgress(0, 0, "Iniciando coleta do sistema.");
+
+  const issue = (severity, component, code, message) => {
+    issues.push({ severity, component, code, message: String(message).slice(0, 1000), occurred_at: new Date().toISOString() });
+  };
+  const checkpoint = async (executionStatus = "running") => {
+    if (!reportId) return;
+    await Qboa.updateCompleteDiagnosticReport(
+      reportId, results, issues, system, executionStatus,
+      executionStatus === "running" ? null : Date.now() - startedAt
+    );
+  };
+
+  try {
+    // Esta coleta cria o laudo versionado e fornece a identificação do Windows.
+    const base = await Qboa.runDiagnosticCheck("complete");
+    reportId = base.report_id;
+    system = base.system || null;
+    results.push(...(base.results || []));
+    await checkpoint("running");
+    setCompleteDiagnosticStage(0, "completed", "Identificação do Windows registrada.");
+    updateCompleteDiagnosticProgress(0, 100, "Sistema identificado e laudo iniciado.");
+
+    // Armazenamento: todas as unidades locais elegíveis, sem exibir recomendações.
+    updateCompleteDiagnosticProgress(1, 0, "Localizando unidades de armazenamento.");
+    let disks = [];
+    try {
+      const raw = await Qboa.listStorageDisks();
+      const entries = Array.isArray(raw) ? raw.flat(Infinity) : Array.isArray(raw?.disks) ? raw.disks : [];
+      disks = Array.from(new Map(entries.map(normalizeStorageDisk).filter(Boolean).map((disk) => [disk.id, disk])).values());
+    } catch (error) {
+      issue("warning", "storage", "disk_inventory_failed", "Não foi possível listar as unidades: " + String(error));
+    }
+    const storageEvidence = [];
+    let storageCompleted = 0;
+    let storagePartial = 0;
+    let storageSmartAlerts = false;
+    if (!disks.length) {
+      storageEvidence.push("Nenhuma unidade elegível foi identificada para o teste.");
+    }
+    for (let index = 0; index < disks.length; index++) {
+      if (completeDiagnosticCancelRequested) break;
+      const disk = disks[index];
+      updateCompleteDiagnosticProgress(1, index * 100 / Math.max(1, disks.length), "Testando unidade " + disk.id + " (" + (index + 1) + "/" + disks.length + ").");
+      try {
+        const report = await Qboa.runStorageDiagnostic(disk.id);
+        const name = report.disk_name || report.volume || disk.id;
+        storageEvidence.push(name + ": " + (report.execution_status || "resultado recebido"));
+        const measurementNames = {
+          seq_small_write: "Sequencial pequeno · gravação",
+          seq_small_read: "Sequencial pequeno · leitura",
+          seq_large_write: "Sequencial grande · gravação",
+          seq_large_read: "Sequencial grande · leitura",
+          random_small_write: "Aleatório pequeno · gravação",
+          random_small_read: "Aleatório pequeno · leitura",
+          random_large_write: "Aleatório grande · gravação",
+          random_large_read: "Aleatório grande · leitura"
+        };
+        (report.measurements || []).forEach((measurement) => {
+          storageEvidence.push((measurementNames[measurement.kind] || String(measurement.kind || "Medição")) + ": " +
+            completeDiagnosticNumber(measurement.value, measurement.unit ? " " + measurement.unit : "", 2));
+        });
+        const smart = report.smart || {};
+        storageEvidence.push("SMART: " + (smart.usable ? "dados utilizáveis" : "dados utilizáveis indisponíveis"));
+        if (smart.predicted_failure !== null && smart.predicted_failure !== undefined) {
+          storageEvidence.push("Previsão de falha SMART: " + (smart.predicted_failure ? "sinalizada" : "não sinalizada"));
+        }
+        [["reallocated", "Setores realocados"], ["pending", "Setores pendentes"],
+          ["uncorrectable", "Setores incorrigíveis"], ["temperature_c", "Temperatura SMART"]].forEach(([key, label]) => {
+          if (smart[key] !== null && smart[key] !== undefined) {
+            storageEvidence.push(label + ": " + completeDiagnosticNumber(smart[key], key === "temperature_c" ? " °C" : "", 1));
+          }
+        });
+        if (smart.interface_crc_before !== null && smart.interface_crc_before !== undefined) {
+          storageEvidence.push("Erros CRC da interface: " + completeDiagnosticNumber(smart.interface_crc_before, "", 0) +
+            " → " + completeDiagnosticNumber(smart.interface_crc_after, "", 0));
+        }
+        if (smart.wear_percent !== null && smart.wear_percent !== undefined) {
+          storageEvidence.push("Desgaste SMART: " + completeDiagnosticNumber(smart.wear_percent, "%", 1));
+        }
+        if (smart.pio_mode === true) storageEvidence.push("Modo PIO: detectado");
+        if (smart.slow_sata_link === true) storageEvidence.push("Link SATA lento: detectado");
+        const crcIncreased = Number(smart.interface_crc_after) > Number(smart.interface_crc_before) &&
+          smart.interface_crc_before !== null && smart.interface_crc_before !== undefined &&
+          smart.interface_crc_after !== null && smart.interface_crc_after !== undefined;
+        const diskSmartAlert = smart.predicted_failure === true ||
+          Number(smart.reallocated) > 0 || Number(smart.pending) > 0 ||
+          Number(smart.uncorrectable) > 0 || crcIncreased ||
+          smart.pio_mode === true || smart.slow_sata_link === true;
+        if (diskSmartAlert) {
+          storageSmartAlerts = true;
+          issue("warning", "storage", "smart_or_link_alert", name + ": o laudo SMART ou a interface reportou uma condição que merece atenção.");
+        }
+        (report.warnings || []).forEach((warning) => storageEvidence.push("Aviso: " + warning));
+        if (report.execution_status === "completed") storageCompleted++;
+        else storagePartial++;
+      } catch (error) {
+        storagePartial++;
+        storageEvidence.push(disk.id + ": falha ao executar o teste — " + String(error));
+        issue("warning", "storage", "storage_test_failed", disk.id + ": " + String(error));
+      }
+      await checkpoint("running");
+      updateCompleteDiagnosticProgress(1, (index + 1) * 100 / Math.max(1, disks.length),
+        "Unidade " + (index + 1) + " de " + disks.length + " processada.");
+    }
+    const storageStatus = !disks.length || (!storageCompleted && !storagePartial)
+      ? "indisponivel"
+      : !storageCompleted && storagePartial ? "falha"
+      : storagePartial || storageSmartAlerts ? "atencao" : "informativo";
+    if (completeDiagnosticCancelRequested && storageCompleted + storagePartial < disks.length) {
+      storageEvidence.push("As unidades restantes não foram testadas porque o cancelamento foi solicitado.");
+      issue("warning", "storage", "storage_test_cancelled", "O diagnóstico foi cancelado durante a etapa de armazenamento.");
+    }
+    addCompleteDiagnosticResult(results, "armazenamento", storageStatus, storageEvidence,
+      ["Motor de diagnóstico de armazenamento QBoa", "Laudo individual com medições e dados SMART quando disponíveis"]);
+    setCompleteDiagnosticStage(1, completeDiagnosticCancelRequested || !disks.length || storagePartial || storageSmartAlerts ? "warning" : "completed",
+      storageCompleted + " concluída(s), " + storagePartial + " parcial(is)/falha(s), " + disks.length + " unidade(s).");
+    await checkpoint("running");
+
+    // RAM: perfil padrão de 3 GiB, com cobertura descrita no próprio laudo.
+    if (!completeDiagnosticCancelRequested) {
+      updateCompleteDiagnosticProgress(2, 0, "Preparando teste de integridade da RAM (perfil padrão).");
+      try {
+        const initial = await Qboa.startMemoryTest("standard");
+        const session = await waitForCompleteDiagnosticSession("memory", initial, () => Qboa.getMemoryTestSession(), 2);
+        const report = session?.report;
+        if (report) {
+          const status = completeDiagnosticStatus(report.status);
+          const evidence = [
+            "Resultado: " + report.status,
+            "Memória testada: " + completeDiagnosticNumber(report.memory_tested_bytes / (1024 ** 3), " GiB", 2),
+            "Divergências: " + completeDiagnosticNumber(report.mismatches_total, "", 0),
+            report.coverage_description || "Cobertura não informada.",
+            "Passes: " + report.passes_completed + "/" + report.passes_planned
+          ];
+          (report.warnings || []).forEach((warning) => evidence.push("Aviso: " + warning));
+          addCompleteDiagnosticResult(results, "memoria_ram", status, evidence, ["QBoa Memory Test · A01–A05"]);
+          if (status !== "ok") issue(status === "falha" ? "error" : "warning", "memory", "memory_test_" + report.status, "O teste de RAM terminou com estado " + report.status + ".");
+          setCompleteDiagnosticStage(2, status === "ok" ? "completed" : status === "falha" ? "failed" : "warning", "Teste de RAM: " + report.status + ".");
+        } else {
+          throw new Error(session?.error || "O motor não retornou um laudo de RAM.");
+        }
+      } catch (error) {
+        addCompleteDiagnosticResult(results, "memoria_ram", "indisponivel", ["Não foi possível concluir o teste de RAM: " + String(error)], ["QBoa Memory Test"]);
+        issue("warning", "memory", "memory_test_unavailable", String(error));
+        setCompleteDiagnosticStage(2, "warning", "Teste de RAM indisponível.");
+      }
+      await checkpoint("running");
+    } else {
+      addCompleteDiagnosticResult(results, "memoria_ram", "indisponivel", ["Não executado: diagnóstico cancelado antes desta etapa."], ["QBoa Memory Test"]);
+      setCompleteDiagnosticStage(2, "skipped", "Não executado por cancelamento.");
+    }
+
+    // CPU: perfil rápido de cinco minutos, com monitoramento térmico.
+    if (!completeDiagnosticCancelRequested) {
+      updateCompleteDiagnosticProgress(3, 0, "Preparando teste de carga da CPU (5 minutos).");
+      try {
+        const initial = await Qboa.startCpuTest("quick");
+        const session = await waitForCompleteDiagnosticSession("cpu", initial, () => Qboa.getCpuTestSession(), 3);
+        const report = session?.report;
+        if (report) {
+          const status = completeDiagnosticStatus(report.execution_status, report.calculation_errors);
+          const evidence = [
+            "Resultado: " + report.execution_status,
+            "Duração: " + completeDiagnosticNumber(report.duration_ms / 60000, " min", 2),
+            "Temperatura média/máxima: " + completeDiagnosticNumber(report.temperature_average_c, " °C") + " / " + completeDiagnosticNumber(report.temperature_max_c, " °C"),
+            "Utilização média/máxima: " + completeDiagnosticNumber(report.cpu_utilization_average_percent, "%") + " / " + completeDiagnosticNumber(report.cpu_utilization_max_percent, "%"),
+            "Iterações: " + completeDiagnosticNumber(report.iterations, "", 0) + " · erros de cálculo: " + completeDiagnosticNumber(report.calculation_errors, "", 0)
+          ];
+          (report.warnings || []).forEach((warning) => evidence.push("Aviso: " + warning));
+          addCompleteDiagnosticResult(results, "processador", status, evidence, ["QBoa CPU Stress Test", report.sensor_provider || "Telemetria térmica"]);
+          if (status !== "ok") issue(status === "falha" ? "error" : "warning", "cpu", "cpu_test_" + report.execution_status, "O teste de CPU terminou com estado " + report.execution_status + ".");
+          setCompleteDiagnosticStage(3, status === "ok" ? "completed" : status === "falha" ? "failed" : "warning", "Teste de CPU: " + report.execution_status + ".");
+        } else {
+          throw new Error(session?.error || "O motor não retornou um laudo de CPU.");
+        }
+      } catch (error) {
+        addCompleteDiagnosticResult(results, "processador", "indisponivel", ["Não foi possível concluir o teste de CPU: " + String(error)], ["QBoa CPU Stress Test"]);
+        issue("warning", "cpu", "cpu_test_unavailable", String(error));
+        setCompleteDiagnosticStage(3, "warning", "Teste de CPU indisponível.");
+      }
+      await checkpoint("running");
+    } else {
+      addCompleteDiagnosticResult(results, "processador", "indisponivel", ["Não executado: diagnóstico cancelado antes desta etapa."], ["QBoa CPU Stress Test"]);
+      setCompleteDiagnosticStage(3, "skipped", "Não executado por cancelamento.");
+    }
+
+    // GPU: perfil rápido de cinco minutos, com validação Direct3D 11.
+    if (!completeDiagnosticCancelRequested) {
+      updateCompleteDiagnosticProgress(4, 0, "Preparando teste de estabilidade da GPU (5 minutos).");
+      try {
+        const initial = await Qboa.startGpuTest("quick");
+        const session = await waitForCompleteDiagnosticSession("gpu", initial, () => Qboa.getGpuTestSession(), 4);
+        const report = session?.report;
+        if (report) {
+          const status = completeDiagnosticStatus(report.execution_status, report.validation_errors);
+          const evidence = [
+            "Resultado: " + report.execution_status,
+            "Adaptadores: " + ((report.adapter_names || []).join(", ") || "não identificados"),
+            "Duração: " + completeDiagnosticNumber(report.duration_ms / 60000, " min", 2),
+            "Temperatura média/máxima: " + completeDiagnosticNumber(report.temperature_average_c, " °C") + " / " + completeDiagnosticNumber(report.temperature_max_c, " °C"),
+            "Utilização média/máxima: " + completeDiagnosticNumber(report.utilization_average_percent, "%") + " / " + completeDiagnosticNumber(report.utilization_max_percent, "%"),
+            "Despachos: " + completeDiagnosticNumber(report.dispatches, "", 0) + " · divergências: " + completeDiagnosticNumber(report.validation_errors, "", 0)
+          ];
+          (report.warnings || []).forEach((warning) => evidence.push("Aviso: " + warning));
+          addCompleteDiagnosticResult(results, "placa_de_video", status, evidence, ["QBoa GPU Stability Test · Direct3D 11 Compute Shader"]);
+          if (status !== "ok") issue(status === "falha" ? "error" : "warning", "gpu", "gpu_test_" + report.execution_status, "O teste de GPU terminou com estado " + report.execution_status + ".");
+          setCompleteDiagnosticStage(4, status === "ok" ? "completed" : status === "falha" ? "failed" : "warning", "Teste de GPU: " + report.execution_status + ".");
+        } else {
+          throw new Error(session?.error || "O motor não retornou um laudo de GPU.");
+        }
+      } catch (error) {
+        addCompleteDiagnosticResult(results, "placa_de_video", "indisponivel", ["Não foi possível concluir o teste de GPU: " + String(error)], ["QBoa GPU Stability Test"]);
+        issue("warning", "gpu", "gpu_test_unavailable", String(error));
+        setCompleteDiagnosticStage(4, "warning", "Teste de GPU indisponível.");
+      }
+      await checkpoint("running");
+    } else {
+      addCompleteDiagnosticResult(results, "placa_de_video", "indisponivel", ["Não executado: diagnóstico cancelado antes desta etapa."], ["QBoa GPU Stability Test"]);
+      setCompleteDiagnosticStage(4, "skipped", "Não executado por cancelamento.");
+    }
+
+    const finalStatus = completeDiagnosticCancelRequested ? "cancelled" : "completed";
+    await checkpoint(finalStatus);
+    if (completeDiagnosticCancelRequested) {
+      document.getElementById("complete-diagnostic-detail").textContent = "Diagnóstico cancelado; os resultados já coletados foram preservados.";
+    } else {
+      updateCompleteDiagnosticProgress(4, 100, "Todas as etapas foram processadas.");
+    }
+    const counts = results.reduce((acc, item) => { acc[item.status] = (acc[item.status] || 0) + 1; return acc; }, {});
+    const summary = document.getElementById("complete-diagnostic-summary");
+    summary.hidden = false;
+    summary.textContent = (completeDiagnosticCancelRequested ? "Diagnóstico interrompido. " : "Diagnóstico finalizado. ") +
+      (counts.ok || 0) + " aprovado(s), " + (counts.informativo || 0) + " informativo(s), " +
+      (counts.atencao || 0) + " alerta(s), " + (counts.falha || 0) + " falha(s) e " +
+      (counts.indisponivel || 0) + " indisponível(is).";
+    renderDiagnosticReport({ results, checks: [] });
+    resultsList.hidden = false;
+    progressPanel.hidden = true;
+    statusLine.textContent = "Laudo consolidado salvo localmente. Os laudos individuais de cada motor também foram preservados.";
+    try { await loadDiagnosticHistory(false); } catch (historyError) {
+      console.warn("Não foi possível atualizar o histórico após o diagnóstico completo:", historyError);
+    }
+  } catch (error) {
+    issue("error", "complete_diagnostic", "complete_diagnostic_failed", String(error));
+    if (reportId) {
+      try { await checkpoint("failed"); } catch (saveError) {
+        console.error("Falha ao preservar laudo completo:", saveError);
+      }
+    }
+    statusLine.textContent = "Não foi possível concluir o diagnóstico completo: " + String(error);
+    summaryPanel.hidden = false;
+    summaryPanel.textContent = "A execução foi interrompida. Os laudos individuais já gravados continuam preservados.";
+  } finally {
+    completeDiagnosticRunning = false;
+    completeDiagnosticCurrentSession = null;
+    runButton.hidden = false;
+    runButton.disabled = false;
+    closeButton.disabled = false;
+    cancelButton.disabled = true;
+    cancelButton.textContent = "Diagnóstico encerrado";
+    if (!progressPanel.hidden) progressPanel.hidden = true;
+    try { await loadDiagnosticHistory(false); } catch (historyError) {
+      console.warn("Não foi possível atualizar o histórico de laudos:", historyError);
+    }
+  }
+}
+
 async function runDiagnostic(mode, target = null) {
+  if (mode === "complete" && target === null) {
+    await runCompleteDiagnostic();
+    return;
+  }
   const status = document.getElementById("diagnostic-status");
   document.getElementById("diagnostic-results").replaceChildren();
   const runButton = document.getElementById("diagnostic-run-selected");
@@ -2963,6 +3398,9 @@ async function registerEvents() {
 
   document.getElementById("diagnostic-run-selected").addEventListener("click", () => {
     void runDiagnostic(activeDiagnosticMode, activeDiagnosticTarget);
+  });
+  document.getElementById("complete-diagnostic-cancel").addEventListener("click", () => {
+    void cancelCompleteDiagnostic();
   });
   document.getElementById("memory-test-start").addEventListener("click", () => {
     void startMemoryTestFromUi();
