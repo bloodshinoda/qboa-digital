@@ -1020,7 +1020,7 @@ pub(crate) fn load_reports(app_data_dir: &Path) -> Result<Vec<CpuTestReport>, St
         if !safe_report_id(&report.report_id) || report.schema_version != REPORT_SCHEMA_VERSION {
             continue;
         }
-        if report.execution_status == "running" {
+        if report.execution_status == "running" && !is_active() {
             report.execution_status = "partial".into();
             report.finished_at = Some(timestamp_now());
             report.warnings.push("O aplicativo foi encerrado antes da conclusão do teste; somente as amostras já registradas foram preservadas.".into());
