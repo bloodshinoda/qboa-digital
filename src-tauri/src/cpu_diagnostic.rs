@@ -193,7 +193,7 @@ try {
   Add-CpuTemperatureSensors -Node $tree -WithinCpu $false -Result $restSensors
   if ($restSensors.Count -gt 0) {
     $provider = 'hardware_monitor_rest'
-    $sensors = @($restSensors)
+    $sensors = @($restSensors.ToArray())
   }
 } catch {}
 if (-not $provider) {
@@ -1147,6 +1147,15 @@ fn timestamp_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rest_sensor_provider_uses_loopback_api() {
+        let script = telemetry_script("hardware_monitor_rest");
+        assert!(script.contains("http://127.0.0.1:8085/data.json"));
+        assert!(script.contains("RawValue"));
+        assert!(script.contains("HardwareId"));
+        assert!(!script.contains("root\\LibreHardwareMonitor"));
+    }
 
     #[test]
     fn test_profiles_have_expected_durations() {
