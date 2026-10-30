@@ -227,6 +227,47 @@
         <ul id="memory-test-result-details" class="memory-test-result-details"></ul>
         <p class="memory-test-safety-note">O teste usa somente buffers próprios do QBoa. Não acessa endereços físicos, não bloqueia a paginação do Windows e não certifica toda a RAM física. Se o teste for cancelado ou ficar inconclusivo, o resultado não é uma aprovação.</p>
       </section>
+      <section id="cpu-test-panel" class="cpu-test-panel" hidden aria-label="Teste de carga e telemetria do processador">
+        <section class="cpu-inventory-panel">
+          <div class="cpu-inventory-heading">
+            <div><h3>Processador detectado</h3><p id="cpu-inventory-summary" aria-live="polite">Consultando CPU e sensores térmicos…</p></div>
+            <button class="secondary-button" id="cpu-inventory-refresh" type="button">Atualizar</button>
+          </div>
+          <div id="cpu-inventory-details" class="cpu-inventory-details"></div>
+          <p id="cpu-sensor-status" class="cpu-sensor-status" role="status"></p>
+        </section>
+        <div class="cpu-test-profile-picker">
+          <label for="cpu-test-profile">Duração do teste</label>
+          <select id="cpu-test-profile">
+            <option value="quick">Rápido · 5 minutos</option>
+            <option value="standard" selected>Padrão · 15 minutos</option>
+            <option value="extended">Estendido · 30 minutos</option>
+          </select>
+          <p>O teste aplica carga computacional aos threads lógicos, registra temperatura, utilização e frequência a cada segundo e verifica resultados por duas rotas aritméticas independentes.</p>
+        </div>
+        <div class="cpu-test-actions">
+          <button class="primary-button" id="cpu-test-start" type="button" disabled>Iniciar teste de CPU</button>
+          <button class="secondary-button" id="cpu-test-cancel" type="button" hidden disabled>Cancelar teste</button>
+          <span id="cpu-test-progress-label" aria-live="polite">Aguardando início.</span>
+        </div>
+        <div class="cpu-test-live-metrics">
+          <article><span>Temperatura atual</span><strong id="cpu-test-temperature">—</strong><small id="cpu-test-temperature-max">Máxima: —</small></article>
+          <article><span>Utilização</span><strong id="cpu-test-utilization">—</strong><small id="cpu-test-utilization-max">Pico: —</small></article>
+          <article><span>Frequência</span><strong id="cpu-test-frequency">—</strong><small id="cpu-test-frequency-max">Pico: —</small></article>
+        </div>
+        <section class="cpu-test-chart-panel" aria-label="Gráfico de temperatura e utilização do processador">
+          <div class="cpu-test-chart-heading"><strong>Telemetria durante o teste</strong><span id="cpu-test-chart-range">Sem amostras</span></div>
+          <canvas id="cpu-test-chart" height="190" role="img" aria-label="Gráfico temporal de temperatura e utilização da CPU"></canvas>
+          <div class="cpu-test-chart-legend"><span class="cpu-legend-temperature">Temperatura (°C)</span><span class="cpu-legend-usage">Utilização (%)</span></div>
+        </section>
+        <div class="cpu-test-progress" role="group" aria-label="Progresso do teste de CPU">
+          <div class="cpu-test-progress-heading"><strong id="cpu-test-phase">Aguardando início</strong><span id="cpu-test-progress-percent">0%</span></div>
+          <div class="cpu-test-progress-track" role="progressbar" aria-label="Progresso do teste de CPU" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="cpu-test-progress-bar"></div></div>
+          <p id="cpu-test-progress-detail" aria-live="polite">O teste só começa quando uma leitura térmica válida da CPU estiver disponível.</p>
+        </div>
+        <div id="cpu-test-result" class="cpu-test-result" role="status" aria-live="polite"></div>
+        <p class="cpu-test-safety-note">O teste é executado somente sob solicitação. A carga roda em prioridade abaixo do normal, pode ser cancelada e é interrompida ao atingir 90 °C ou perder o sensor térmico. O resultado não certifica estabilidade universal.</p>
+      </section>
       <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Executar teste</button></div>
       <p id="diagnostic-status" aria-live="polite"></p>
       <ul id="diagnostic-results" class="diagnostic-results"></ul>
