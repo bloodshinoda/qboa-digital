@@ -1571,14 +1571,14 @@ async function loadCpuInventory() {
       ? "API local do LibreHardwareMonitor/Open Hardware Monitor"
       : (inventory.sensor_provider || "provedor de hardware");
     status.textContent = inventory.sensor_available
-      ? "Sensor térmico de CPU disponível via " + providerLabel + "."
-      : (inventory.sensor_note || "Nenhum sensor térmico compatível foi detectado.");
+      ? "Temperatura disponível via " + providerLabel + ". " + (inventory.sensor_note || "")
+      : "Temperatura indisponível; o teste continuará normalmente com as demais métricas.";
     status.classList.toggle("available", Boolean(inventory.sensor_available));
-    start.disabled = !inventory.sensor_available || ["running", "cancelling"].includes(cpuTestSessionSnapshot?.lifecycle);
+    start.disabled = ["running", "cancelling"].includes(cpuTestSessionSnapshot?.lifecycle);
   } catch (error) {
     cpuInventorySnapshot = null;
     summary.textContent = "Não foi possível consultar o processador: " + String(error);
-    status.textContent = "O teste acompanhado de temperatura está indisponível.";
+    status.textContent = "Não foi possível consultar a identificação do processador.";
     start.disabled = true;
   } finally {
     refresh.disabled = false;
@@ -1724,7 +1724,7 @@ function renderCpuTestSession(session) {
   const cancel = document.getElementById("cpu-test-cancel");
   const profile = document.getElementById("cpu-test-profile");
   const percent = Math.max(0, Math.min(100, Number(session.progress_percent || 0)));
-  start.disabled = active || !cpuInventorySnapshot?.sensor_available;
+  start.disabled = active;
   start.textContent = active ? "Teste em andamento" : "Iniciar teste de CPU";
   cancel.hidden = !active;
   cancel.disabled = session.lifecycle === "cancelling";
@@ -1764,10 +1764,6 @@ async function startCpuTestFromUi() {
   const profile = document.getElementById("cpu-test-profile").value;
   const start = document.getElementById("cpu-test-start");
   const result = document.getElementById("cpu-test-result");
-  if (!cpuInventorySnapshot?.sensor_available) {
-    result.textContent = cpuInventorySnapshot?.sensor_note || "Sensor térmico da CPU indisponível.";
-    return;
-  }
   start.disabled = true;
   result.textContent = "Solicitando início do teste…";
   cpuTestSamples = [];
