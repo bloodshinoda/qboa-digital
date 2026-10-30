@@ -161,7 +161,6 @@ pub(crate) fn is_active() -> bool {
     })
 }
 
-
 #[cfg(target_os = "windows")]
 pub(crate) fn install_pawnio(app_data_dir: &Path) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
