@@ -18,7 +18,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 const REPORT_SCHEMA_VERSION: u32 = 1;
 const MAX_REPORT_BYTES: u64 = 4 * 1024 * 1024;
-const THERMAL_STOP_C: f64 = 90.0;
+const THERMAL_STOP_C: f64 = 85.0;
 const SENSOR_MISSING_LIMIT: u8 = 3;
 const SAMPLE_TIMEOUT_SECS: u64 = 8;
 static NEXT_REPORT_ID: AtomicU64 = AtomicU64::new(0);
@@ -247,11 +247,13 @@ while ($true) {{
   $selected = $sensors | Sort-Object {{ [double]$_.Value }} -Descending | Select-Object -First 1
   $perf = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" |
     Select-Object -First 1
+  $utilization = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" |
+    Select-Object -First 1
   [pscustomobject]@{{
     timestamp_utc = [DateTimeOffset]::UtcNow.ToString('o')
     temperature_c = if ($selected -and $null -ne $selected.Value) {{ [double]$selected.Value }} else {{ $null }}
     temperature_sensor = if ($selected) {{ [string]$selected.Name }} else {{ $null }}
-    cpu_utilization_percent = if ($perf -and $null -ne $perf.PercentProcessorUtility) {{ [double]$perf.PercentProcessorUtility }} else {{ $null }}
+    cpu_utilization_percent = if ($utilization -and $null -ne $utilization.PercentProcessorTime) {{ [double]$utilization.PercentProcessorTime }} else {{ $null }}
     frequency_mhz = if ($perf -and $null -ne $perf.ProcessorFrequency) {{ [double]$perf.ProcessorFrequency }} else {{ $null }}
   }} | ConvertTo-Json -Compress
   Start-Sleep -Seconds 1
@@ -677,7 +679,7 @@ fn run_test<R: Runtime>(
             .push("Foram encontradas divergências em cálculos redundantes durante a carga.".into());
     } else if report.execution_status == "thermal_limit_reached" {
         report.warnings.push(format!(
-            "Teste interrompido ao atingir o limite conservador de {:.0} °C.",
+            "Teste interrompido ao atingir o limite térmico conservador definido pelo QBoa ({:.0} °C); isso não representa o TjMax oficial do fabricante.",
             THERMAL_STOP_C
         ));
     } else if report.execution_status == "sensor_lost" {
