@@ -1,8 +1,8 @@
 //! Diagnóstico de CPU com carga computacional controlada e telemetria térmica.
 //!
-//! A temperatura é lida de um provedor de sensores de hardware ativo (LibreHardwareMonitor
-//! ou Open Hardware Monitor). O Windows não expõe de forma consistente a temperatura do
-//! package por uma API WMI universal; zonas ACPI genéricas não são rotuladas como CPU aqui.
+//! A temperatura é lida pelo coletor integrado baseado em LibreHardwareMonitorLib.
+//! O Windows não expõe de forma consistente a temperatura do package por uma API WMI
+//! universal; zonas ACPI genéricas não são tratadas como temperatura de CPU aqui.
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -1176,35 +1176,6 @@ mod tests {
         assert!(preamble.contains("[Console]::OutputEncoding"));
         assert!(preamble.contains("$OutputEncoding"));
         assert!(preamble.contains("UTF8Encoding($false)"));
-    }
-
-    #[test]
-    fn rest_sensor_provider_uses_loopback_api() {
-        let script = telemetry_script("hardware_monitor_rest");
-        assert!(script.contains("http://127.0.0.1:8085/data.json"));
-        assert!(script.contains("RawValue"));
-        assert!(script.contains("HardwareId"));
-        assert!(script.contains("SensorId"));
-        assert!(script.contains("RawValue"));
-        assert!(!script.contains("root\\LibreHardwareMonitor"));
-    }
-
-    #[test]
-    fn missing_temperature_provider_uses_native_metrics_collector() {
-        let script = telemetry_script("none");
-        assert!(script.contains("Win32_PerfFormattedData_PerfOS_Processor"));
-        assert!(script.contains("Win32_PerfFormattedData_Counters_ProcessorInformation"));
-        assert!(script.contains("temperature_c = $null"));
-        assert!(!script.contains("8085"));
-    }
-
-    #[test]
-    fn lost_rest_sensor_does_not_stop_native_telemetry() {
-        let script = telemetry_script("hardware_monitor_rest");
-        assert!(script.contains("$selected = $null"));
-        assert!(script.contains("catch {"));
-        assert!(script.contains("Win32_PerfFormattedData_PerfOS_Processor"));
-        assert!(script.contains("Win32_PerfFormattedData_Counters_ProcessorInformation"));
     }
 
     #[test]
