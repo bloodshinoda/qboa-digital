@@ -1567,14 +1567,12 @@ async function loadCpuInventory() {
       item.append(title, valueElement);
       details.appendChild(item);
     });
-    const providerLabel = inventory.sensor_provider === "hardware_monitor_rest"
-      ? "API local do LibreHardwareMonitor/Open Hardware Monitor"
-      : (inventory.sensor_provider || "provedor de hardware");
+    const providerLabel = inventory.sensor_provider || "coletor térmico integrado";
     status.textContent = inventory.sensor_available
       ? "Temperatura disponível via " + providerLabel + ". " + (inventory.sensor_note || "")
-      : "Temperatura indisponível; o teste continuará normalmente com as demais métricas.";
+      : (inventory.sensor_note || "Sensor térmico de CPU não encontrado. O teste não poderá ser iniciado.");
     status.classList.toggle("available", Boolean(inventory.sensor_available));
-    start.disabled = ["running", "cancelling"].includes(cpuTestSessionSnapshot?.lifecycle);
+    start.disabled = !inventory.sensor_available || ["running", "cancelling"].includes(cpuTestSessionSnapshot?.lifecycle);
   } catch (error) {
     cpuInventorySnapshot = null;
     summary.textContent = "Não foi possível consultar o processador: " + String(error);

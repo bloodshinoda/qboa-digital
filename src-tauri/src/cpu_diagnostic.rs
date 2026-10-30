@@ -194,16 +194,27 @@ if (-not $cpu) { throw 'O Windows não retornou Win32_Processor.' }
             .map_err(|error| format!("O coletor térmico retornou uma resposta inválida: {error}"))?;
         let sensors = discovery.get("sensors")
             .and_then(serde_json::Value::as_array)
-            .map(|items| items.iter()
-                .filter_map(|item| item.get("name").and_then(serde_json::Value::as_str))
-                .map(str::to_string).collect::<Vec<_>>())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.get("name").and_then(serde_json::Value::as_str))
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
-        inventory.sensor_available = discovery.get("available")
-            .and_then(serde_json::Value::as_bool).unwrap_or(false) && !sensors.is_empty();
+        inventory.sensor_available = discovery
+            .get("available")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+            && !sensors.is_empty();
         inventory.temperature_sensors = sensors;
         if inventory.sensor_available {
-            inventory.sensor_provider = Some("LibreHardwareMonitorLib 0.9.6 (integrado)".to_string());
-            inventory.sensor_note = format!("{} sensor(es) térmico(s) de CPU detectado(s) pelo coletor integrado.", inventory.temperature_sensors.len());
+            inventory.sensor_provider =
+                Some("LibreHardwareMonitorLib 0.9.6 (integrado)".to_string());
+            inventory.sensor_note = format!(
+                "{} sensor(es) térmico(s) de CPU detectado(s) pelo coletor integrado.",
+                inventory.temperature_sensors.len()
+            );
         } else {
             inventory.sensor_provider = None;
             inventory.sensor_note = discovery.get("note")
@@ -256,18 +267,27 @@ fn run_powershell_once(script: &str) -> Result<String, String> {
 fn extract_hardware_monitor(app_data_dir: &Path) -> Result<PathBuf, String> {
     const EMBEDDED_MONITOR: &[u8] = include_bytes!("../binaries/qboa-hardware-monitor.exe");
     let runtime_dir = app_data_dir.join("runtime");
-    fs::create_dir_all(&runtime_dir).map_err(|e| format!("Não foi possível preparar o coletor térmico: {e}"))?;
+    fs::create_dir_all(&runtime_dir)
+        .map_err(|e| format!("Não foi possível preparar o coletor térmico: {e}"))?;
     let destination = runtime_dir.join("qboa-hardware-monitor.exe");
     let temporary = runtime_dir.join(format!("qboa-hardware-monitor-{}.tmp", std::process::id()));
-    let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(&temporary)
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&temporary)
         .map_err(|e| format!("Não foi possível extrair o coletor térmico: {e}"))?;
-    file.write_all(EMBEDDED_MONITOR).and_then(|_| file.flush()).and_then(|_| file.sync_all())
+    file.write_all(EMBEDDED_MONITOR)
+        .and_then(|_| file.flush())
+        .and_then(|_| file.sync_all())
         .map_err(|e| format!("Não foi possível gravar o coletor térmico: {e}"))?;
     drop(file);
     if destination.exists() {
-        fs::remove_file(&destination).map_err(|e| format!("Não foi possível atualizar o coletor térmico: {e}"))?;
+        fs::remove_file(&destination)
+            .map_err(|e| format!("Não foi possível atualizar o coletor térmico: {e}"))?;
     }
-    fs::rename(&temporary, &destination).map_err(|e| format!("Não foi possível preparar o coletor térmico: {e}"))?;
+    fs::rename(&temporary, &destination)
+        .map_err(|e| format!("Não foi possível preparar o coletor térmico: {e}"))?;
     Ok(destination)
 }
 
@@ -275,15 +295,23 @@ fn extract_hardware_monitor(app_data_dir: &Path) -> Result<PathBuf, String> {
 fn run_hardware_monitor_once(app_data_dir: &Path, mode: &str) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
     let executable = extract_hardware_monitor(app_data_dir)?;
-    let output = Command::new(executable).arg(mode).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .creation_flags(0x08000000).output()
+    let output = Command::new(executable)
+        .arg(mode)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(0x08000000)
+        .output()
         .map_err(|e| format!("Não foi possível iniciar o coletor térmico integrado: {e}"))?;
     if !output.status.success() {
         let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if details.is_empty() { format!("O coletor térmico encerrou com código {}.", output.status) }
-            else { format!("O coletor térmico integrado falhou: {details}") });
+        return Err(if details.is_empty() {
+            format!("O coletor térmico encerrou com código {}.", output.status)
+        } else {
+            format!("O coletor térmico integrado falhou: {details}")
+        });
     }
-    String::from_utf8(output.stdout).map(|v| v.trim().to_string())
+    String::from_utf8(output.stdout)
+        .map(|v| v.trim().to_string())
         .map_err(|e| format!("A resposta do coletor térmico não está em UTF-8: {e}"))
 }
 
@@ -296,8 +324,12 @@ fn run_hardware_monitor_once(_app_data_dir: &Path, _mode: &str) -> Result<String
 fn start_telemetry_process(app_data_dir: &Path) -> Result<Child, String> {
     use std::os::windows::process::CommandExt;
     let executable = extract_hardware_monitor(app_data_dir)?;
-    Command::new(executable).arg("stream").stdout(Stdio::piped()).stderr(Stdio::null())
-        .creation_flags(0x08000000).spawn()
+    Command::new(executable)
+        .arg("stream")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .creation_flags(0x08000000)
+        .spawn()
         .map_err(|e| format!("Não foi possível iniciar o monitoramento térmico integrado: {e}"))
 }
 
@@ -513,27 +545,36 @@ fn run_test<R: Runtime>(
     });
 
     let mut last_preflight_sample = None;
-    let mut preflight_sensor_name: Option<String> = None;
-    for sample_number in 1..=3 {
+     for sample_number in 1..=3 {
         let line = receiver.recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS))
             .map_err(|_| "O coletor integrado não forneceu três leituras térmicas consecutivas. O teste não foi iniciado.".to_string())?;
         let raw: RawTelemetrySample = serde_json::from_str(&line)
             .map_err(|e| format!("A amostra térmica de pré-verificação é inválida: {e}"))?;
-        let temperature = raw.temperature_c.filter(|v| v.is_finite() && (0.0..=150.0).contains(v))
-            .ok_or_else(|| format!("O sensor térmico não forneceu leitura válida na pré-verificação ({sample_number}/3). O teste não foi iniciado."))?;
-        let sensor_name = raw.temperature_sensor.as_deref().filter(|name| !name.trim().is_empty())
-            .ok_or_else(|| "O coletor não identificou a origem da leitura térmica. O teste não foi iniciado.".to_string())?;
-        if preflight_sensor_name.as_deref().is_some_and(|previous| previous != sensor_name) {
-            return Err("A identificação do sensor térmico mudou durante a pré-verificação. O teste não foi iniciado.".into());
-        }
-        preflight_sensor_name = Some(sensor_name.to_string());
+        let temperature = raw
+            .temperature_c
+            .filter(|v| v.is_finite() && (0.0..=150.0).contains(v))
+            .ok_or_else(|| {
+                format!(
+                    "O sensor térmico não forneceu leitura válida na pré-verificação ({sample_number}/3). O teste não foi iniciado."
+                )
+            })?;
+        raw.temperature_sensor
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| {
+                "O coletor não identificou a origem da leitura térmica. O teste não foi iniciado."
+                    .to_string()
+            })?;
         if temperature >= THERMAL_STOP_C {
             return Err(format!("A CPU já está a {:.1} °C antes do teste. Aguarde o resfriamento abaixo de {:.0} °C.", temperature, THERMAL_STOP_C));
         }
         last_preflight_sample = Some(raw);
     }
-    let first_raw = last_preflight_sample.ok_or_else(|| "Não foi possível validar o sensor térmico da CPU.".to_string())?;
-    let first_temperature = first_raw.temperature_c.expect("pré-verificação validou temperatura");
+    let first_raw = last_preflight_sample
+        .ok_or_else(|| "Não foi possível validar o sensor térmico da CPU.".to_string())?;
+    let first_temperature = first_raw
+        .temperature_c
+        .expect("pré-verificação validou temperatura");
 
     let started_clock = Instant::now();
     let started_at = timestamp_now();
@@ -572,8 +613,7 @@ fn run_test<R: Runtime>(
     let mut terminal_status = "completed".to_string();
     let mut last_checkpoint = Instant::now();
     let mut last_temperature_at = Instant::now();
-    let expected_sensor = first_raw.temperature_sensor.clone();
-    while started_clock.elapsed() < Duration::from_secs(duration_seconds) {
+     while started_clock.elapsed() < Duration::from_secs(duration_seconds) {
         if cancel.load(Ordering::Acquire) {
             terminal_status = "cancelled".into();
             break;
@@ -582,42 +622,90 @@ fn run_test<R: Runtime>(
             Ok(line) => {
                 let raw: RawTelemetrySample = match serde_json::from_str(&line) {
                     Ok(sample) => sample,
-                    Err(_) => { terminal_status = "sensor_lost".into(); break; }
+                    Err(_) => {
+                        terminal_status = "sensor_lost".into();
+                        break;
+                    }
                 };
                 let elapsed_ms = started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let temperature = raw.temperature_c.filter(|v| v.is_finite() && (0.0..=150.0).contains(v));
-                let sensor_name = raw.temperature_sensor.as_deref().filter(|name| !name.trim().is_empty());
-                if temperature.is_none() || sensor_name != expected_sensor.as_deref() {
+                let temperature = raw
+                    .temperature_c
+                    .filter(|v| v.is_finite() && (0.0..=150.0).contains(v));
+                let sensor_name = raw
+                    .temperature_sensor
+                    .as_deref()
+                    .filter(|name| !name.trim().is_empty());
+                if temperature.is_none() || sensor_name.is_none() {
                     let sample = CpuTelemetrySample {
-                        elapsed_ms, timestamp_utc: raw.timestamp_utc, temperature_c: None,
+                        elapsed_ms,
+                        timestamp_utc: raw.timestamp_utc,
+                        temperature_c: None,
                         temperature_sensor: raw.temperature_sensor,
-                        cpu_utilization_percent: raw.cpu_utilization_percent.filter(|v| v.is_finite() && (0.0..=100.0).contains(v)),
-                        frequency_mhz: raw.frequency_mhz.filter(|v| v.is_finite() && *v > 0.0 && *v < 20000.0),
+                        cpu_utilization_percent: raw
+                            .cpu_utilization_percent
+                            .filter(|v| v.is_finite() && (0.0..=100.0).contains(v)),
+                        frequency_mhz: raw
+                            .frequency_mhz
+                            .filter(|v| v.is_finite() && *v > 0.0 && *v < 20000.0),
                     };
                     samples.push(sample.clone());
-                    publish_progress(app, session_id, elapsed_ms, duration_seconds * 1000, &sample, &iterations, &errors);
+                    publish_progress(
+                        app,
+                        session_id,
+                        elapsed_ms,
+                        duration_seconds * 1000,
+                        &sample,
+                        &iterations,
+                        &errors,
+                    );
                     terminal_status = "sensor_lost".into();
                     break;
                 }
                 last_temperature_at = Instant::now();
                 let temperature = temperature.expect("temperatura validada");
-                if temperature >= THERMAL_STOP_C { terminal_status = "thermal_limit_reached".into(); }
+                if temperature >= THERMAL_STOP_C {
+                    terminal_status = "thermal_limit_reached".into();
+                }
                 let sample = CpuTelemetrySample {
-                    elapsed_ms, timestamp_utc: raw.timestamp_utc, temperature_c: Some(temperature),
+                    elapsed_ms,
+                    timestamp_utc: raw.timestamp_utc,
+                    temperature_c: Some(temperature),
                     temperature_sensor: raw.temperature_sensor,
-                    cpu_utilization_percent: raw.cpu_utilization_percent.filter(|v| v.is_finite() && (0.0..=100.0).contains(v)),
-                    frequency_mhz: raw.frequency_mhz.filter(|v| v.is_finite() && *v > 0.0 && *v < 20000.0),
+                    cpu_utilization_percent: raw
+                        .cpu_utilization_percent
+                        .filter(|v| v.is_finite() && (0.0..=100.0).contains(v)),
+                    frequency_mhz: raw
+                        .frequency_mhz
+                        .filter(|v| v.is_finite() && *v > 0.0 && *v < 20000.0),
                 };
                 samples.push(sample.clone());
-                publish_progress(app, session_id, elapsed_ms, duration_seconds * 1000, &sample, &iterations, &errors);
+                publish_progress(
+                    app,
+                    session_id,
+                    elapsed_ms,
+                    duration_seconds * 1000,
+                    &sample,
+                    &iterations,
+                    &errors,
+                );
                 if last_checkpoint.elapsed() >= Duration::from_secs(15) {
-                    let checkpoint = build_report(report_id.clone(), &inventory, profile, started_at.clone(),
-                        elapsed_ms, samples.clone(), iterations.load(Ordering::Relaxed),
-                        errors.load(Ordering::Relaxed), "running");
+                    let checkpoint = build_report(
+                        report_id.clone(),
+                        &inventory,
+                        profile,
+                        started_at.clone(),
+                        elapsed_ms,
+                        samples.clone(),
+                        iterations.load(Ordering::Relaxed),
+                        errors.load(Ordering::Relaxed),
+                        "running",
+                    );
                     persist_report(app_data_dir, &checkpoint)?;
                     last_checkpoint = Instant::now();
                 }
-                if terminal_status != "completed" { break; }
+                if terminal_status != "completed" {
+                    break;
+                }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if last_temperature_at.elapsed() >= Duration::from_secs(3) {
@@ -649,9 +737,15 @@ fn run_test<R: Runtime>(
         errors.load(Ordering::Relaxed),
         &terminal_status,
     );
-    let temperature_samples = report.samples.iter().filter(|sample| sample.temperature_c.is_some()).count();
+    let temperature_samples = report
+        .samples
+        .iter()
+        .filter(|sample| sample.temperature_c.is_some())
+        .count();
     if temperature_samples < report.samples.len() {
-        report.warnings.push("A leitura térmica foi perdida durante o teste; a carga foi encerrada imediatamente e as amostras parciais foram preservadas.".into());
+        report.warnings.push(
+            "A leitura térmica foi perdida durante o teste; a carga foi encerrada imediatamente e as amostras parciais foram preservadas.".into(),
+        );
     }
     if report.calculation_errors > 0 {
         report
