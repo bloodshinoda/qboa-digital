@@ -493,7 +493,7 @@ impl D3d11Engine {
         let mut device = std::ptr::null_mut();
         let mut context = std::ptr::null_mut();
         let mut level = 0u32;
-        let levels = [0xb100u32]; // D3D_FEATURE_LEVEL_11_0: compute shader obrigatório.
+        let levels = [0xb000u32]; // D3D_FEATURE_LEVEL_11_0: compute shader obrigatório.
         let hr = unsafe { D3D11CreateDevice(std::ptr::null_mut(), 1, std::ptr::null_mut(), 0,
             levels.as_ptr(), levels.len() as u32, 7, &mut device, &mut level, &mut context) };
         if hr < 0 || device.is_null() || context.is_null() {
