@@ -1097,7 +1097,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn report_aggregates_telemetry_and_worker_count() {
         let inventory = CpuInventory {
