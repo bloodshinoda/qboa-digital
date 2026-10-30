@@ -276,7 +276,6 @@ function renderCards() {
       { id: "teste_memoria", name: "Memória RAM", desc: "Inventaria os módulos e a frequência reportada, mostra as limitações de leitura de timings e executa o teste de integridade com perfil selecionável." },
       { id: "placa_de_video", name: "GPU", desc: "Adaptadores gráficos detectados e leituras disponíveis." },
       { id: "processador", name: "Processador", desc: "Teste de carga por 5, 15 ou 30 minutos, com gráfico de temperatura, utilização e frequência." },
-      { id: "temperatura", name: "Temperaturas", desc: "Leituras de sensores compatíveis, quando expostas pelo sistema." },
       { id: "completo", name: "Diagnóstico completo", desc: "Executa a bateria completa e reúne os resultados em um laudo persistente." }
     ];
     tests.forEach((test) => {
