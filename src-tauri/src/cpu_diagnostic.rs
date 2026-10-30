@@ -595,7 +595,7 @@ fn run_test<R: Runtime>(
                         .filter(|v| v.is_finite() && (0.0..=200.0).contains(v)),
                     frequency_mhz: raw
                         .frequency_mhz
-                        .filter(|v| v.is_finite() && (v > 0.0) && (v < 20000.0)),
+                        .filter(|v| v.is_finite() && (*v > 0.0) && (*v < 20000.0)),
                 };
                 samples.push(sample.clone());
                 publish_progress(
