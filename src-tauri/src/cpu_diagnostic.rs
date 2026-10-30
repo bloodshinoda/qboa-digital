@@ -300,7 +300,7 @@ fn powershell_utf8_preamble() -> &'static str {
 }
 
 #[cfg(target_os = "windows")]
-fn run_powershell_once(script: &str) -> Result<String, String> {
+pub(crate) fn run_powershell_once(script: &str) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
     let script = format!("{}\n{}", powershell_utf8_preamble(), script);
     let mut command = Command::new("powershell.exe");
@@ -331,7 +331,7 @@ fn run_powershell_once(script: &str) -> Result<String, String> {
 }
 
 #[cfg(target_os = "windows")]
-fn extract_hardware_monitor(app_data_dir: &Path) -> Result<PathBuf, String> {
+pub(crate) fn extract_hardware_monitor(app_data_dir: &Path) -> Result<PathBuf, String> {
     const EMBEDDED_MONITOR: &[u8] = include_bytes!("../binaries/qboa-hardware-monitor.exe");
     let runtime_dir = app_data_dir.join("runtime");
     fs::create_dir_all(&runtime_dir)

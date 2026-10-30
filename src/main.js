@@ -33,6 +33,8 @@ let memoryInventorySnapshot = null;
 let cpuTestSessionSnapshot = null;
 let cpuInventorySnapshot = null;
 let cpuTestSamples = [];
+let gpuTestSessionSnapshot = null;
+let gpuInventorySnapshot = null;
 
 const Qboa = {
   async analyze() {
@@ -118,6 +120,26 @@ const Qboa = {
 
   async getCpuDiagnosticReports() {
     return invoke("get_cpu_diagnostic_reports");
+  },
+
+  async getGpuInventory() {
+    return invoke("get_gpu_inventory");
+  },
+
+  async startGpuTest(profile) {
+    return invoke("start_gpu_test", { profile });
+  },
+
+  async getGpuTestSession() {
+    return invoke("get_gpu_test_session");
+  },
+
+  async cancelGpuTest(sessionId) {
+    return invoke("cancel_gpu_test", { sessionId });
+  },
+
+  async getGpuDiagnosticReports() {
+    return invoke("get_gpu_diagnostic_reports");
   },
 
   async getMemoryTestSession() {
@@ -278,7 +300,7 @@ function renderCards() {
     const tests = [
       { id: "armazenamento", name: "Armazenamento", desc: "Espaço livre e informações disponíveis sobre os volumes." },
       { id: "teste_memoria", name: "Memória RAM", desc: "Inventaria os módulos e a frequência reportada, mostra as limitações de leitura de timings e executa o teste de integridade com perfil selecionável." },
-      { id: "placa_de_video", name: "GPU", desc: "Adaptadores gráficos detectados e leituras disponíveis." },
+      { id: "placa_de_video", name: "GPU", desc: "Teste de estabilidade com compute shader Direct3D 11, validação dos resultados e monitoramento térmico." },
       { id: "processador", name: "Processador", desc: "Teste de carga por 5, 15 ou 30 minutos, com gráfico de temperatura, utilização e frequência." },
       { id: "completo", name: "Diagnóstico completo", desc: "Executa a bateria completa e reúne os resultados em um laudo persistente." }
     ];
@@ -1829,6 +1851,203 @@ async function cancelCpuTestFromUi() {
   }
 }
 
+
+function gpuTestStatusLabel(status) {
+  return ({
+    completed: "Teste concluído sem divergências observadas.",
+    errors_detected: "Foram detectadas divergências nos resultados calculados pela GPU.",
+    cancelled: "Teste cancelado. Este resultado não representa aprovação.",
+    thermal_limit_reached: "Teste interrompido pelo limite térmico conservador do QBoa.",
+    sensor_lost: "Teste interrompido porque a telemetria térmica foi perdida.",
+    failed: "Falha operacional: o teste não pôde ser concluído.",
+    device_error: "O dispositivo gráfico deixou de responder ou foi reiniciado pelo driver."
+  })[status] || "Aguardando resultado.";
+}
+
+async function loadGpuInventory() {
+  const summary = document.getElementById("gpu-inventory-summary");
+  const details = document.getElementById("gpu-inventory-details");
+  const sensor = document.getElementById("gpu-sensor-status");
+  const refresh = document.getElementById("gpu-inventory-refresh");
+  if (!summary || !details || !sensor || !refresh) return;
+  refresh.disabled = true;
+  summary.textContent = "Consultando adaptadores gráficos e sensores…";
+  details.replaceChildren();
+  sensor.textContent = "";
+  try {
+    const inventory = await Qboa.getGpuInventory();
+    gpuInventorySnapshot = inventory;
+    const adapters = Array.isArray(inventory.adapters) ? inventory.adapters : [];
+    summary.textContent = adapters.length + " adaptador(es) gráfico(s) identificado(s)";
+    adapters.forEach((adapter) => {
+      const card = document.createElement("article");
+      card.className = "cpu-inventory-detail";
+      const title = document.createElement("strong");
+      title.textContent = adapter.name || "Adaptador gráfico";
+      const meta = document.createElement("small");
+      const memory = Number(adapter.memory_bytes || 0);
+      meta.textContent = [
+        adapter.driver_version ? "Driver " + adapter.driver_version : "Driver não informado",
+        memory > 0 ? formatMemoryBytes(memory) + " reportados pelo Windows" : "Memória dedicada não reportada"
+      ].join(" · ");
+      card.append(title, meta);
+      details.appendChild(card);
+    });
+    sensor.textContent = inventory.sensor_note || (inventory.sensor_available
+      ? "Sensor térmico disponível pelo coletor integrado."
+      : "Sensor térmico indisponível. O teste de carga não será iniciado.");
+    sensor.dataset.available = inventory.sensor_available ? "true" : "false";
+    sensor.classList.toggle("available", inventory.sensor_available);
+    document.getElementById("gpu-test-start").disabled =
+      !inventory.sensor_available || ["running", "cancelling"].includes(gpuTestSessionSnapshot?.lifecycle);
+  } catch (error) {
+    gpuInventorySnapshot = null;
+    summary.textContent = "Não foi possível consultar a GPU: " + String(error);
+    sensor.textContent = "Sem inventário confiável, o teste não será iniciado.";
+    document.getElementById("gpu-test-start").disabled = true;
+  } finally {
+    refresh.disabled = false;
+  }
+}
+
+function renderGpuTestSession(session) {
+  if (!session) { gpuTestSessionSnapshot = null; return; }
+  gpuTestSessionSnapshot = session;
+  const active = ["running", "cancelling"].includes(session.lifecycle);
+  const start = document.getElementById("gpu-test-start");
+  const cancel = document.getElementById("gpu-test-cancel");
+  const profile = document.getElementById("gpu-test-profile");
+  const percent = Math.max(0, Math.min(100, Number(session.progress_percent || 0)));
+  start.disabled = active || !gpuInventorySnapshot?.sensor_available;
+  start.textContent = active ? "Teste em andamento" : "Iniciar teste de GPU";
+  cancel.hidden = !active;
+  cancel.disabled = session.lifecycle === "cancelling";
+  cancel.textContent = session.lifecycle === "cancelling" ? "Cancelando…" : "Cancelar teste";
+  profile.disabled = active;
+  document.getElementById("gpu-test-progress-bar").style.width = percent + "%";
+  document.getElementById("gpu-test-progress-track").setAttribute("aria-valuenow", String(percent));
+  document.getElementById("gpu-test-progress-percent").textContent = percent + "%";
+  const elapsedSeconds = Math.floor(Number(session.elapsed_ms || 0) / 1000);
+  const elapsed = Math.floor(elapsedSeconds / 60) + "m " + (elapsedSeconds % 60) + "s";
+  const targetSeconds = Math.floor(Number(session.target_duration_ms || 0) / 1000);
+  const target = Math.floor(targetSeconds / 60) + "m";
+  document.getElementById("gpu-test-phase").textContent =
+    session.lifecycle === "cancelling" ? "Encerrando com segurança…" :
+    active ? "Teste em execução" : session.lifecycle === "failed" ? "Falha ao iniciar" : "Execução finalizada";
+  document.getElementById("gpu-test-progress-label").textContent = active ? elapsed + " / " + target :
+    gpuTestStatusLabel(session.report?.execution_status || session.lifecycle);
+  const live = session.latest_sample;
+  const liveTemperature = live?.temperature_c == null ? "temperatura indisponível" :
+    Number(live.temperature_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
+  const liveLoad = live?.utilization_percent == null ? "utilização indisponível" :
+    Number(live.utilization_percent).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + "% de utilização";
+  document.getElementById("gpu-test-progress-detail").textContent = active
+    ? elapsed + " de " + target + " · " + liveTemperature + " · " + liveLoad + " · " +
+      Number(session.dispatches || 0).toLocaleString("pt-BR") + " lotes · " +
+      Number(session.validation_errors || 0) + " divergência(s)"
+    : session.error || session.report?.warnings?.join(" ") || "Teste finalizado.";
+  const result = document.getElementById("gpu-test-result");
+  const details = document.getElementById("gpu-test-result-details");
+  details.replaceChildren();
+  if (session.report) {
+    const report = session.report;
+    const summary = document.createElement("p");
+    summary.textContent = gpuTestStatusLabel(report.execution_status);
+    result.replaceChildren(summary);
+    const metrics = document.createElement("p");
+    const temp = report.temperature_max_c == null ? "temperatura máxima indisponível" :
+      "temperatura máxima " + Number(report.temperature_max_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
+    const load = report.utilization_average_percent == null ? "utilização indisponível" :
+      "utilização média " + Number(report.utilization_average_percent).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
+    metrics.textContent = Math.floor(Number(report.duration_ms || 0) / 1000) + " s efetivos · " +
+      Number(report.dispatches || 0).toLocaleString("pt-BR") + " lotes · " + temp + " · " + load +
+      " · " + Number(report.validation_errors || 0) + " divergência(s)";
+    result.appendChild(metrics);
+    (report.warnings || []).forEach((warning) => {
+      const item = document.createElement("li");
+      item.textContent = warning;
+      details.appendChild(item);
+    });
+  } else if (session.error) {
+    result.textContent = session.error;
+  } else {
+    result.textContent = active ? "Carga gráfica controlada em execução. A temperatura é monitorada continuamente." :
+      "A sessão ainda não tem um relatório final.";
+  }
+}
+
+
+async function loadGpuDiagnosticReports() {
+  const list = document.getElementById("gpu-diagnostic-history");
+  if (!list) return;
+  list.replaceChildren();
+  try {
+    const reports = await Qboa.getGpuDiagnosticReports();
+    if (!Array.isArray(reports) || !reports.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "Nenhum laudo de GPU salvo neste computador.";
+      list.appendChild(empty);
+      return;
+    }
+    reports.forEach((report) => {
+      const item = document.createElement("li");
+      const heading = document.createElement("strong");
+      const date = report.started_at ? new Date(report.started_at).toLocaleString("pt-BR") : "Data não informada";
+      heading.textContent = date + " · " + gpuTestStatusLabel(report.execution_status);
+      const detail = document.createElement("p");
+      const temperature = report.temperature_max_c == null ? "temperatura indisponível" :
+        "máxima " + Number(report.temperature_max_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
+      detail.textContent = Number(report.duration_ms || 0) / 1000 + " s · " +
+        Number(report.dispatches || 0).toLocaleString("pt-BR") + " lotes · " + temperature +
+        " · " + Number(report.validation_errors || 0) + " divergência(s)";
+      item.append(heading, detail);
+      list.appendChild(item);
+    });
+  } catch (error) {
+    const item = document.createElement("li");
+    item.textContent = "Não foi possível carregar os laudos de GPU: " + String(error);
+    list.appendChild(item);
+  }
+}
+
+async function loadGpuTestSession() {
+  try {
+    const session = await Qboa.getGpuTestSession();
+    if (session) renderGpuTestSession(session);
+  } catch (error) {
+    document.getElementById("gpu-test-result").textContent = "Não foi possível consultar a sessão: " + String(error);
+  }
+}
+
+async function startGpuTestFromUi() {
+  const profile = document.getElementById("gpu-test-profile").value;
+  const start = document.getElementById("gpu-test-start");
+  const result = document.getElementById("gpu-test-result");
+  start.disabled = true;
+  result.textContent = "Validando sensores e solicitando início do teste…";
+  try {
+    const session = await Qboa.startGpuTest(profile);
+    renderGpuTestSession(session);
+    await loadGpuTestSession();
+  } catch (error) {
+    result.textContent = String(error);
+    start.disabled = !gpuInventorySnapshot?.sensor_available;
+  }
+}
+
+async function cancelGpuTestFromUi() {
+  const sessionId = gpuTestSessionSnapshot?.session_id;
+  if (!sessionId) return;
+  const cancel = document.getElementById("gpu-test-cancel");
+  cancel.disabled = true;
+  try {
+    renderGpuTestSession(await Qboa.cancelGpuTest(sessionId));
+  } catch (error) {
+    document.getElementById("gpu-test-result").textContent = String(error);
+    cancel.disabled = false;
+  }
+}
+
 function selectedStorageDiskIds() {
   const list = document.getElementById("storage-disk-list");
   if (!list) return [];
@@ -1975,13 +2194,19 @@ function openDiagnosticModal(target = null, mode = "quick") {
   if (oldPicker) oldPicker.remove();
   const memoryPanel = document.getElementById("memory-test-panel");
   const cpuPanel = document.getElementById("cpu-test-panel");
+  const gpuPanel = document.getElementById("gpu-test-panel");
   const isMemoryTest = target === "teste_memoria";
   const isCpuTest = target === "processador";
+  const isGpuTest = target === "placa_de_video";
   memoryPanel.hidden = !isMemoryTest;
   cpuPanel.hidden = !isCpuTest;
-  modal.querySelector(".diagnostic-modal-actions").hidden = isMemoryTest || isCpuTest;
-  document.getElementById("diagnostic-results").hidden = isMemoryTest || isCpuTest;
-  modal.querySelector(".diagnostic-saved-reports").hidden = isMemoryTest;
+  gpuPanel.hidden = !isGpuTest;
+  modal.querySelector(".diagnostic-modal-actions").hidden = isMemoryTest || isCpuTest || isGpuTest;
+  document.getElementById("diagnostic-results").hidden = isMemoryTest || isCpuTest || isGpuTest;
+  const generalSavedReports = modal.querySelector(".diagnostic-saved-reports:not(#gpu-saved-reports)");
+  if (generalSavedReports) generalSavedReports.hidden = isMemoryTest || isGpuTest;
+  const gpuSavedReports = document.getElementById("gpu-saved-reports");
+  if (gpuSavedReports) gpuSavedReports.hidden = !isGpuTest;
 
   if (target === "armazenamento") {
     const picker = document.createElement("div");
@@ -2031,7 +2256,7 @@ function openDiagnosticModal(target = null, mode = "quick") {
   const labels = {
     armazenamento: ["Teste de armazenamento", "Coleta dados SMART disponíveis e executa oito medições sequenciais e aleatórias de leitura/escrita em arquivo temporário. Não executa teste de superfície nem escreve diretamente em setores do disco."],
     teste_memoria: ["Memória RAM", "Inventário dos módulos físicos reportados pelo Windows e teste de integridade com cobertura configurável. O teste usa buffers próprios do QBoa, não acessa endereços físicos e não certifica toda a RAM física."],
-    placa_de_video: ["Teste de GPU", "Consulta os adaptadores gráficos detectados e as leituras disponíveis. Não executa benchmark nem teste de estresse gráfico."],
+    placa_de_video: ["Teste de estabilidade da GPU", "Executa carga sintética em compute shader Direct3D 11 no adaptador de hardware selecionado pelo Windows, valida os resultados e acompanha temperatura. Exige sensor térmico compatível; não testa toda a VRAM nem todos os recursos gráficos."],
     processador: ["Teste de processador", "Executa uma carga computacional controlada por 5, 15 ou 30 minutos, acompanhada de temperatura, utilização, frequência e verificações aritméticas. O resultado é salvo em um laudo local."],
     temperatura: ["Teste de temperaturas", "Consulta leituras de sensores compatíveis quando o Windows ou os provedores disponíveis as expõem. Sensor indisponível não significa temperatura normal."]
   };
@@ -2057,6 +2282,12 @@ function openDiagnosticModal(target = null, mode = "quick") {
     void loadCpuInventory();
     void loadCpuTestSession();
     void loadDiagnosticHistory(true);
+    return;
+  }
+  if (isGpuTest) {
+    void loadGpuInventory();
+    void loadGpuTestSession();
+    void loadGpuDiagnosticReports();
     return;
   }
   void loadDiagnosticHistory(true);
@@ -2535,6 +2766,16 @@ async function registerEvents() {
     listen("qboa-cpu-test-finished", (event) => {
       renderCpuTestSession(event.payload?.session);
       void loadDiagnosticHistory(false);
+    }),
+    listen("qboa-gpu-test-progress", (event) => {
+      renderGpuTestSession(event.payload?.session);
+    }),
+    listen("qboa-gpu-test-state", (event) => {
+      renderGpuTestSession(event.payload?.session);
+    }),
+    listen("qboa-gpu-test-finished", (event) => {
+      renderGpuTestSession(event.payload?.session);
+      void loadGpuDiagnosticReports();
     })
   ].map((registration) => registration.catch((error) => {
     console.error("Falha ao registrar eventos de diagnóstico:", error);
@@ -2734,6 +2975,15 @@ async function registerEvents() {
   });
   document.getElementById("cpu-test-cancel").addEventListener("click", () => {
     void cancelCpuTestFromUi();
+  });
+  document.getElementById("gpu-test-start").addEventListener("click", () => {
+    void startGpuTestFromUi();
+  });
+  document.getElementById("gpu-test-cancel").addEventListener("click", () => {
+    void cancelGpuTestFromUi();
+  });
+  document.getElementById("gpu-inventory-refresh").addEventListener("click", () => {
+    void loadGpuInventory();
   });
   document.getElementById("cpu-inventory-refresh").addEventListener("click", () => {
     void loadCpuInventory();
