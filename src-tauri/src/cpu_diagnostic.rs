@@ -191,8 +191,7 @@ if (-not $cpu) { throw 'O Windows não retornou Win32_Processor.' }
             .map_err(|error| format!("Resposta de inventário da CPU inválida: {error}"))?;
         let discovery_output = run_hardware_monitor_once(app_data_dir, "discover")?;
         let discovery: serde_json::Value =
-            serde_json::from_str(&discovery_output)
-            .map_err(|error| {
+            serde_json::from_str(&discovery_output).map_err(|error| {
                 format!("O coletor térmico retornou uma resposta inválida: {error}")
             })?;
         let sensors = discovery
