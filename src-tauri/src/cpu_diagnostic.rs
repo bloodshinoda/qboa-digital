@@ -547,9 +547,9 @@ fn run_test<R: Runtime>(
     let mut samples = Vec::new();
     let first_sample = CpuTelemetrySample {
         elapsed_ms: 0,
-        timestamp_utc: first_raw.timestamp_utc,
+        timestamp_utc: first_raw.timestamp_utc.clone(),
         temperature_c: Some(first_temperature),
-        temperature_sensor: first_raw.temperature_sensor,
+        temperature_sensor: first_raw.temperature_sensor.clone(),
         cpu_utilization_percent: first_raw
             .cpu_utilization_percent
             .filter(|value| value.is_finite() && (0.0..=100.0).contains(value)),
