@@ -464,8 +464,9 @@ fn run_test<R: Runtime>(
         .sensor_provider
         .as_deref()
         .ok_or_else(|| inventory.sensor_note.clone())?;
-    let mut child = start_telemetry_process(provider)?;
-    let stdout = child
+    let child = start_telemetry_process(provider)?;
+    let mut child = TelemetryProcess(child);
+    let stdout = child.0
         .stdout
         .take()
         .ok_or_else(|| "O coletor de telemetria não abriu stdout.".to_string())?;
@@ -505,14 +506,11 @@ fn run_test<R: Runtime>(
         let stop = Arc::clone(&stop_workers);
         let count = Arc::clone(&iterations);
         let failures = Arc::clone(&errors);
-        workers.push(thread::Builder::new()
-            .name(format!("qboa-cpu-load-{worker_index}"))
-            .spawn(move || cpu_load_worker(worker_index as u64, stop, count, failures))
-            .map_err(|error| format!("Não foi possível criar trabalhador de carga: {error}"))?);
+        workers.push(thread::spawn(move || cpu_load_worker(worker_index as u64, stop, count, failures)));
     }
 
     let mut samples = Vec::new();
-    let mut first_sample = CpuTelemetrySample {
+    let first_sample = CpuTelemetrySample {
         elapsed_ms: 0,
         timestamp_utc: first_raw.timestamp_utc,
         temperature_c: Some(first_temperature),
@@ -524,6 +522,7 @@ fn run_test<R: Runtime>(
     publish_progress(app, session_id, 0, duration_seconds * 1000, &first_sample, &iterations, &errors);
 
     let mut missing_sensor_samples = 0u8;
+    let report_id = new_report_id();
     let mut terminal_status = "completed".to_string();
     let mut last_checkpoint = Instant::now();
     while started_clock.elapsed() < Duration::from_secs(duration_seconds) {
@@ -562,7 +561,7 @@ fn run_test<R: Runtime>(
                 publish_progress(app, session_id, elapsed_ms, duration_seconds * 1000, &sample, &iterations, &errors);
 
                 if last_checkpoint.elapsed() >= Duration::from_secs(15) {
-                    let checkpoint = build_report(&inventory, profile, started_at.clone(), elapsed_ms, samples.clone(), iterations.load(Ordering::Relaxed), errors.load(Ordering::Relaxed), "running");
+                    let checkpoint = build_report(report_id.clone(), &inventory, profile, started_at.clone(), elapsed_ms, samples.clone(), iterations.load(Ordering::Relaxed), errors.load(Ordering::Relaxed), "running");
                     persist_report(app_data_dir, &checkpoint)?;
                     last_checkpoint = Instant::now();
                 }
@@ -588,12 +587,13 @@ fn run_test<R: Runtime>(
     for worker in workers {
         let _ = worker.join();
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let _ = child.0.kill();
+    let _ = child.0.wait();
     let _ = reader.join();
 
     let elapsed_ms = started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let mut report = build_report(
+        report_id,
         &inventory,
         profile,
         started_at,
@@ -714,6 +714,7 @@ fn set_low_thread_priority() {
 fn set_low_thread_priority() {}
 
 fn build_report(
+    report_id: String,
     inventory: &CpuInventory,
     profile: CpuTestProfile,
     started_at: String,
@@ -729,7 +730,7 @@ fn build_report(
     let average = |values: &[f64]| if values.is_empty() { None } else { Some(values.iter().sum::<f64>() / values.len() as f64) };
     CpuTestReport {
         schema_version: REPORT_SCHEMA_VERSION,
-        report_id: new_report_id(),
+        report_id,
         processor_name: inventory.name.clone(),
         physical_cores: inventory.physical_cores,
         logical_processors: inventory.logical_processors,
@@ -749,6 +750,15 @@ fn build_report(
         cpu_utilization_average_percent: average(&utilization),
         frequency_peak_mhz: frequencies.iter().copied().reduce(f64::max),
         warnings: Vec::new(),
+    }
+}
+
+struct TelemetryProcess(Child);
+
+impl Drop for TelemetryProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 
