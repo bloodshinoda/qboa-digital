@@ -273,15 +273,18 @@ fn run_test<R: Runtime>(
     let child = start_telemetry_process(app_data_dir)?;
     let mut child = TelemetryProcess(child);
     let stdout = child.0.stdout.take().ok_or("O coletor térmico não abriu stdout.")?;
-    let (sender, receiver) = mpsc::channel::<String>();
+    let (sender, receiver) = mpsc::channel::<(String, Instant)>();
     let reader = thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
-            match line { Ok(line) => if sender.send(line).is_err() { break; }, Err(_) => break }
+            match line {
+                Ok(line) => if sender.send((line, Instant::now())).is_err() { break; },
+                Err(_) => break,
+            }
         }
     });
     let mut first = None;
     for n in 1..=3 {
-        let line = receiver.recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS))
+        let (line, _) = receiver.recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS))
             .map_err(|_| "O coletor integrado não forneceu três leituras térmicas consecutivas da GPU. O teste não foi iniciado.".to_string())?;
         let raw: RawTelemetry = serde_json::from_str(&line).map_err(|e| format!("Amostra térmica inválida: {e}"))?;
         let temp = raw.temperature_c.filter(|v| valid_temperature(*v))
@@ -328,7 +331,17 @@ fn run_test<R: Runtime>(
         if status != "completed" { break; }
         thread::sleep(Duration::from_millis(350));
         match receiver.recv_timeout(Duration::from_millis(300)) {
-            Ok(line) => {
+            Ok((mut line, mut received_at)) => {
+                // Se a GPU demorar a concluir um lote, consome a amostra mais nova
+                // em vez de acumular leituras antigas e atrasar a proteção térmica.
+                while let Ok((next_line, next_received_at)) = receiver.try_recv() {
+                    line = next_line;
+                    received_at = next_received_at;
+                }
+                if received_at.elapsed() >= Duration::from_secs(3) {
+                    status = "sensor_lost".into();
+                    break;
+                }
                 let raw: RawTelemetry = match serde_json::from_str(&line) {
                     Ok(value) => value, Err(_) => { status = "sensor_lost".into(); break; }
                 };
