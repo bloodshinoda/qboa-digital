@@ -87,7 +87,8 @@ pub(crate) struct CpuTestReport {
     pub logical_processors: u32,
     pub worker_threads: u32,
     pub sensor_provider: String,
-    pub profile: CpuTestProfile,
+    #[serde(default)]
+    pub profile: Option<CpuTestProfile>,
     pub target_duration_seconds: u64,
     pub duration_ms: u64,
     pub started_at: String,
@@ -872,7 +873,7 @@ fn build_report(
             .sensor_provider
             .clone()
             .unwrap_or_else(|| "indisponível".into()),
-        profile,
+        profile: Some(profile),
         target_duration_seconds: profile.duration_seconds(),
         duration_ms,
         started_at,
@@ -1142,7 +1143,7 @@ mod tests {
             0,
             "completed",
         );
-        assert_eq!(report.profile, CpuTestProfile::Quick);
+        assert_eq!(report.profile, Some(CpuTestProfile::Quick));
         assert_eq!(report.worker_threads, 8);
         assert_eq!(report.temperature_min_c, Some(40.0));
         assert_eq!(report.temperature_max_c, Some(80.0));
