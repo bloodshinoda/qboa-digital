@@ -179,7 +179,7 @@ $sensors = @()
 function Add-CpuTemperatureSensors {
   param($Node, [bool]$WithinCpu, $Result)
   if ($null -eq $Node) { return }
-  $isCpu = $WithinCpu -or ([string]$Node.HardwareId -match '^/(amdcpu|intelcpu)/')
+  $isCpu = $WithinCpu -or ([string]$Node.HardwareId -match '^/(amdcpu|intelcpu)/') -or ([string]$Node.SensorId -match '^/(amdcpu|intelcpu)/')
   if ($isCpu -and $Node.SensorId -and [string]$Node.Type -eq 'Temperature' -and $null -ne $Node.RawValue) {
     [void]$Result.Add([pscustomobject]@{ Name = [string]$Node.Text; Value = [double]$Node.RawValue })
   }
@@ -269,7 +269,7 @@ $ProgressPreference = 'SilentlyContinue'
 function Find-CpuTemperatureSensors {
   param($Node, [bool]$WithinCpu, $Result)
   if ($null -eq $Node) { return }
-  $isCpu = $WithinCpu -or ([string]$Node.HardwareId -match '^/(amdcpu|intelcpu)/')
+  $isCpu = $WithinCpu -or ([string]$Node.HardwareId -match '^/(amdcpu|intelcpu)/') -or ([string]$Node.SensorId -match '^/(amdcpu|intelcpu)/')
   if ($isCpu -and $Node.SensorId -and [string]$Node.Type -eq 'Temperature' -and $null -ne $Node.RawValue) {
     [void]$Result.Add([pscustomobject]@{ Name = [string]$Node.Text; Value = [double]$Node.RawValue })
   }
@@ -1174,6 +1174,8 @@ mod tests {
         assert!(script.contains("http://127.0.0.1:8085/data.json"));
         assert!(script.contains("RawValue"));
         assert!(script.contains("HardwareId"));
+        assert!(script.contains("SensorId"));
+        assert!(script.contains("RawValue"));
         assert!(!script.contains("root\\LibreHardwareMonitor"));
     }
 
