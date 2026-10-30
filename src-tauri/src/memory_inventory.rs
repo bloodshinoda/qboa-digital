@@ -15,7 +15,7 @@ pub(crate) struct MemoryModule {
     pub part_number: Option<String>,
     pub memory_type: Option<String>,
     pub configured_speed_mhz: Option<u32>,
-    pub rated_speed_mhz: Option<u32>,
+    pub smbios_speed_ns: Option<u32>,
     pub form_factor: Option<String>,
     pub data_width_bits: Option<u32>,
     pub total_width_bits: Option<u32>,
@@ -92,7 +92,7 @@ $modules = @($dimm | ForEach-Object {
     part_number = Clean-Text $_.PartNumber
     memory_type = Memory-TypeName $_.SMBIOSMemoryType
     configured_speed_mhz = $configured
-    rated_speed_mhz = $rated
+    smbios_speed_ns = $speedNs
     form_factor = $form
     data_width_bits = Positive-UInt $_.DataWidth
     total_width_bits = Positive-UInt $_.TotalWidth
@@ -196,7 +196,7 @@ mod tests {
                 part_number: Some("Example-8G".to_string()),
                 memory_type: Some("DDR4".to_string()),
                 configured_speed_mhz: Some(3200),
-                rated_speed_mhz: Some(3200),
+                smbios_speed_ns: None,
                 form_factor: Some("DIMM".to_string()),
                 data_width_bits: Some(64),
                 total_width_bits: Some(72),
