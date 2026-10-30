@@ -596,19 +596,18 @@ fn run_test<R: Runtime>(
         }
     });
 
-    let first_raw: RawTelemetrySample = match receiver
-        .recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS))
-    {
-        Ok(line) => serde_json::from_str(&line)
-            .map_err(|error| format!("A primeira amostra de telemetria é inválida: {error}"))?,
-        Err(_) => RawTelemetrySample {
-            timestamp_utc: timestamp_now(),
-            temperature_c: None,
-            temperature_sensor: None,
-            cpu_utilization_percent: None,
-            frequency_mhz: None,
-        },
-    };
+    let first_raw: RawTelemetrySample =
+        match receiver.recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS)) {
+            Ok(line) => serde_json::from_str(&line)
+                .map_err(|error| format!("A primeira amostra de telemetria é inválida: {error}"))?,
+            Err(_) => RawTelemetrySample {
+                timestamp_utc: timestamp_now(),
+                temperature_c: None,
+                temperature_sensor: None,
+                cpu_utilization_percent: None,
+                frequency_mhz: None,
+            },
+        };
     let first_temperature = first_raw
         .temperature_c
         .filter(|value| value.is_finite() && (0.0..=150.0).contains(value));
@@ -726,7 +725,8 @@ fn run_test<R: Runtime>(
                             > Duration::from_secs(SAMPLE_TIMEOUT_SECS)
                     })
                 {
-                    let elapsed_ms = started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                    let elapsed_ms =
+                        started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
                     let sample = CpuTelemetrySample {
                         elapsed_ms,
                         timestamp_utc: timestamp_now(),
@@ -737,8 +737,13 @@ fn run_test<R: Runtime>(
                     };
                     samples.push(sample.clone());
                     publish_progress(
-                        app, session_id, elapsed_ms, duration_seconds * 1000,
-                        &sample, &iterations, &errors,
+                        app,
+                        session_id,
+                        elapsed_ms,
+                        duration_seconds * 1000,
+                        &sample,
+                        &iterations,
+                        &errors,
                     );
                 }
             }
@@ -754,8 +759,13 @@ fn run_test<R: Runtime>(
                 };
                 samples.push(sample.clone());
                 publish_progress(
-                    app, session_id, elapsed_ms, duration_seconds * 1000,
-                    &sample, &iterations, &errors,
+                    app,
+                    session_id,
+                    elapsed_ms,
+                    duration_seconds * 1000,
+                    &sample,
+                    &iterations,
+                    &errors,
                 );
                 thread::sleep(Duration::from_millis(500));
             }
