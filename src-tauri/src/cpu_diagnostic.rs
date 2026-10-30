@@ -62,6 +62,7 @@ pub(crate) struct CpuInventory {
     pub logical_processors: u32,
     pub max_clock_mhz: Option<u32>,
     pub sensor_available: bool,
+    pub pawnio_installed: bool,
     pub sensor_provider: Option<String>,
     pub temperature_sensors: Vec<String>,
     pub sensor_note: String,
@@ -160,6 +161,61 @@ pub(crate) fn is_active() -> bool {
     })
 }
 
+
+#[cfg(target_os = "windows")]
+pub(crate) fn install_pawnio(app_data_dir: &Path) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
+
+    const EMBEDDED_INSTALLER: &[u8] = include_bytes!("../binaries/PawnIO_setup.exe");
+    let runtime_dir = app_data_dir.join("runtime");
+    fs::create_dir_all(&runtime_dir)
+        .map_err(|error| format!("Não foi possível preparar a instalação do PawnIO: {error}"))?;
+    let installer = runtime_dir.join("PawnIO_setup.exe");
+    let temporary = runtime_dir.join(format!("PawnIO_setup-{}.tmp", std::process::id()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&temporary)
+        .map_err(|error| format!("Não foi possível extrair o instalador PawnIO: {error}"))?;
+    file.write_all(EMBEDDED_INSTALLER)
+        .and_then(|_| file.flush())
+        .and_then(|_| file.sync_all())
+        .map_err(|error| format!("Não foi possível gravar o instalador PawnIO: {error}"))?;
+    drop(file);
+    if installer.exists() {
+        fs::remove_file(&installer)
+            .map_err(|error| format!("Não foi possível atualizar o instalador PawnIO: {error}"))?;
+    }
+    fs::rename(&temporary, &installer)
+        .map_err(|error| format!("Não foi possível preparar o instalador PawnIO: {error}"))?;
+
+    // Sem -silent: o instalador oficial apresenta sua própria interface e o UAC.
+    let status = Command::new(&installer)
+        .arg("-install")
+        .status()
+        .map_err(|error| format!("Não foi possível abrir o instalador oficial PawnIO: {error}"))?;
+
+    match status.code() {
+        Some(0) => {
+            let inventory = collect_inventory(app_data_dir)?;
+            if inventory.pawnio_installed {
+                Ok("Instalação do PawnIO concluída. Os sensores serão consultados novamente.".into())
+            } else {
+                Err("O instalador encerrou sem confirmar o PawnIO no sistema. Verifique a instalação e tente novamente.".into())
+            }
+        }
+        Some(3010) => Ok("O PawnIO foi instalado, mas o Windows solicitou uma reinicialização para ativar o driver. Reinicie o computador antes do teste de CPU.".into()),
+        Some(code) => Err(format!("O instalador PawnIO encerrou com código {code}. A instalação não foi confirmada.")),
+        None => Err("O instalador PawnIO foi encerrado sem retornar um código de conclusão.".into()),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn install_pawnio(_app_data_dir: &Path) -> Result<String, String> {
+    Err("A instalação do PawnIO exige Windows 10/11 x64.".into())
+}
+
 pub(crate) fn collect_inventory(app_data_dir: &Path) -> Result<CpuInventory, String> {
     #[cfg(not(target_os = "windows"))]
     {
@@ -181,6 +237,7 @@ if (-not $cpu) { throw 'O Windows não retornou Win32_Processor.' }
   logical_processors = [uint32]$cpu.NumberOfLogicalProcessors
   max_clock_mhz = if ($cpu.MaxClockSpeed) { [uint32]$cpu.MaxClockSpeed } else { $null }
   sensor_available = $false
+  pawnio_installed = $false
   sensor_provider = $null
   temperature_sensors = @()
   sensor_note = 'Consultando o coletor térmico integrado...'
@@ -205,6 +262,10 @@ if (-not $cpu) { throw 'O Windows não retornou Win32_Processor.' }
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        inventory.pawnio_installed = discovery
+            .get("pawnio_installed")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         inventory.sensor_available = discovery
             .get("available")
             .and_then(serde_json::Value::as_bool)
