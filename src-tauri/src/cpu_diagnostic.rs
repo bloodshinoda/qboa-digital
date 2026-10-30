@@ -1275,6 +1275,7 @@ mod tests {
             logical_processors: 8,
             max_clock_mhz: Some(4000),
             sensor_available: true,
+            pawnio_installed: false,
             sensor_provider: Some("root\\LibreHardwareMonitor".into()),
             temperature_sensors: vec!["CPU Package".into()],
             sensor_note: String::new(),
