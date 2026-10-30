@@ -225,9 +225,16 @@ if (-not $provider) {
     }
 }
 
+// O PowerShell 5.1 pode herdar a página de código OEM do Windows ao escrever
+// em stdout redirecionado. Fixamos UTF-8 sem BOM antes de qualquer saída JSON.
+fn powershell_utf8_preamble() -> &'static str {
+    "$utf8NoBom = New-Object System.Text.UTF8Encoding($false); [Console]::OutputEncoding = $utf8NoBom; $OutputEncoding = $utf8NoBom"
+}
+
 #[cfg(target_os = "windows")]
 fn run_powershell_once(script: &str) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
+    let script = format!("{}\\n{}", powershell_utf8_preamble(), script);
     let mut command = Command::new("powershell.exe");
     command
         .args([
@@ -236,7 +243,7 @@ fn run_powershell_once(script: &str) -> Result<String, String> {
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            script,
+            &script,
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -330,6 +337,7 @@ while ($true) {{
 #[cfg(target_os = "windows")]
 fn start_telemetry_process(provider: &str) -> Result<Child, String> {
     use std::os::windows::process::CommandExt;
+    let script = format!("{}\\n{}", powershell_utf8_preamble(), telemetry_script(provider));
     let mut command = Command::new("powershell.exe");
     command
         .args([
@@ -338,7 +346,7 @@ fn start_telemetry_process(provider: &str) -> Result<Child, String> {
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            &telemetry_script(provider),
+            &script,
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -1147,6 +1155,14 @@ fn timestamp_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn powershell_output_is_explicitly_configured_as_utf8_without_bom() {
+        let preamble = powershell_utf8_preamble();
+        assert!(preamble.contains("[Console]::OutputEncoding"));
+        assert!(preamble.contains("$OutputEncoding"));
+        assert!(preamble.contains("UTF8Encoding($false)"));
+    }
 
     #[test]
     fn rest_sensor_provider_uses_loopback_api() {
