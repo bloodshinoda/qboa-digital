@@ -776,6 +776,11 @@ fn run_test<R: Runtime>(
         errors.load(Ordering::Relaxed),
         &terminal_status,
     );
+    if report.temperature_max_c.is_none() {
+        report.warnings.push(
+            "Temperatura da CPU indisponível durante esta execução; o teste de carga foi realizado sem avaliação térmica.".into(),
+        );
+    }
     if report.calculation_errors > 0 {
         report
             .warnings
