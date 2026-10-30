@@ -741,6 +741,7 @@ fn cpu_load_worker(
     set_low_thread_priority();
     let mut state = seed ^ 0xA5A5_5A5A_0123_4567;
     while !stop.load(Ordering::Acquire) {
+        let mut completed = 0u64;
         for _ in 0..2048 {
             let input = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
             let expected = mix_reference(input);
@@ -749,8 +750,9 @@ fn cpu_load_worker(
                 errors.fetch_add(1, Ordering::Relaxed);
             }
             state = expected.rotate_left(9) ^ 0xD1B5_4A32_D192_ED03;
-            iterations.fetch_add(1, Ordering::Relaxed);
+            completed += 1;
         }
+        iterations.fetch_add(completed, Ordering::Relaxed);
         std::hint::black_box(state);
         thread::yield_now();
     }
