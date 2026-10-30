@@ -1593,6 +1593,11 @@ async function loadCpuInventory() {
         try {
           const message = await Qboa.installPawnIo();
           status.textContent = message;
+          if (/reinicializa/i.test(message)) {
+            installButton.remove();
+            start.disabled = true;
+            return;
+          }
           await loadCpuInventory();
         } catch (error) {
           status.textContent = "Falha na instalação do PawnIO: " + String(error);
