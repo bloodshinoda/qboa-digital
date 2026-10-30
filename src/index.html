@@ -299,6 +299,11 @@
         </div>
         <div id="gpu-test-result" class="cpu-test-result" role="status" aria-live="polite"></div>
         <ul id="gpu-test-result-details" class="memory-test-result-details"></ul>
+        <details id="gpu-saved-reports" class="diagnostic-saved-reports" hidden>
+          <summary>Laudos anteriores da GPU</summary>
+          <p>Os relatórios de estabilidade ficam salvos localmente neste computador.</p>
+          <ul id="gpu-diagnostic-history" class="diagnostic-history"></ul>
+        </details>
         <p class="cpu-test-safety-note">O teste exige sensor térmico válido, é cancelável e interrompe a carga a 85 °C (limite conservador do QBoa, não o limite do fabricante) ou quando perde a telemetria. A carga é aplicada em janelas de 650 ms com pausas de 350 ms. Não testa toda a VRAM, o pipeline de renderização completo nem certifica estabilidade universal.</p>
       </section>
       <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Executar teste</button></div>

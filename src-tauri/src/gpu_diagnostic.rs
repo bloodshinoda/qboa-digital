@@ -369,7 +369,7 @@ fn run_test<R: Runtime>(
         "device_error" => report.warnings.push(engine_error.unwrap_or_else(|| "O dispositivo Direct3D apresentou erro.".into())),
         _ => {}
     }
-    report.warnings.push("O motor executa carga sintética por compute shader Direct3D 11 no adaptador de hardware selecionado pelo Windows. Não testa todos os recursos gráficos, toda a VRAM nem certifica estabilidade universal.".into());
+    report.warnings.push("O motor executa carga sintética por compute shader Direct3D 11 no adaptador de hardware padrão selecionado pelo Windows. Em sistemas híbridos, o inventário lista todos os adaptadores, mas o laudo não associa com precisão o dispositivo D3D ao nome WMI. Não testa todos os recursos gráficos, toda a VRAM nem certifica estabilidade universal.".into());
     persist_report(app_data_dir, &report)?;
     Ok(report)
 }
@@ -541,7 +541,7 @@ void main(uint3 tid : SV_DispatchThreadID) {
         check_hr(hr, "criar compute shader")?;
 
         let output_desc = BufferDesc { byte_width: BYTES, usage: 0, bind_flags: 0x80, cpu_access_flags: 0, misc_flags: 0x40, structure_byte_stride: 16 };
-        let staging_desc = BufferDesc { byte_width: BYTES, usage: 3, bind_flags: 0, cpu_access_flags: 0x20000, misc_flags: 0x40, structure_byte_stride: 16 };
+        let staging_desc = BufferDesc { byte_width: BYTES, usage: 3, bind_flags: 0, cpu_access_flags: 0x20000, misc_flags: 0, structure_byte_stride: 0 };
         let create_buffer: unsafe extern "system" fn(*mut c_void,*const BufferDesc,*const c_void,*mut *mut c_void)->i32 = unsafe { method(self.device,3) };
         check_hr(unsafe { create_buffer(self.device,&output_desc,std::ptr::null(),&mut self.output) }, "criar buffer de saída")?;
         check_hr(unsafe { create_buffer(self.device,&staging_desc,std::ptr::null(),&mut self.staging) }, "criar buffer de leitura")?;

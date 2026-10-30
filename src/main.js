@@ -1976,6 +1976,40 @@ function renderGpuTestSession(session) {
   }
 }
 
+
+async function loadGpuDiagnosticReports() {
+  const list = document.getElementById("gpu-diagnostic-history");
+  if (!list) return;
+  list.replaceChildren();
+  try {
+    const reports = await Qboa.getGpuDiagnosticReports();
+    if (!Array.isArray(reports) || !reports.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "Nenhum laudo de GPU salvo neste computador.";
+      list.appendChild(empty);
+      return;
+    }
+    reports.forEach((report) => {
+      const item = document.createElement("li");
+      const heading = document.createElement("strong");
+      const date = report.started_at ? new Date(report.started_at).toLocaleString("pt-BR") : "Data não informada";
+      heading.textContent = date + " · " + gpuTestStatusLabel(report.execution_status);
+      const detail = document.createElement("p");
+      const temperature = report.temperature_max_c == null ? "temperatura indisponível" :
+        "máxima " + Number(report.temperature_max_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
+      detail.textContent = Number(report.duration_ms || 0) / 1000 + " s · " +
+        Number(report.dispatches || 0).toLocaleString("pt-BR") + " lotes · " + temperature +
+        " · " + Number(report.validation_errors || 0) + " divergência(s)";
+      item.append(heading, detail);
+      list.appendChild(item);
+    });
+  } catch (error) {
+    const item = document.createElement("li");
+    item.textContent = "Não foi possível carregar os laudos de GPU: " + String(error);
+    list.appendChild(item);
+  }
+}
+
 async function loadGpuTestSession() {
   try {
     const session = await Qboa.getGpuTestSession();
@@ -2169,7 +2203,10 @@ function openDiagnosticModal(target = null, mode = "quick") {
   gpuPanel.hidden = !isGpuTest;
   modal.querySelector(".diagnostic-modal-actions").hidden = isMemoryTest || isCpuTest || isGpuTest;
   document.getElementById("diagnostic-results").hidden = isMemoryTest || isCpuTest || isGpuTest;
-  modal.querySelector(".diagnostic-saved-reports").hidden = isMemoryTest || isGpuTest;
+  const generalSavedReports = modal.querySelector(".diagnostic-saved-reports:not(#gpu-saved-reports)");
+  if (generalSavedReports) generalSavedReports.hidden = isMemoryTest || isGpuTest;
+  const gpuSavedReports = document.getElementById("gpu-saved-reports");
+  if (gpuSavedReports) gpuSavedReports.hidden = !isGpuTest;
 
   if (target === "armazenamento") {
     const picker = document.createElement("div");
@@ -2250,6 +2287,7 @@ function openDiagnosticModal(target = null, mode = "quick") {
   if (isGpuTest) {
     void loadGpuInventory();
     void loadGpuTestSession();
+    void loadGpuDiagnosticReports();
     return;
   }
   void loadDiagnosticHistory(true);
@@ -2737,6 +2775,7 @@ async function registerEvents() {
     }),
     listen("qboa-gpu-test-finished", (event) => {
       renderGpuTestSession(event.payload?.session);
+      void loadGpuDiagnosticReports();
     })
   ].map((registration) => registration.catch((error) => {
     console.error("Falha ao registrar eventos de diagnóstico:", error);
