@@ -1037,6 +1037,12 @@ fn start_task(
                 .to_string(),
         );
     }
+    if cpu_diagnostic::is_active() {
+        return Err(
+            "O diagnóstico de CPU está em andamento. Aguarde ou cancele o teste antes de iniciar uma tarefa de limpeza/manutenção."
+                .to_string(),
+        );
+    }
     let task_id_for_spawn = task.id.clone();
     let app_for_spawn = app.clone();
     let task_name = task.name.clone();
