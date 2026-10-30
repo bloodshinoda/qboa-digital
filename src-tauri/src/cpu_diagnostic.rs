@@ -176,13 +176,35 @@ $cpu = Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1
 if (-not $cpu) { throw 'O Windows não retornou Win32_Processor.' }
 $provider = $null
 $sensors = @()
-foreach ($namespace in @('root\LibreHardwareMonitor', 'root\OpenHardwareMonitor')) {
-  try {
-    $candidate = @(Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop |
-      Where-Object { $_.SensorType -eq 'Temperature' -and
-        (($_.Parent -match '/(amdcpu|intelcpu)/') -or ($_.Identifier -match '/(amdcpu|intelcpu)/')) })
-    if ($candidate.Count -gt 0) { $provider = $namespace; $sensors = $candidate; break }
-  } catch {}
+function Add-CpuTemperatureSensors {
+  param($Node, [bool]$WithinCpu, $Result)
+  if ($null -eq $Node) { return }
+  $isCpu = $WithinCpu -or ([string]$Node.HardwareId -match '^/(amdcpu|intelcpu)/')
+  if ($isCpu -and $Node.SensorId -and [string]$Node.Type -eq 'Temperature' -and $null -ne $Node.RawValue) {
+    [void]$Result.Add([pscustomobject]@{ Name = [string]$Node.Text; Value = [double]$Node.RawValue })
+  }
+  foreach ($child in @($Node.Children)) {
+    Add-CpuTemperatureSensors -Node $child -WithinCpu $isCpu -Result $Result
+  }
+}
+try {
+  $tree = Invoke-RestMethod -Uri 'http://127.0.0.1:8085/data.json' -TimeoutSec 2
+  $restSensors = [System.Collections.Generic.List[object]]::new()
+  Add-CpuTemperatureSensors -Node $tree -WithinCpu $false -Result $restSensors
+  if ($restSensors.Count -gt 0) {
+    $provider = 'hardware_monitor_rest'
+    $sensors = @($restSensors)
+  }
+} catch {}
+if (-not $provider) {
+  foreach ($namespace in @('root\OpenHardwareMonitor', 'root\LibreHardwareMonitor')) {
+    try {
+      $candidate = @(Get-CimInstance -Namespace $namespace -ClassName Sensor -ErrorAction Stop |
+        Where-Object { $_.SensorType -eq 'Temperature' -and
+          (($_.Parent -match '/(amdcpu|intelcpu)/') -or ($_.Identifier -match '/(amdcpu|intelcpu)/')) })
+      if ($candidate.Count -gt 0) { $provider = $namespace; $sensors = $candidate; break }
+    } catch {}
+  }
 }
 [pscustomobject]@{
   name = [string]$cpu.Name
@@ -194,7 +216,7 @@ foreach ($namespace in @('root\LibreHardwareMonitor', 'root\OpenHardwareMonitor'
   sensor_available = ($sensors.Count -gt 0)
   sensor_provider = $provider
   temperature_sensors = @($sensors | ForEach-Object { [string]$_.Name } | Select-Object -Unique)
-  sensor_note = if ($provider) { 'Sensores térmicos de CPU detectados.' } else { 'Nenhum sensor térmico de CPU foi encontrado. Inicie o LibreHardwareMonitor ou Open Hardware Monitor com acesso WMI para executar o teste acompanhado de temperatura.' }
+  sensor_note = if ($provider) { 'Sensores térmicos de CPU detectados.' } else { 'Nenhum sensor térmico de CPU foi encontrado. Inicie o LibreHardwareMonitor com Options > Remote Web Server > Run (padrão 127.0.0.1:8085) ou o Open Hardware Monitor com sensores WMI habilitados e mantenha o provedor aberto durante o teste.' }
 } | ConvertTo-Json -Compress -Depth 5
 "#;
         let output = run_powershell_once(script)?;
@@ -233,7 +255,46 @@ fn run_powershell_once(script: &str) -> Result<String, String> {
         .map_err(|error| format!("A resposta do PowerShell não está em UTF-8: {error}"))
 }
 
+fn rest_telemetry_script() -> &'static str {
+    r#"
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+function Find-CpuTemperatureSensors {
+  param($Node, [bool]$WithinCpu, $Result)
+  if ($null -eq $Node) { return }
+  $isCpu = $WithinCpu -or ([string]$Node.HardwareId -match '^/(amdcpu|intelcpu)/')
+  if ($isCpu -and $Node.SensorId -and [string]$Node.Type -eq 'Temperature' -and $null -ne $Node.RawValue) {
+    [void]$Result.Add([pscustomobject]@{ Name = [string]$Node.Text; Value = [double]$Node.RawValue })
+  }
+  foreach ($child in @($Node.Children)) {
+    Find-CpuTemperatureSensors -Node $child -WithinCpu $isCpu -Result $Result
+  }
+}
+while ($true) {
+  $tree = Invoke-RestMethod -Uri 'http://127.0.0.1:8085/data.json' -TimeoutSec 2
+  $sensors = [System.Collections.Generic.List[object]]::new()
+  Find-CpuTemperatureSensors -Node $tree -WithinCpu $false -Result $sensors
+  $selected = $sensors | Sort-Object { [double]$_.Value } -Descending | Select-Object -First 1
+  $perf = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" |
+    Select-Object -First 1
+  $utilization = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" |
+    Select-Object -First 1
+  [pscustomobject]@{
+    timestamp_utc = [DateTimeOffset]::UtcNow.ToString('o')
+    temperature_c = if ($selected -and $null -ne $selected.Value) { [double]$selected.Value } else { $null }
+    temperature_sensor = if ($selected) { [string]$selected.Name } else { $null }
+    cpu_utilization_percent = if ($utilization -and $null -ne $utilization.PercentProcessorTime) { [double]$utilization.PercentProcessorTime } else { $null }
+    frequency_mhz = if ($perf -and $null -ne $perf.ProcessorFrequency) { [double]$perf.ProcessorFrequency } else { $null }
+  } | ConvertTo-Json -Compress
+  Start-Sleep -Seconds 1
+}
+"#
+}
+
 fn telemetry_script(provider: &str) -> String {
+    if provider == "hardware_monitor_rest" {
+        return rest_telemetry_script().to_string();
+    }
     let namespace = if provider == "root\\OpenHardwareMonitor" {
         "root\\OpenHardwareMonitor"
     } else {
