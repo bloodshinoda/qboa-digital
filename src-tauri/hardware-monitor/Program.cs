@@ -77,7 +77,7 @@ internal static class Program
                 .SelectMany(item => item.Sensors)
                 .Where(sensor => sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue)
                 .Select(sensor => new SensorInfo(sensor.Name, sensor.Identifier.ToString(), sensor.Value!.Value))
-                .Where(sensor => double.IsFinite(sensor.Value) && sensor.Value is >= 0 and <= 150)
+                .Where(sensor => double.IsFinite(sensor.Value) && sensor.Value is > 0 and <= 150)
                 .ToArray();
         }
 
