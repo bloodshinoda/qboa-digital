@@ -2002,8 +2002,10 @@ async fn get_memory_inventory() -> Result<memory_inventory::MemoryInventory, Str
 }
 
 #[tauri::command]
-async fn get_cpu_inventory() -> Result<cpu_diagnostic::CpuInventory, String> {
-    cpu_diagnostic::collect_inventory()
+async fn get_cpu_inventory(app: AppHandle) -> Result<cpu_diagnostic::CpuInventory, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    cpu_diagnostic::collect_inventory(&app_data_dir)
 }
 
 #[tauri::command]
@@ -2026,14 +2028,12 @@ fn start_cpu_test(
                 .to_string(),
         );
     }
-    let inventory = cpu_diagnostic::collect_inventory()?;
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    let inventory = cpu_diagnostic::collect_inventory(&app_data_dir)?;
     if !inventory.sensor_available {
         return Err(inventory.sensor_note);
     }
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
     cpu_diagnostic::start(app, app_data_dir, profile, inventory)
 }
 
