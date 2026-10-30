@@ -39,10 +39,10 @@ internal static class Program
                 var pawnio = ReadPawnIoInstallation();
                 var available = pawnio.Installed && sensors.Count > 0;
                 var note = !pawnio.Installed
-                    ? "O driver PawnIO não está instalado. Ele é necessário para que o LibreHardwareMonitor acesse determinados sensores térmicos da CPU. Instale-o pelo instalador oficial e atualize esta tela. O teste não será iniciado."
+                    ? "O driver PawnIO não está instalado. Ele é necessário para que o LibreHardwareMonitor acesse determinados sensores térmicos da CPU. Instale a versão oficial em https://github.com/namazso/PawnIO.Setup/releases/latest e atualize esta tela. O teste não será iniciado."
                     : sensors.Count > 0
-                        ? "Sensores térmicos de CPU detectados pelo coletor integrado."
-                        : "PawnIO está instalado, mas o coletor não encontrou leituras térmicas válidas de CPU neste hardware. O teste não será iniciado.";
+                        ? $"Sensores térmicos de CPU detectados pelo coletor integrado. PawnIO {pawnio.Version ?? "instalado"}."
+                        : $"PawnIO {pawnio.Version ?? "está instalado"}, mas o coletor não encontrou leituras térmicas válidas de CPU neste hardware. O teste não será iniciado.";
                 Console.WriteLine(JsonSerializer.Serialize(new Discovery(
                     available, Provider, sensors, note, pawnio.Installed, pawnio.Version
                 ), JsonOptions));
@@ -69,7 +69,7 @@ internal static class Program
 
     private static (bool Installed, string? Version) ReadPawnIoInstallation()
     {
-        const string uninstallKey = @"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PawnIO";
+        const string uninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO";
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(uninstallKey);
