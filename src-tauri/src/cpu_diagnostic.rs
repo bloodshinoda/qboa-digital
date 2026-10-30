@@ -527,11 +527,8 @@ fn run_test<R: Runtime>(
     let worker_count = inventory.logical_processors.clamp(1, 64) as usize;
     let iterations = Arc::new(AtomicU64::new(0));
     let errors = Arc::new(AtomicU64::new(0));
-    let workers = CpuWorkerGroup::spawn(
-        worker_count,
-        Arc::clone(&iterations),
-        Arc::clone(&errors),
-    )?;
+    let workers =
+        CpuWorkerGroup::spawn(worker_count, Arc::clone(&iterations), Arc::clone(&errors))?;
 
     let mut samples = Vec::new();
     let first_sample = CpuTelemetrySample {
