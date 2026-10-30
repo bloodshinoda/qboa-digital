@@ -19,6 +19,8 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
+    outputs:
+      app_version: ${{ steps.app-version.outputs.value }}
 
     steps:
       - name: Checkout
@@ -144,5 +146,5 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            release-assets/qboa-digital-${{ steps.app-version.outputs.value }}-x64-installer.exe
-            release-assets/qboa-digital-${{ steps.app-version.outputs.value }}-x64-portable.exe
+            release-assets/qboa-digital-${{ needs.build-windows.outputs.app_version }}-x64-installer.exe
+            release-assets/qboa-digital-${{ needs.build-windows.outputs.app_version }}-x64-portable.exe
