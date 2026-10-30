@@ -181,6 +181,22 @@
         <button id="diagnostic-modal-close" class="diagnostic-close" type="button" aria-label="Fechar diagnóstico">×</button>
       </header>
       <p class="diagnostic-modal-intro" id="diagnostic-modal-intro"></p>
+      <section id="complete-diagnostic-progress" class="complete-diagnostic-progress" hidden aria-label="Progresso do diagnóstico completo">
+        <div class="complete-diagnostic-progress-heading">
+          <div><strong id="complete-diagnostic-stage">Preparando diagnóstico</strong><p id="complete-diagnostic-detail" aria-live="polite">Aguardando confirmação.</p></div>
+          <strong id="complete-diagnostic-percent">0%</strong>
+        </div>
+        <div id="complete-diagnostic-progress-track" class="complete-diagnostic-progress-track" role="progressbar" aria-label="Progresso geral do diagnóstico completo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="complete-diagnostic-progress-bar"></div></div>
+        <ol id="complete-diagnostic-steps" class="complete-diagnostic-steps">
+          <li data-step="0"><span>Sistema e Windows</span><small>Aguardando</small></li>
+          <li data-step="1"><span>Armazenamento</span><small>Aguardando</small></li>
+          <li data-step="2"><span>Memória RAM</span><small>Aguardando</small></li>
+          <li data-step="3"><span>Processador</span><small>Aguardando</small></li>
+          <li data-step="4"><span>Placa de vídeo</span><small>Aguardando</small></li>
+        </ol>
+        <div class="complete-diagnostic-actions"><button id="complete-diagnostic-cancel" class="secondary-button" type="button">Cancelar diagnóstico</button></div>
+      </section>
+      <p id="complete-diagnostic-summary" class="complete-diagnostic-summary" hidden></p>
       <section id="memory-test-panel" class="memory-test-panel" hidden aria-label="Sessão de teste de integridade da RAM">
         <div class="memory-test-actions">
           <button class="primary-button" id="memory-test-start" type="button">Iniciar teste de RAM</button>
