@@ -536,7 +536,9 @@ fn run_test<R: Runtime>(
         timestamp_utc: first_raw.timestamp_utc,
         temperature_c: Some(first_temperature),
         temperature_sensor: first_raw.temperature_sensor,
-        cpu_utilization_percent: first_raw.cpu_utilization_percent,
+        cpu_utilization_percent: first_raw
+            .cpu_utilization_percent
+            .filter(|value| value.is_finite() && (0.0..=100.0).contains(value)),
         frequency_mhz: first_raw
             .frequency_mhz
             .filter(|value| value.is_finite() && *value > 0.0 && *value < 20000.0),
@@ -589,7 +591,7 @@ fn run_test<R: Runtime>(
                     temperature_sensor: raw.temperature_sensor,
                     cpu_utilization_percent: raw
                         .cpu_utilization_percent
-                        .filter(|v| v.is_finite() && (0.0..=200.0).contains(v)),
+                        .filter(|v| v.is_finite() && (0.0..=100.0).contains(v)),
                     frequency_mhz: raw
                         .frequency_mhz
                         .filter(|v| v.is_finite() && (*v > 0.0) && (*v < 20000.0)),
@@ -662,23 +664,25 @@ fn run_test<R: Runtime>(
         &terminal_status,
     );
     if report.calculation_errors > 0 {
-        report.execution_status = "errors_detected".into();
         report
             .warnings
             .push("Foram encontradas divergências em cálculos redundantes durante a carga.".into());
-    } else if report.execution_status == "thermal_limit_reached" {
-        report.warnings.push(format!(
+        if report.execution_status == "completed" {
+            report.execution_status = "errors_detected".into();
+        }
+    }
+    match terminal_status.as_str() {
+        "thermal_limit_reached" => report.warnings.push(format!(
             "Teste interrompido ao atingir o limite térmico conservador definido pelo QBoa ({:.0} °C); isso não representa o TjMax oficial do fabricante.",
             THERMAL_STOP_C
-        ));
-    } else if report.execution_status == "sensor_lost" {
-        report
+        )),
+        "sensor_lost" => report
             .warnings
-            .push("A telemetria térmica deixou de responder; a carga foi encerrada.".into());
-    } else if report.execution_status == "cancelled" {
-        report
+            .push("A telemetria térmica deixou de responder; a carga foi encerrada.".into()),
+        "cancelled" => report
             .warnings
-            .push("Execução cancelada pelo usuário; os dados parciais foram preservados.".into());
+            .push("Execução cancelada pelo usuário; os dados parciais foram preservados.".into()),
+        _ => {}
     }
     report.warnings.push("O teste aplica carga sintética de inteiros e não certifica estabilidade universal nem substitui testes especializados de longo prazo.".into());
     persist_report(app_data_dir, &report)?;
