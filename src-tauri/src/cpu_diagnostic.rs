@@ -1142,6 +1142,7 @@ mod tests {
             0,
             "completed",
         );
+        assert_eq!(report.profile, CpuTestProfile::Quick);
         assert_eq!(report.worker_threads, 8);
         assert_eq!(report.temperature_min_c, Some(40.0));
         assert_eq!(report.temperature_max_c, Some(80.0));
