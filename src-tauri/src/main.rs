@@ -2,8 +2,11 @@
 
 mod capability_inventory;
 mod cleanup_findings;
+mod cpu_diagnostic;
 mod diagnostics;
 mod diagnostics_store;
+mod memory_inventory;
+mod memory_test;
 mod registry_executor;
 mod safety;
 mod service_manager;
@@ -16,7 +19,7 @@ mod tweak_profiles;
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufReader, Read};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -58,6 +61,12 @@ static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
 static STORAGE_SCRIPT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 static SAFETY_STATE: std::sync::OnceLock<Arc<Mutex<SafetyManager>>> = std::sync::OnceLock::new();
+
+static OPERATION_START_GATE: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+
+fn operation_start_gate() -> &'static Mutex<()> {
+    OPERATION_START_GATE.get_or_init(|| Mutex::new(()))
+}
 
 static RESTORE_POINT_RESPONSES: std::sync::OnceLock<
     Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>,
@@ -1019,6 +1028,21 @@ fn start_task(
     task: Task,
     shutdown_on_complete: bool,
 ) -> Result<safety::ExecutionHandle, String> {
+    let _start_guard = operation_start_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if memory_test::session::is_active() {
+        return Err(
+            "O teste de integridade da RAM está em andamento. Aguarde ou cancele a sessão antes de iniciar outra tarefa."
+                .to_string(),
+        );
+    }
+    if cpu_diagnostic::is_active() {
+        return Err(
+            "O diagnóstico de CPU está em andamento. Aguarde ou cancele o teste antes de iniciar uma tarefa de limpeza/manutenção."
+                .to_string(),
+        );
+    }
     let task_id_for_spawn = task.id.clone();
     let app_for_spawn = app.clone();
     let task_name = task.name.clone();
@@ -1867,6 +1891,21 @@ fn list_storage_disks() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json::Value, String> {
+    let _start_guard = operation_start_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cpu_diagnostic::is_active() {
+        return Err(
+            "O diagnóstico de CPU está em andamento. Aguarde ou cancele o teste antes de testar o armazenamento."
+                .to_string(),
+        );
+    }
+    if memory_test::session::is_active() {
+        return Err(
+            "O teste de RAM está em andamento. Aguarde ou cancele a sessão antes de testar o armazenamento."
+                .to_string(),
+        );
+    }
     let started_at = storage_diagnostic::timestamp_now();
     let mut result = execute_storage_script("test", Some(&disk_id))?;
     let mut report: storage_diagnostic::StorageReport = serde_json::from_value(result.clone())
@@ -1900,6 +1939,139 @@ fn get_storage_diagnostic_reports(app: AppHandle) -> Result<serde_json::Value, S
         .app_data_dir()
         .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
     storage_diagnostic::load_stored_reports(&app_data_dir)
+}
+
+#[tauri::command]
+async fn start_memory_test(
+    app: AppHandle,
+    profile: memory_test::runner::MemoryTestProfile,
+    memory_budget_bytes: Option<u64>,
+    preferred_block_bytes: Option<usize>,
+    seed: Option<u64>,
+) -> Result<memory_test::session::MemoryTestSessionSnapshot, String> {
+    let _start_guard = operation_start_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if safety_state().lock().unwrap().is_task_running() {
+        return Err("Já existe uma tarefa do QBoa em andamento. Aguarde sua conclusão antes de testar a RAM.".to_string());
+    }
+    if cpu_diagnostic::is_active() {
+        return Err(
+            "O teste de CPU está em andamento. Aguarde ou cancele antes de iniciar o teste de RAM."
+                .to_string(),
+        );
+    }
+    let mut config = memory_test::runner::MemoryTestConfig::for_profile(profile);
+    if let Some(value) = memory_budget_bytes {
+        config.memory_budget_bytes = value;
+    }
+    if let Some(value) = preferred_block_bytes {
+        config.preferred_block_bytes = value;
+    }
+    if let Some(value) = seed {
+        config.seed = value;
+    }
+    if profile == memory_test::runner::MemoryTestProfile::Custom {
+        let total_physical_bytes = memory_inventory::collect()?.total_physical_bytes;
+        if config.memory_budget_bytes > total_physical_bytes {
+            return Err(
+                "O orçamento personalizado não pode superar o total de RAM física detectada."
+                    .to_string(),
+            );
+        }
+    }
+    memory_test::session::start(app, config)
+}
+
+#[tauri::command]
+fn get_memory_test_session() -> Option<memory_test::session::MemoryTestSessionSnapshot> {
+    memory_test::session::get_session()
+}
+
+#[tauri::command]
+fn cancel_memory_test(
+    app: AppHandle,
+    session_id: Option<String>,
+) -> Result<memory_test::session::MemoryTestSessionSnapshot, String> {
+    memory_test::session::cancel(&app, session_id.as_deref())
+}
+
+#[tauri::command]
+async fn get_memory_inventory() -> Result<memory_inventory::MemoryInventory, String> {
+    memory_inventory::collect()
+}
+
+#[tauri::command]
+async fn get_cpu_inventory(app: AppHandle) -> Result<cpu_diagnostic::CpuInventory, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    cpu_diagnostic::collect_inventory(&app_data_dir)
+}
+
+#[tauri::command]
+fn install_pawnio(app: AppHandle) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    cpu_diagnostic::install_pawnio(&app_data_dir)
+}
+
+#[tauri::command]
+fn start_cpu_test(
+    app: AppHandle,
+    profile: cpu_diagnostic::CpuTestProfile,
+) -> Result<cpu_diagnostic::CpuTestSessionSnapshot, String> {
+    let _start_guard = operation_start_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if safety_state().lock().unwrap().is_task_running() {
+        return Err(
+            "Há uma tarefa de limpeza/manutenção em andamento. Aguarde sua conclusão antes de iniciar um teste de CPU."
+                .to_string(),
+        );
+    }
+    if memory_test::session::is_active() {
+        return Err(
+            "O teste de RAM está em andamento. Aguarde ou cancele antes de iniciar o teste de CPU."
+                .to_string(),
+        );
+    }
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    let inventory = cpu_diagnostic::collect_inventory(&app_data_dir)?;
+    if !inventory.sensor_available {
+        return Err(inventory.sensor_note);
+    }
+    cpu_diagnostic::start(app, app_data_dir, profile, inventory)
+}
+
+#[tauri::command]
+fn get_cpu_test_session() -> Option<cpu_diagnostic::CpuTestSessionSnapshot> {
+    cpu_diagnostic::get_session()
+}
+
+#[tauri::command]
+fn cancel_cpu_test(
+    app: AppHandle,
+    session_id: Option<String>,
+) -> Result<cpu_diagnostic::CpuTestSessionSnapshot, String> {
+    cpu_diagnostic::cancel(&app, session_id.as_deref())
+}
+
+#[tauri::command]
+fn get_cpu_diagnostic_reports(
+    app: AppHandle,
+) -> Result<Vec<cpu_diagnostic::CpuTestReport>, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    cpu_diagnostic::load_reports(&app_data_dir)
 }
 
 #[tauri::command]
@@ -2019,6 +2191,16 @@ fn main() {
             list_storage_disks,
             run_storage_diagnostic,
             get_storage_diagnostic_reports,
+            start_memory_test,
+            get_memory_test_session,
+            cancel_memory_test,
+            get_memory_inventory,
+            get_cpu_inventory,
+            install_pawnio,
+            start_cpu_test,
+            get_cpu_test_session,
+            cancel_cpu_test,
+            get_cpu_diagnostic_reports,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,

@@ -181,6 +181,93 @@
         <button id="diagnostic-modal-close" class="diagnostic-close" type="button" aria-label="Fechar diagnóstico">×</button>
       </header>
       <p class="diagnostic-modal-intro" id="diagnostic-modal-intro"></p>
+      <section id="memory-test-panel" class="memory-test-panel" hidden aria-label="Sessão de teste de integridade da RAM">
+        <div class="memory-test-actions">
+          <button class="primary-button" id="memory-test-start" type="button">Iniciar teste de RAM</button>
+          <button class="secondary-button" id="memory-test-cancel" type="button" hidden disabled>Cancelar teste</button>
+        </div>
+        <section id="memory-inventory-panel" class="memory-inventory-panel" aria-label="Inventário físico da memória RAM">
+          <div class="memory-inventory-header">
+            <div>
+              <h3>Memória física instalada</h3>
+              <p id="memory-inventory-summary" aria-live="polite">Consultando módulos e slots…</p>
+            </div>
+            <button class="secondary-button" id="memory-inventory-refresh" type="button">Atualizar</button>
+          </div>
+          <div id="memory-modules-list" class="memory-modules-list"></div>
+          <p id="memory-inventory-note" class="memory-inventory-note"></p>
+        </section>
+        <div class="memory-test-profile-picker">
+          <label for="memory-test-profile">Perfil de cobertura</label>
+          <select id="memory-test-profile">
+            <option value="fast" selected>Rápido · 256 MiB</option>
+            <option value="standard">Padrão · 3 GiB</option>
+            <option value="extended">Prolongado · 6 GiB</option>
+            <option value="custom">Personalizado · escolher tamanho</option>
+          </select>
+          <p id="memory-test-profile-description">Rápido · 256 MiB · A01/A03 em cada bloco e A04 amostrado. Cobertura parcial.</p>
+        </div>
+        <div id="memory-test-custom-picker" class="memory-test-custom-picker" hidden>
+          <div class="memory-test-custom-heading">
+            <label for="memory-test-custom-budget">Orçamento do teste</label>
+            <output id="memory-test-custom-size" for="memory-test-custom-budget">1 GiB</output>
+          </div>
+          <input id="memory-test-custom-budget" type="range" min="134217728" max="1073741824" step="1048576" value="1073741824" disabled aria-describedby="memory-test-custom-help" />
+          <div class="memory-test-slider-limits"><span>128 MiB</span><span id="memory-test-custom-maximum">RAM total</span></div>
+          <p id="memory-test-custom-help">O limite é a RAM física detectada. O teste usa um bloco por vez e preserva uma reserva de memória para o Windows; a cobertura pode terminar como inconclusiva se houver pouca RAM livre.</p>
+        </div>
+        <div class="memory-test-progress" role="group" aria-label="Progresso do teste de RAM">
+          <div class="memory-test-progress-head"><strong id="memory-test-progress-phase">Aguardando início</strong><span id="memory-test-progress-percent">0%</span></div>
+          <div class="memory-test-progress-track" role="progressbar" aria-label="Progresso do teste de RAM" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="memory-test-progress-bar" class="memory-test-progress-bar"></div>
+          </div>
+          <p id="memory-test-progress-detail" aria-live="polite">Aguardando a primeira atualização do runner.</p>
+        </div>
+        <div id="memory-test-result" class="memory-test-result" role="status" aria-live="polite"></div>
+        <ul id="memory-test-result-details" class="memory-test-result-details"></ul>
+        <p class="memory-test-safety-note">O teste usa somente buffers próprios do QBoa. Não acessa endereços físicos, não bloqueia a paginação do Windows e não certifica toda a RAM física. Se o teste for cancelado ou ficar inconclusivo, o resultado não é uma aprovação.</p>
+      </section>
+      <section id="cpu-test-panel" class="cpu-test-panel" hidden aria-label="Teste de carga e telemetria do processador">
+        <section class="cpu-inventory-panel">
+          <div class="cpu-inventory-heading">
+            <div><h3>Processador detectado</h3><p id="cpu-inventory-summary" aria-live="polite">Consultando CPU e sensores térmicos…</p></div>
+            <button class="secondary-button" id="cpu-inventory-refresh" type="button">Atualizar</button>
+          </div>
+          <div id="cpu-inventory-details" class="cpu-inventory-details"></div>
+          <p id="cpu-sensor-status" class="cpu-sensor-status" role="status"></p>
+        </section>
+        <div class="cpu-test-profile-picker">
+          <label for="cpu-test-profile">Duração do teste</label>
+          <select id="cpu-test-profile">
+            <option value="quick">Rápido · 5 minutos</option>
+            <option value="standard" selected>Padrão · 15 minutos</option>
+            <option value="extended">Estendido · 30 minutos</option>
+          </select>
+          <p>O teste aplica carga computacional aos threads lógicos, registra temperatura, utilização e frequência a cada segundo e verifica resultados por duas rotas aritméticas independentes.</p>
+        </div>
+        <div class="cpu-test-actions">
+          <button class="primary-button" id="cpu-test-start" type="button" disabled>Iniciar teste de CPU</button>
+          <button class="secondary-button" id="cpu-test-cancel" type="button" hidden disabled>Cancelar teste</button>
+          <span id="cpu-test-progress-label" aria-live="polite">Aguardando início.</span>
+        </div>
+        <div class="cpu-test-live-metrics">
+          <article><span>Temperatura atual</span><strong id="cpu-test-temperature">—</strong><small id="cpu-test-temperature-max">Máxima: —</small><small id="cpu-test-temperature-source">Sensor: —</small></article>
+          <article><span>Utilização</span><strong id="cpu-test-utilization">—</strong><small id="cpu-test-utilization-max">Pico: —</small></article>
+          <article><span>Frequência</span><strong id="cpu-test-frequency">—</strong><small id="cpu-test-frequency-max">Pico: —</small></article>
+        </div>
+        <section class="cpu-test-chart-panel" aria-label="Gráfico de temperatura e utilização do processador">
+          <div class="cpu-test-chart-heading"><strong>Telemetria durante o teste</strong><span id="cpu-test-chart-range">Sem amostras</span></div>
+          <canvas id="cpu-test-chart" height="190" role="img" aria-label="Gráfico temporal de temperatura e utilização da CPU"></canvas>
+          <div class="cpu-test-chart-legend"><span class="cpu-legend-temperature">Temperatura (°C)</span><span class="cpu-legend-usage">Utilização (%)</span></div>
+        </section>
+        <div class="cpu-test-progress" role="group" aria-label="Progresso do teste de CPU">
+          <div class="cpu-test-progress-heading"><strong id="cpu-test-phase">Aguardando início</strong><span id="cpu-test-progress-percent">0%</span></div>
+          <div class="cpu-test-progress-track" role="progressbar" aria-label="Progresso do teste de CPU" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="cpu-test-progress-bar"></div></div>
+          <p id="cpu-test-progress-detail" aria-live="polite">O teste só começa quando uma leitura térmica válida da CPU estiver disponível.</p>
+        </div>
+        <div id="cpu-test-result" class="cpu-test-result" role="status" aria-live="polite"></div>
+        <p class="cpu-test-safety-note">O teste é executado somente sob solicitação. A carga roda em prioridade abaixo do normal, pode ser cancelada e é interrompida ao atingir 85 °C (limite conservador do QBoa, não o TjMax do fabricante) ou perder o sensor térmico. O resultado não certifica estabilidade universal.</p>
+      </section>
       <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Executar teste</button></div>
       <p id="diagnostic-status" aria-live="polite"></p>
       <ul id="diagnostic-results" class="diagnostic-results"></ul>

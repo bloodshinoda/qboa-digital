@@ -28,6 +28,11 @@ let browserCleanupDecision = null;
 let showAllSessionChanges = false;
 let activeDiagnosticTarget = null;
 let activeDiagnosticMode = "quick";
+let memoryTestSessionSnapshot = null;
+let memoryInventorySnapshot = null;
+let cpuTestSessionSnapshot = null;
+let cpuInventorySnapshot = null;
+let cpuTestSamples = [];
 
 const Qboa = {
   async analyze() {
@@ -76,6 +81,51 @@ const Qboa = {
 
   async getStorageDiagnosticReports() {
     return invoke("get_storage_diagnostic_reports");
+  },
+
+  async startMemoryTest(profile, memoryBudgetBytes = null) {
+    return invoke("start_memory_test", {
+      profile,
+      memoryBudgetBytes,
+      preferredBlockBytes: null,
+      seed: null
+    });
+  },
+
+  async getMemoryInventory() {
+    return invoke("get_memory_inventory");
+  },
+
+  async getCpuInventory() {
+    return invoke("get_cpu_inventory");
+  },
+
+  async installPawnIo() {
+    return invoke("install_pawnio");
+  },
+
+  async startCpuTest(profile) {
+    return invoke("start_cpu_test", { profile });
+  },
+
+  async getCpuTestSession() {
+    return invoke("get_cpu_test_session");
+  },
+
+  async cancelCpuTest(sessionId) {
+    return invoke("cancel_cpu_test", { sessionId });
+  },
+
+  async getCpuDiagnosticReports() {
+    return invoke("get_cpu_diagnostic_reports");
+  },
+
+  async getMemoryTestSession() {
+    return invoke("get_memory_test_session");
+  },
+
+  async cancelMemoryTest(sessionId) {
+    return invoke("cancel_memory_test", { sessionId });
   },
 
   async listWindowsServices() { return invoke("list_windows_services"); },
@@ -227,10 +277,9 @@ function renderCards() {
     recoveryPanel.hidden = true;
     const tests = [
       { id: "armazenamento", name: "Armazenamento", desc: "Espaço livre e informações disponíveis sobre os volumes." },
-      { id: "memoria_ram", name: "Memória RAM", desc: "Memória total e disponível durante a coleta." },
+      { id: "teste_memoria", name: "Memória RAM", desc: "Inventaria os módulos e a frequência reportada, mostra as limitações de leitura de timings e executa o teste de integridade com perfil selecionável." },
       { id: "placa_de_video", name: "GPU", desc: "Adaptadores gráficos detectados e leituras disponíveis." },
-      { id: "processador", name: "Processador", desc: "Identificação do processador e dados disponíveis." },
-      { id: "temperatura", name: "Temperaturas", desc: "Leituras de sensores compatíveis, quando expostas pelo sistema." },
+      { id: "processador", name: "Processador", desc: "Teste de carga por 5, 15 ou 30 minutos, com gráfico de temperatura, utilização e frequência." },
       { id: "completo", name: "Diagnóstico completo", desc: "Executa a bateria completa e reúne os resultados em um laudo persistente." }
     ];
     tests.forEach((test) => {
@@ -1173,8 +1222,7 @@ function diagnosticCategoryLabel(category) {
     armazenamento: "Armazenamento",
     memoria_ram: "Memória RAM",
     placa_de_video: "Placa de vídeo",
-    processador: "Processador",
-    temperatura: "Temperatura"
+    processador: "Processador"
   }[category] || category;
 }
 
@@ -1382,15 +1430,19 @@ async function loadDiagnosticHistory(selectLatest = false) {
   if (!list) return [];
   try {
     const storageOnly = activeDiagnosticTarget === "armazenamento";
-    const reportPromise = storageOnly ? Promise.resolve([]) : Qboa.getDiagnosticReports();
+    const cpuOnly = activeDiagnosticTarget === "processador";
+    const reportPromise = storageOnly || cpuOnly ? Promise.resolve([]) : Qboa.getDiagnosticReports();
     const storagePromise = Qboa.getStorageDiagnosticReports().catch(() => []);
-    const results = await Promise.all([reportPromise, storagePromise]);
+    const cpuPromise = Qboa.getCpuDiagnosticReports().catch(() => []);
+    const results = await Promise.all([reportPromise, storagePromise, cpuPromise]);
     const reports = results[0];
     const storageReports = results[1];
+    const cpuReports = results[2];
     list.replaceChildren();
     const combined = [
-      ...storageReports.map((report) => ({ report, storage: true })),
-      ...reports.map((report) => ({ report, storage: false }))
+      ...storageReports.map((report) => ({ report, storage: true, cpu: false })),
+      ...cpuReports.map((report) => ({ report, storage: false, cpu: true })),
+      ...reports.map((report) => ({ report, storage: false, cpu: false }))
     ].sort((a, b) => String(b.report.started_at || "").localeCompare(String(a.report.started_at || "")));
 
     if (!combined.length) {
@@ -1398,7 +1450,7 @@ async function loadDiagnosticHistory(selectLatest = false) {
       empty.textContent = "Nenhum laudo salvo ainda.";
       list.appendChild(empty);
     }
-    combined.forEach(({ report, storage }) => {
+    combined.forEach(({ report, storage, cpu }) => {
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.type = "button";
@@ -1410,13 +1462,19 @@ async function loadDiagnosticHistory(selectLatest = false) {
       const detail = document.createElement("small");
       detail.textContent = storage
         ? "Armazenamento · " + (report.disk_name || report.disk_id || "disco") + " · " + diagnosticExecutionLabel(report.execution_status)
-        : (report.mode === "complete" ? "Completo" : "Rápido") + " · " + diagnosticExecutionLabel(report.execution_status);
+        : cpu
+          ? "CPU · " + (report.processor_name || "processador") + " · " + cpuTestStatusLabel(report.execution_status)
+          : (report.mode === "complete" ? "Completo" : "Rápido") + " · " + diagnosticExecutionLabel(report.execution_status);
       button.append(date, detail);
       button.addEventListener("click", () => {
         if (storage) {
           renderStorageReport(report);
           document.getElementById("diagnostic-status").textContent =
             "Laudo de armazenamento recuperado · " + (report.report_id || "ID indisponível");
+        } else if (cpu) {
+          renderCpuReport(report);
+          document.getElementById("diagnostic-status").textContent =
+            "Laudo de CPU recuperado · " + (report.report_id || "ID indisponível");
         } else {
           renderDiagnosticReport(report);
           document.getElementById("diagnostic-status").textContent =
@@ -1428,26 +1486,346 @@ async function loadDiagnosticHistory(selectLatest = false) {
     });
 
     if (selectLatest && combined.length) {
-      if (activeDiagnosticTarget === "armazenamento" && storageReports.length) {
+      if (cpuOnly && cpuReports.length) {
+        renderCpuReport(cpuReports[0]);
+        document.getElementById("diagnostic-status").textContent =
+          "Último laudo de CPU recuperado · " + cpuTestStatusLabel(cpuReports[0].execution_status);
+      } else if (storageOnly && storageReports.length) {
         renderStorageReport(storageReports[0]);
         document.getElementById("diagnostic-status").textContent =
           "Último laudo de armazenamento recuperado · " + (storageReports[0].report_id || "ID indisponível");
-      } else if (reports.length) {
+      } else if (!cpuOnly && !storageOnly && reports.length) {
         renderDiagnosticReport(reports[0]);
         document.getElementById("diagnostic-status").textContent =
           "Último laudo recuperado · " + diagnosticExecutionLabel(reports[0].execution_status);
-      } else if (storageReports.length) {
+      } else if (!cpuOnly && !storageOnly && cpuReports.length) {
+        renderCpuReport(cpuReports[0]);
+        document.getElementById("diagnostic-status").textContent =
+          "Último laudo de CPU recuperado · " + cpuTestStatusLabel(cpuReports[0].execution_status);
+      } else if (!cpuOnly && !storageOnly && storageReports.length) {
         renderStorageReport(storageReports[0]);
         document.getElementById("diagnostic-status").textContent =
           "Último laudo de armazenamento recuperado · " + (storageReports[0].report_id || "ID indisponível");
       }
     }
-    return activeDiagnosticTarget === "armazenamento" ? storageReports : reports;
+    return cpuOnly ? cpuReports : storageOnly ? storageReports : reports;
   } catch (error) {
     const item = document.createElement("li");
     item.textContent = "Não foi possível carregar o histórico: " + String(error);
     list.replaceChildren(item);
     return [];
+  }
+}
+
+function cpuTestStatusLabel(status) {
+  return {
+    running: "em execução",
+    completed: "concluído",
+    errors_detected: "divergências detectadas",
+    cancelled: "cancelado",
+    thermal_limit_reached: "interrompido por temperatura",
+    sensor_lost: "sensor indisponível",
+    partial: "parcial / interrompido",
+    failed: "falhou"
+  }[status] || "estado desconhecido";
+}
+
+function cpuFormat(value, suffix = "", decimals = 1) {
+  const number = Number(value);
+  return value !== null && value !== undefined && Number.isFinite(number)
+    ? number.toLocaleString("pt-BR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + suffix
+    : "—";
+}
+
+async function loadCpuInventory() {
+  const summary = document.getElementById("cpu-inventory-summary");
+  const details = document.getElementById("cpu-inventory-details");
+  const status = document.getElementById("cpu-sensor-status");
+  const refresh = document.getElementById("cpu-inventory-refresh");
+  const start = document.getElementById("cpu-test-start");
+  refresh.disabled = true;
+  start.disabled = true;
+  summary.textContent = "Consultando identificação da CPU e sensores...";
+  details.replaceChildren();
+  status.textContent = "";
+  status.classList.remove("available");
+  try {
+    const inventory = await Qboa.getCpuInventory();
+    cpuInventorySnapshot = inventory;
+    summary.textContent = inventory.name || "Processador sem identificação";
+    const values = [
+      ["Fabricante", inventory.manufacturer || "Não informado"],
+      ["Soquete", inventory.socket || "Não informado"],
+      ["Núcleos físicos", inventory.physical_cores || "Não informado"],
+      ["Threads lógicos", inventory.logical_processors || "Não informado"],
+      ["Clock máximo reportado", inventory.max_clock_mhz ? Number(inventory.max_clock_mhz).toLocaleString("pt-BR") + " MHz" : "Não informado"],
+      ["Sensores de temperatura", (inventory.temperature_sensors || []).join(", ") || "Nenhum"]
+    ];
+    values.forEach(([label, value]) => {
+      const item = document.createElement("article");
+      item.className = "cpu-inventory-detail";
+      const title = document.createElement("span");
+      title.textContent = label;
+      const valueElement = document.createElement("strong");
+      valueElement.textContent = String(value);
+      item.append(title, valueElement);
+      details.appendChild(item);
+    });
+    const providerLabel = inventory.sensor_provider || "coletor térmico integrado";
+    status.textContent = inventory.sensor_available
+      ? "Temperatura disponível via " + providerLabel + ". " + (inventory.sensor_note || "")
+      : (inventory.sensor_note || "Sensor térmico de CPU não encontrado. O teste não poderá ser iniciado.");
+    status.classList.toggle("available", Boolean(inventory.sensor_available));
+    if (!inventory.pawnio_installed) {
+      const installButton = document.createElement("button");
+      installButton.type = "button";
+      installButton.className = refresh.className;
+      installButton.textContent = "Instalar PawnIO";
+      installButton.addEventListener("click", async () => {
+        const confirmed = await askConfirmation(
+          "O PawnIO é um driver de sistema (kernel) usado para acessar sensores de hardware. Ao continuar, o instalador oficial será aberto e poderá solicitar autorização do Windows (UAC). Uma reinicialização pode ser necessária. O QBoa não fará a instalação sem esta confirmação.",
+          "Instalar dependência térmica PawnIO"
+        );
+        if (!confirmed) return;
+        installButton.disabled = true;
+        installButton.textContent = "Aguardando instalador...";
+        status.appendChild(document.createTextNode("\\n"));
+        try {
+          const message = await Qboa.installPawnIo();
+          status.textContent = message;
+          if (/reinicializa/i.test(message)) {
+            installButton.remove();
+            start.disabled = true;
+            return;
+          }
+          await loadCpuInventory();
+        } catch (error) {
+          status.textContent = "Falha na instalação do PawnIO: " + String(error);
+          installButton.disabled = false;
+          installButton.textContent = "Tentar instalar novamente";
+          status.appendChild(installButton);
+        }
+      });
+      status.appendChild(document.createTextNode(" "));
+      status.appendChild(installButton);
+    }
+    start.disabled = !inventory.sensor_available || ["running", "cancelling"].includes(cpuTestSessionSnapshot?.lifecycle);
+  } catch (error) {
+    cpuInventorySnapshot = null;
+    summary.textContent = "Não foi possível consultar o processador: " + String(error);
+    status.textContent = "Não foi possível consultar a identificação do processador.";
+    start.disabled = true;
+  } finally {
+    refresh.disabled = false;
+  }
+}
+
+function renderCpuChart(samples) {
+  const canvas = document.getElementById("cpu-test-chart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const width = Math.max(280, canvas.clientWidth || 720);
+  const height = 190;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  const left = 42, right = width - 12, top = 12, bottom = height - 26;
+  const plotHeight = bottom - top;
+  ctx.font = "11px sans-serif";
+  ctx.lineWidth = 1;
+  for (let tick = 0; tick <= 100; tick += 25) {
+    const y = bottom - (tick / 100) * plotHeight;
+    ctx.strokeStyle = "rgba(255,255,255,.13)";
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,.68)";
+    ctx.textAlign = "right";
+    ctx.fillText(String(tick), left - 7, y + 4);
+  }
+  if (!samples?.length) {
+    ctx.fillStyle = "rgba(255,255,255,.65)";
+    ctx.textAlign = "center";
+    ctx.fillText("As amostras aparecerão durante o teste.", width / 2, height / 2);
+    document.getElementById("cpu-test-chart-range").textContent = "Sem amostras";
+    return;
+  }
+  const drawSeries = (field, color) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let drawing = false;
+    samples.forEach((sample, index) => {
+      const value = Number(sample[field]);
+      if (!Number.isFinite(value)) { drawing = false; return; }
+      const x = samples.length === 1 ? left : left + (index / (samples.length - 1)) * (right - left);
+      const y = bottom - (Math.max(0, Math.min(100, value)) / 100) * plotHeight;
+      if (!drawing) { ctx.moveTo(x, y); drawing = true; } else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  drawSeries("temperature_c", "#fbbf24");
+  drawSeries("cpu_utilization_percent", "#60a5fa");
+  const durationSeconds = Math.round(Number(samples[samples.length - 1]?.elapsed_ms || 0) / 1000);
+  document.getElementById("cpu-test-chart-range").textContent =
+    samples.length + " amostra(s) · " + Math.floor(durationSeconds / 60) + "m " + (durationSeconds % 60) + "s";
+}
+
+function updateCpuLiveMetrics(samples) {
+  const valid = Array.isArray(samples) ? samples : [];
+  const latest = valid[valid.length - 1] || {};
+  const temperatures = valid.map((item) => Number(item.temperature_c)).filter(Number.isFinite);
+  const usages = valid.map((item) => Number(item.cpu_utilization_percent)).filter(Number.isFinite);
+  const frequencies = valid.map((item) => Number(item.frequency_mhz)).filter(Number.isFinite);
+  const maxOf = (items) => items.length ? Math.max(...items) : null;
+  document.getElementById("cpu-test-temperature").textContent = cpuFormat(latest.temperature_c, " °C");
+  document.getElementById("cpu-test-temperature-max").textContent = "Máxima: " + cpuFormat(maxOf(temperatures), " °C");
+  document.getElementById("cpu-test-temperature-source").textContent = "Sensor: " + (latest.temperature_sensor || "indisponível");
+  document.getElementById("cpu-test-utilization").textContent = cpuFormat(latest.cpu_utilization_percent, "%");
+  document.getElementById("cpu-test-utilization-max").textContent = "Pico: " + cpuFormat(maxOf(usages), "%");
+  document.getElementById("cpu-test-frequency").textContent = cpuFormat(latest.frequency_mhz, " MHz", 0);
+  document.getElementById("cpu-test-frequency-max").textContent = "Pico: " + cpuFormat(maxOf(frequencies), " MHz", 0);
+}
+
+function renderCpuReport(report) {
+  cpuTestSamples = Array.isArray(report.samples) ? report.samples.slice() : [];
+  renderCpuChart(cpuTestSamples);
+  updateCpuLiveMetrics(cpuTestSamples);
+  const result = document.getElementById("cpu-test-result");
+  result.replaceChildren();
+  const heading = document.createElement("p");
+  heading.textContent = "Resultado: " + cpuTestStatusLabel(report.execution_status);
+  result.appendChild(heading);
+  const profileLabel = {
+    quick: "Rápido · 5 min",
+    standard: "Padrão · 15 min",
+    extended: "Estendido · 30 min"
+  }[report.profile] || "Perfil não informado";
+  const summary = document.createElement("p");
+  summary.textContent = (report.processor_name || "CPU") + " · " + profileLabel + " · " +
+    Math.floor(Number(report.duration_ms || 0) / 60000) + " min efetivos · " +
+    Number(report.worker_threads || report.logical_processors || 0) + " threads de carga · " +
+    Number(report.iterations || 0).toLocaleString("pt-BR") + " verificações";
+  result.appendChild(summary);
+  const metrics = document.createElement("p");
+  const temperatureSummary = report.temperature_max_c === null || report.temperature_max_c === undefined
+    ? "Temperatura: não avaliada"
+    : "Temperatura mín./média/máx.: " +
+      cpuFormat(report.temperature_min_c, " °C") + " / " +
+      cpuFormat(report.temperature_average_c, " °C") + " / " +
+      cpuFormat(report.temperature_max_c, " °C");
+  metrics.textContent = temperatureSummary +
+    " · utilização média: " + cpuFormat(report.cpu_utilization_average_percent, "%") +
+    " · pico de frequência: " + cpuFormat(report.frequency_peak_mhz, " MHz", 0);
+  result.appendChild(metrics);
+  if (Array.isArray(report.warnings) && report.warnings.length) {
+    const list = document.createElement("ul");
+    report.warnings.forEach((warning) => {
+      const item = document.createElement("li");
+      item.textContent = warning;
+      list.appendChild(item);
+    });
+    result.appendChild(list);
+  }
+  const targetDurationMs = Math.max(1, Number(report.target_duration_seconds || 1) * 1000);
+  const percent = report.execution_status === "completed"
+    ? 100
+    : Math.max(0, Math.min(100, Math.floor(Number(report.duration_ms || 0) * 100 / targetDurationMs)));
+  const progressBar = document.getElementById("cpu-test-progress-bar");
+  progressBar.style.width = percent + "%";
+  const progressTrack = document.querySelector(".cpu-test-progress-track");
+  progressTrack.setAttribute("aria-valuenow", String(percent));
+  document.getElementById("cpu-test-progress-percent").textContent = percent + "%";
+  document.getElementById("cpu-test-phase").textContent = cpuTestStatusLabel(report.execution_status);
+  document.getElementById("cpu-test-progress-label").textContent = cpuTestStatusLabel(report.execution_status);
+  document.getElementById("cpu-test-progress-detail").textContent =
+    Math.floor(Number(report.duration_ms || 0) / 60000) + " min efetivos · " +
+    Number(report.samples?.length || 0).toLocaleString("pt-BR") + " amostras de telemetria · " +
+    Number(report.calculation_errors || 0) + " divergência(s)";
+}
+
+function renderCpuTestSession(session) {
+  if (!session) { cpuTestSessionSnapshot = null; return; }
+  cpuTestSessionSnapshot = session;
+  if (session.report) {
+    renderCpuReport(session.report);
+  } else if (session.latest_sample) {
+    const sample = session.latest_sample;
+    const last = cpuTestSamples[cpuTestSamples.length - 1];
+    if (!last || Number(sample.elapsed_ms) > Number(last.elapsed_ms)) cpuTestSamples.push(sample);
+    renderCpuChart(cpuTestSamples);
+    updateCpuLiveMetrics(cpuTestSamples);
+  }
+  const active = ["running", "cancelling"].includes(session.lifecycle);
+  const start = document.getElementById("cpu-test-start");
+  const cancel = document.getElementById("cpu-test-cancel");
+  const profile = document.getElementById("cpu-test-profile");
+  const percent = Math.max(0, Math.min(100, Number(session.progress_percent || 0)));
+  start.disabled = active;
+  start.textContent = active ? "Teste em andamento" : "Iniciar teste de CPU";
+  cancel.hidden = !active;
+  cancel.disabled = session.lifecycle === "cancelling";
+  cancel.textContent = session.lifecycle === "cancelling" ? "Cancelando…" : "Cancelar teste";
+  profile.disabled = active;
+  document.getElementById("cpu-test-progress-bar").style.width = percent + "%";
+  document.querySelector(".cpu-test-progress-track").setAttribute("aria-valuenow", String(percent));
+  document.getElementById("cpu-test-progress-percent").textContent = percent + "%";
+  const elapsedSeconds = Math.floor(Number(session.elapsed_ms || 0) / 1000);
+  const elapsed = Math.floor(elapsedSeconds / 60) + "m " + (elapsedSeconds % 60) + "s";
+  const targetSeconds = Math.floor(Number(session.target_duration_ms || 0) / 1000);
+  const target = Math.floor(targetSeconds / 60) + "m";
+  const phase = session.lifecycle === "cancelling" ? "Encerrando com segurança…" :
+    session.lifecycle === "running" ? "Teste em execução" :
+    session.lifecycle === "failed" ? "Falha ao iniciar" : "Execução finalizada";
+  document.getElementById("cpu-test-phase").textContent = phase;
+  document.getElementById("cpu-test-progress-label").textContent = active ? elapsed + " / " + target : cpuTestStatusLabel(session.report?.execution_status || session.lifecycle);
+  document.getElementById("cpu-test-progress-detail").textContent =
+    active ? elapsed + " de " + target + " · " + Number(session.iterations || 0).toLocaleString("pt-BR") +
+      " verificações · " + Number(session.calculation_errors || 0) + " divergência(s)" :
+      session.error || session.report?.warnings?.join(" ") || "Teste finalizado.";
+  if (session.error) {
+    document.getElementById("cpu-test-result").textContent = session.error;
+  }
+}
+
+async function loadCpuTestSession() {
+  try {
+    const session = await Qboa.getCpuTestSession();
+    if (session) renderCpuTestSession(session);
+  } catch (error) {
+    document.getElementById("cpu-test-result").textContent = "Não foi possível consultar a sessão: " + String(error);
+  }
+}
+
+async function startCpuTestFromUi() {
+  const profile = document.getElementById("cpu-test-profile").value;
+  const start = document.getElementById("cpu-test-start");
+  const result = document.getElementById("cpu-test-result");
+  start.disabled = true;
+  result.textContent = "Solicitando início do teste…";
+  cpuTestSamples = [];
+  renderCpuChart(cpuTestSamples);
+  try {
+    const session = await Qboa.startCpuTest(profile);
+    renderCpuTestSession(session);
+    await loadCpuTestSession();
+  } catch (error) {
+    result.textContent = String(error);
+    start.disabled = false;
+  }
+}
+
+async function cancelCpuTestFromUi() {
+  const sessionId = cpuTestSessionSnapshot?.session_id;
+  if (!sessionId) return;
+  const cancel = document.getElementById("cpu-test-cancel");
+  cancel.disabled = true;
+  try {
+    renderCpuTestSession(await Qboa.cancelCpuTest(sessionId));
+  } catch (error) {
+    document.getElementById("cpu-test-result").textContent = String(error);
+    cancel.disabled = false;
   }
 }
 
@@ -1595,6 +1973,15 @@ function openDiagnosticModal(target = null, mode = "quick") {
   const runButton = document.getElementById("diagnostic-run-selected");
   const oldPicker = document.getElementById("storage-disk-picker");
   if (oldPicker) oldPicker.remove();
+  const memoryPanel = document.getElementById("memory-test-panel");
+  const cpuPanel = document.getElementById("cpu-test-panel");
+  const isMemoryTest = target === "teste_memoria";
+  const isCpuTest = target === "processador";
+  memoryPanel.hidden = !isMemoryTest;
+  cpuPanel.hidden = !isCpuTest;
+  modal.querySelector(".diagnostic-modal-actions").hidden = isMemoryTest || isCpuTest;
+  document.getElementById("diagnostic-results").hidden = isMemoryTest || isCpuTest;
+  modal.querySelector(".diagnostic-saved-reports").hidden = isMemoryTest;
 
   if (target === "armazenamento") {
     const picker = document.createElement("div");
@@ -1643,9 +2030,9 @@ function openDiagnosticModal(target = null, mode = "quick") {
 
   const labels = {
     armazenamento: ["Teste de armazenamento", "Coleta dados SMART disponíveis e executa oito medições sequenciais e aleatórias de leitura/escrita em arquivo temporário. Não executa teste de superfície nem escreve diretamente em setores do disco."],
-    memoria_ram: ["Teste de memória RAM", "Analisa os dados de memória expostos pelo Windows. Não é um teste de estresse nem substitui o Diagnóstico de Memória do Windows."],
+    teste_memoria: ["Memória RAM", "Inventário dos módulos físicos reportados pelo Windows e teste de integridade com cobertura configurável. O teste usa buffers próprios do QBoa, não acessa endereços físicos e não certifica toda a RAM física."],
     placa_de_video: ["Teste de GPU", "Consulta os adaptadores gráficos detectados e as leituras disponíveis. Não executa benchmark nem teste de estresse gráfico."],
-    processador: ["Teste de processador", "Consulta a identificação e os dados disponíveis do processador. Não executa benchmark nem teste de estresse."],
+    processador: ["Teste de processador", "Executa uma carga computacional controlada por 5, 15 ou 30 minutos, acompanhada de temperatura, utilização, frequência e verificações aritméticas. O resultado é salvo em um laudo local."],
     temperatura: ["Teste de temperaturas", "Consulta leituras de sensores compatíveis quando o Windows ou os provedores disponíveis as expõem. Sensor indisponível não significa temperatura normal."]
   };
   if (target && labels[target]) {
@@ -1661,8 +2048,306 @@ function openDiagnosticModal(target = null, mode = "quick") {
   if (target !== "armazenamento") document.getElementById("diagnostic-status").textContent = "";
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
+  if (isMemoryTest) {
+    void loadMemoryInventory();
+    void loadMemoryTestSession();
+    return;
+  }
+  if (isCpuTest) {
+    void loadCpuInventory();
+    void loadCpuTestSession();
+    void loadDiagnosticHistory(true);
+    return;
+  }
   void loadDiagnosticHistory(true);
 }
+function formatMemoryBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "Indisponível";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let amount = bytes;
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) {
+    amount /= 1024;
+    unit++;
+  }
+  return amount.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " " + units[unit];
+}
+
+const MIN_CUSTOM_MEMORY_BYTES = 128 * 1024 * 1024;
+const CUSTOM_MEMORY_STEP_BYTES = 1024 * 1024;
+
+function updateCustomMemoryBudgetLabel() {
+  const slider = document.getElementById("memory-test-custom-budget");
+  const output = document.getElementById("memory-test-custom-size");
+  if (slider && output) output.textContent = formatMemoryBytes(slider.value);
+}
+
+async function loadMemoryInventory() {
+  const summary = document.getElementById("memory-inventory-summary");
+  const modulesList = document.getElementById("memory-modules-list");
+  const note = document.getElementById("memory-inventory-note");
+  const refresh = document.getElementById("memory-inventory-refresh");
+  if (!summary || !modulesList || !note) return;
+  refresh.disabled = true;
+  summary.textContent = "Consultando módulos, slots e memória disponível…";
+  modulesList.replaceChildren();
+  try {
+    const inventory = await Qboa.getMemoryInventory();
+    memoryInventorySnapshot = inventory;
+    const modules = Array.isArray(inventory.modules) ? inventory.modules : [];
+    const total = Number(inventory.total_physical_bytes || 0);
+    const available = Number(inventory.available_physical_bytes || 0);
+    const slots = Number(inventory.slot_count || 0);
+    summary.textContent = formatMemoryBytes(total) + " de RAM física · " +
+      modules.length + " módulo(s) detectado(s)" +
+      (slots > 0 ? " · " + modules.length + " de " + slots + " slot(s) ocupado(s)" : "") +
+      " · " + formatMemoryBytes(available) + " disponível(is) agora";
+
+    modules.forEach((module, index) => {
+      const card = document.createElement("article");
+      card.className = "memory-module-card";
+      const heading = document.createElement("h4");
+      heading.textContent = [module.manufacturer, module.part_number].filter(Boolean).join(" · ") || ("Módulo de RAM " + (index + 1));
+      card.appendChild(heading);
+      const detailGrid = document.createElement("dl");
+      detailGrid.className = "memory-module-details";
+      const profileLabel = /DDR5/i.test(module.memory_type || "")
+        ? "Perfil XMP/EXPO máximo"
+        : /DDR4|DDR3/i.test(module.memory_type || "")
+          ? "Perfil XMP/DOCP máximo"
+          : "Perfil de memória máximo";
+      const fields = [
+        ["Capacidade", formatMemoryBytes(module.capacity_bytes)],
+        ["Tipo", module.memory_type || "Não informado"],
+        ["Formato", module.form_factor || "Não informado"],
+        ["Slot / banco", [module.device_locator, module.bank_label].filter(Boolean).join(" · ") || "Não informado"],
+        ["Frequência configurada", module.configured_speed_mhz ? module.configured_speed_mhz + " MHz" : "Não informada pelo SMBIOS"],
+        ["Ciclo reportado pelo SMBIOS", module.smbios_speed_ns ? module.smbios_speed_ns + " ns" : "Não informado"],
+        [profileLabel, module.xmp_expo_max_speed_mhz ? module.xmp_expo_max_speed_mhz + " MHz" : "Não exposto pela API padrão do Windows"],
+        ["Latência CAS", module.cas_latency ? "CL" + module.cas_latency : "Não exposta pela API padrão do Windows"],
+        ["Largura de dados", module.data_width_bits ? module.data_width_bits + " bits" : "Não informada"],
+        ["Largura total", module.total_width_bits ? module.total_width_bits + " bits" : "Não informada"],
+        ["Tensão configurada", module.configured_voltage_mv ? (module.configured_voltage_mv / 1000).toLocaleString("pt-BR") + " V" : "Não informada"]
+      ];
+      fields.forEach(([label, value]) => {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        detailGrid.append(dt, dd);
+      });
+      card.appendChild(detailGrid);
+      modulesList.appendChild(card);
+    });
+    if (!modules.length) {
+      const empty = document.createElement("p");
+      empty.className = "memory-inventory-empty";
+      empty.textContent = "O Windows não retornou módulos individuais. O teste de integridade continua disponível.";
+      modulesList.appendChild(empty);
+    }
+    const slider = document.getElementById("memory-test-custom-budget");
+    const maxBytes = Math.max(MIN_CUSTOM_MEMORY_BYTES, total);
+    slider.min = String(Math.min(MIN_CUSTOM_MEMORY_BYTES, total));
+    slider.max = String(maxBytes);
+    slider.step = String(CUSTOM_MEMORY_STEP_BYTES);
+    if (!slider.dataset.userAdjusted) {
+      slider.value = String(Math.min(1024 * 1024 * 1024, maxBytes));
+    } else {
+      slider.value = String(Math.min(Number(slider.value), maxBytes));
+    }
+    slider.disabled = !total || ["running", "cancelling"].includes(memoryTestSessionSnapshot?.lifecycle);
+    document.getElementById("memory-test-custom-maximum").textContent = formatMemoryBytes(total) + " (RAM total)";
+    updateCustomMemoryBudgetLabel();
+    note.textContent = inventory.timing_limitation ||
+      "Alguns dados de temporização e perfis de memória não são expostos pela API padrão do Windows.";
+    (inventory.warnings || []).forEach((warning) => {
+      const line = document.createElement("p");
+      line.textContent = warning;
+      modulesList.appendChild(line);
+    });
+  } catch (error) {
+    memoryInventorySnapshot = null;
+    summary.textContent = "Não foi possível consultar o inventário físico: " + String(error);
+    note.textContent = "O teste de integridade continua disponível, mas o perfil personalizado precisa da leitura da RAM física para definir seu limite.";
+    document.getElementById("memory-test-custom-budget").disabled = true;
+  } finally {
+    refresh.disabled = false;
+  }
+}
+
+function memoryPhaseLabel(phase) {
+  const labels = {
+    bloco_alocado: "Bloco de memória alocado",
+    bloco_concluido: "Bloco concluído",
+    concluido: "Execução concluída",
+    divergencias_detectadas: "Divergências detectadas",
+    cancelado: "Cancelamento concluído",
+    inconclusivo: "Execução inconclusiva",
+    falhou: "Falha operacional"
+  };
+  if (labels[phase]) return labels[phase];
+  const match = /^(executando|concluido)_(A0[1-5])$/.exec(String(phase || ""));
+  if (match) return (match[1] === "executando" ? "Executando " : "Concluído ") + match[2];
+  return phase || "Preparando execução";
+}
+
+function memoryTestStatusLabel(status) {
+  return ({
+    passed: "Concluído sem divergências observadas nos testes executados.",
+    errors_detected: "Foram detectadas divergências nos buffers testados.",
+    cancelled: "Teste cancelado. Este resultado não representa aprovação.",
+    inconclusive: "Teste inconclusivo: a cobertura planejada não foi concluída.",
+    failed: "Falha operacional: a execução não pôde ser concluída com confiança."
+  })[status] || "Aguardando resultado.";
+}
+
+function renderMemoryTestSession(session) {
+  if (!session) {
+    memoryTestSessionSnapshot = null;
+    return;
+  }
+  if (memoryTestSessionSnapshot) {
+    const sameSession = memoryTestSessionSnapshot.session_id === session.session_id;
+    const lifecycleRank = { running: 1, cancelling: 2, completed: 3, failed: 3 };
+    const currentRank = lifecycleRank[memoryTestSessionSnapshot.lifecycle] || 0;
+    const incomingRank = lifecycleRank[session.lifecycle] || 0;
+    if (sameSession) {
+      if (incomingRank < currentRank) return;
+      const currentBytes = Number(memoryTestSessionSnapshot.progress?.memory_tested_bytes || 0);
+      const incomingBytes = Number(session.progress?.memory_tested_bytes || 0);
+      if (incomingRank === currentRank && incomingBytes < currentBytes) return;
+    } else {
+      // O backend só permite uma sessão por vez; IDs diferentes com timestamp
+      // anterior pertencem à sessão anterior e devem ser ignorados.
+      if (currentRank < 3 ||
+          String(session.started_at || "") <= String(memoryTestSessionSnapshot.started_at || "")) {
+        return;
+      }
+    }
+  }
+  memoryTestSessionSnapshot = session;
+  const active = ["running", "cancelling"].includes(session.lifecycle);
+  const profile = document.getElementById("memory-test-profile");
+  if (session.profile && ["fast", "standard", "extended", "custom"].includes(session.profile)) {
+    profile.value = session.profile;
+  }
+  const customPicker = document.getElementById("memory-test-custom-picker");
+  const customBudget = document.getElementById("memory-test-custom-budget");
+  customPicker.hidden = profile.value !== "custom";
+  customBudget.disabled = active || !memoryInventorySnapshot?.total_physical_bytes;
+  const start = document.getElementById("memory-test-start");
+  const cancel = document.getElementById("memory-test-cancel");
+  const progress = session.progress;
+  const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
+  profile.disabled = active;
+  customBudget.disabled = active || !memoryInventorySnapshot?.total_physical_bytes;
+  start.disabled = active;
+  start.textContent = active ? "Teste em andamento" : "Iniciar teste de RAM";
+  cancel.hidden = !active;
+  cancel.disabled = session.lifecycle === "cancelling";
+  cancel.textContent = session.lifecycle === "cancelling" ? "Cancelando…" : "Cancelar teste";
+
+  document.getElementById("memory-test-progress-bar").style.width = percent + "%";
+  document.querySelector(".memory-test-progress-track").setAttribute("aria-valuenow", String(percent));
+  document.getElementById("memory-test-progress-percent").textContent = percent + "%";
+  const tested = formatMemoryBytes(progress?.memory_tested_bytes);
+  const budget = formatMemoryBytes(progress?.memory_budget_bytes);
+  const block = progress?.current_block_bytes
+    ? " · bloco atual " + formatMemoryBytes(progress.current_block_bytes)
+    : "";
+  document.getElementById("memory-test-progress-detail").textContent = progress
+    ? tested + " de " + budget + " contabilizados · " + (progress.blocks_completed || 0) + " bloco(s) concluído(s)" + block + " · " + (progress.mismatches_total || 0) + " divergência(s)"
+    : "Aguardando a primeira atualização do runner.";
+  document.getElementById("memory-test-progress-phase").textContent =
+    session.lifecycle === "cancelling" ? "Cancelamento solicitado; aguardando o término seguro do bloco atual." :
+    session.lifecycle === "running" ? memoryPhaseLabel(progress?.phase) :
+    session.lifecycle === "failed" ? "Falha ao iniciar a sessão" : "Execução finalizada";
+
+  const result = document.getElementById("memory-test-result");
+  const details = document.getElementById("memory-test-result-details");
+  details.replaceChildren();
+  if (session.report) {
+    const report = session.report;
+    const summary = document.createElement("p");
+    summary.textContent = memoryTestStatusLabel(report.status);
+    result.replaceChildren(summary);
+    const meta = document.createElement("p");
+    meta.className = "memory-test-report-meta";
+    meta.textContent = "Perfil " + report.profile + " · " + formatMemoryBytes(report.memory_tested_bytes) + " testados · " + report.duration_ms + " ms · " + report.mismatches_total + " divergência(s) agregada(s)";
+    result.appendChild(meta);
+    if (report.coverage_description) {
+      const coverage = document.createElement("p");
+      coverage.textContent = report.coverage_description;
+      result.appendChild(coverage);
+    }
+    (report.warnings || []).forEach((warning) => {
+      const item = document.createElement("li");
+      item.textContent = warning;
+      details.appendChild(item);
+    });
+    if (report.mismatches_total > 0) {
+      const note = document.createElement("p");
+      note.className = "memory-test-warning";
+      note.textContent = "Os offsets informados são posições dentro dos buffers virtuais do processo, não endereços físicos. A divergência observada, por si só, não identifica qual componente causou o problema.";
+      result.appendChild(note);
+    }
+  } else if (session.error) {
+    result.textContent = session.error;
+  } else if (session.lifecycle === "running" || session.lifecycle === "cancelling") {
+    result.textContent = session.lifecycle === "cancelling"
+      ? "Cancelamento solicitado. A sessão ainda está encerrando com segurança."
+      : "O teste está sendo executado. Você pode cancelar a qualquer momento.";
+  } else {
+    result.textContent = "A sessão ainda não tem um relatório final.";
+  }
+}
+
+async function loadMemoryTestSession() {
+  try {
+    const session = await Qboa.getMemoryTestSession();
+    renderMemoryTestSession(session);
+  } catch (error) {
+    document.getElementById("memory-test-result").textContent =
+      "Não foi possível consultar a sessão: " + String(error);
+  }
+}
+
+async function startMemoryTestFromUi() {
+  const profile = document.getElementById("memory-test-profile").value;
+  const customBudget = document.getElementById("memory-test-custom-budget");
+  const memoryBudgetBytes = profile === "custom" ? Number(customBudget.value) : null;
+  const result = document.getElementById("memory-test-result");
+  const start = document.getElementById("memory-test-start");
+  start.disabled = true;
+  result.textContent = "Solicitando início da sessão…";
+  try {
+    const session = await Qboa.startMemoryTest(profile, memoryBudgetBytes);
+    renderMemoryTestSession(session);
+    await loadMemoryTestSession();
+  } catch (error) {
+    result.textContent = String(error);
+    start.disabled = false;
+  }
+}
+
+async function cancelMemoryTestFromUi() {
+  const sessionId = memoryTestSessionSnapshot?.session_id;
+  if (!sessionId) {
+    document.getElementById("memory-test-result").textContent =
+      "Não há identificador de sessão disponível para cancelamento.";
+    return;
+  }
+  const cancel = document.getElementById("memory-test-cancel");
+  cancel.disabled = true;
+  try {
+    renderMemoryTestSession(await Qboa.cancelMemoryTest(sessionId));
+  } catch (error) {
+    document.getElementById("memory-test-result").textContent = String(error);
+    cancel.disabled = false;
+  }
+}
+
 function closeDiagnosticModal() {
   const modal = document.getElementById("diagnostic-modal");
   modal.classList.add("hidden");
@@ -1829,6 +2514,32 @@ async function loadServiceProfileState() {
 }
 
 async function registerEvents() {
+  // Instala os listeners de RAM antes de habilitar os controles que podem iniciar
+  // uma sessão, para não perder o estado inicial nem as primeiras atualizações.
+  await Promise.all([
+    listen("qboa-memory-test-progress", (event) => {
+      renderMemoryTestSession(event.payload?.session);
+    }),
+    listen("qboa-memory-test-state", (event) => {
+      renderMemoryTestSession(event.payload?.session);
+    }),
+    listen("qboa-memory-test-finished", (event) => {
+      renderMemoryTestSession(event.payload?.session);
+    }),
+    listen("qboa-cpu-test-progress", (event) => {
+      renderCpuTestSession(event.payload?.session);
+    }),
+    listen("qboa-cpu-test-state", (event) => {
+      renderCpuTestSession(event.payload?.session);
+    }),
+    listen("qboa-cpu-test-finished", (event) => {
+      renderCpuTestSession(event.payload?.session);
+      void loadDiagnosticHistory(false);
+    })
+  ].map((registration) => registration.catch((error) => {
+    console.error("Falha ao registrar eventos de diagnóstico:", error);
+  })));
+
   // Não bloqueia o vínculo dos controles da interface esperando o listener Tauri.
   // Se listen() demorar ou falhar, os botões de confirmação continuam funcionais.
   void listen("qboa-event", (event) => {
@@ -2012,6 +2723,37 @@ async function registerEvents() {
   document.getElementById("diagnostic-run-selected").addEventListener("click", () => {
     void runDiagnostic(activeDiagnosticMode, activeDiagnosticTarget);
   });
+  document.getElementById("memory-test-start").addEventListener("click", () => {
+    void startMemoryTestFromUi();
+  });
+  document.getElementById("memory-test-cancel").addEventListener("click", () => {
+    void cancelMemoryTestFromUi();
+  });
+  document.getElementById("cpu-test-start").addEventListener("click", () => {
+    void startCpuTestFromUi();
+  });
+  document.getElementById("cpu-test-cancel").addEventListener("click", () => {
+    void cancelCpuTestFromUi();
+  });
+  document.getElementById("cpu-inventory-refresh").addEventListener("click", () => {
+    void loadCpuInventory();
+  });
+  document.getElementById("memory-test-profile").addEventListener("change", () => {
+    const profile = document.getElementById("memory-test-profile").value;
+    const descriptions = {
+      fast: "Rápido · 256 MiB · A01/A03 em cada bloco e A04 amostrado. Cobertura parcial.",
+      standard: "Padrão · 3 GiB · executa A01–A05 nos blocos concluídos.",
+      extended: "Prolongado · 6 GiB · dois passes de A01–A05 e seeds diferentes no A04.",
+      custom: "Personalizado · executa A01–A05 em um passe, no orçamento escolhido pelo slider."
+    };
+    document.getElementById("memory-test-profile-description").textContent = descriptions[profile];
+    document.getElementById("memory-test-custom-picker").hidden = profile !== "custom";
+  });
+  document.getElementById("memory-test-custom-budget").addEventListener("input", (event) => {
+    event.currentTarget.dataset.userAdjusted = "true";
+    updateCustomMemoryBudgetLabel();
+  });
+  document.getElementById("memory-inventory-refresh").addEventListener("click", () => { void loadMemoryInventory(); });
   document.getElementById("diagnostic-modal-close").addEventListener("click", closeDiagnosticModal);
   document.getElementById("diagnostic-modal").addEventListener("click", (event) => {
     if (event.target === event.currentTarget) closeDiagnosticModal();
