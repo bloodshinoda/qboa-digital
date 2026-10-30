@@ -277,10 +277,15 @@ function Find-CpuTemperatureSensors {
   }
 }
 while ($true) {
-  $tree = Invoke-RestMethod -Uri 'http://127.0.0.1:8085/data.json' -TimeoutSec 2
-  $sensors = [System.Collections.Generic.List[object]]::new()
-  Find-CpuTemperatureSensors -Node $tree -WithinCpu $false -Result $sensors
-  $selected = $sensors | Sort-Object { [double]$_.Value } -Descending | Select-Object -First 1
+  $selected = $null
+  try {
+    $tree = Invoke-RestMethod -Uri 'http://127.0.0.1:8085/data.json' -TimeoutSec 2
+    $sensors = [System.Collections.Generic.List[object]]::new()
+    Find-CpuTemperatureSensors -Node $tree -WithinCpu $false -Result $sensors
+    $selected = $sensors | Sort-Object { [double]$_.Value } -Descending | Select-Object -First 1
+  } catch {
+    # A indisponibilidade do provedor térmico não pode interromper a telemetria nativa.
+  }
   $perf = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" -ErrorAction SilentlyContinue |
     Select-Object -First 1
   $utilization = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" -ErrorAction SilentlyContinue |
@@ -789,9 +794,18 @@ fn run_test<R: Runtime>(
         errors.load(Ordering::Relaxed),
         &terminal_status,
     );
-    if report.temperature_max_c.is_none() {
+    let temperature_samples = report
+        .samples
+        .iter()
+        .filter(|sample| sample.temperature_c.is_some())
+        .count();
+    if temperature_samples == 0 {
         report.warnings.push(
             "Temperatura da CPU indisponível durante esta execução; o teste de carga foi realizado sem avaliação térmica.".into(),
+        );
+    } else if temperature_samples < report.samples.len() {
+        report.warnings.push(
+            "A leitura térmica ficou indisponível em parte da execução. O teste de carga continuou; considere a avaliação térmica parcial.".into(),
         );
     }
     if report.calculation_errors > 0 {
@@ -1240,6 +1254,15 @@ mod tests {
         assert!(script.contains("Win32_PerfFormattedData_Counters_ProcessorInformation"));
         assert!(script.contains("temperature_c = $null"));
         assert!(!script.contains("8085"));
+    }
+
+    #[test]
+    fn lost_rest_sensor_does_not_stop_native_telemetry() {
+        let script = telemetry_script("hardware_monitor_rest");
+        assert!(script.contains("$selected = $null"));
+        assert!(script.contains("catch {"));
+        assert!(script.contains("Win32_PerfFormattedData_PerfOS_Processor"));
+        assert!(script.contains("Win32_PerfFormattedData_Counters_ProcessorInformation"));
     }
 
     #[test]
