@@ -85,6 +85,7 @@ pub(crate) struct CpuTestReport {
     pub processor_name: String,
     pub physical_cores: u32,
     pub logical_processors: u32,
+    pub worker_threads: u32,
     pub sensor_provider: String,
     pub target_duration_seconds: u64,
     pub duration_ms: u64,
@@ -865,6 +866,7 @@ fn build_report(
         processor_name: inventory.name.clone(),
         physical_cores: inventory.physical_cores,
         logical_processors: inventory.logical_processors,
+        worker_threads: inventory.logical_processors.clamp(1, 64),
         sensor_provider: inventory
             .sensor_provider
             .clone()
@@ -1093,6 +1095,58 @@ mod tests {
         for value in [0, 1, 0x1234_5678_9abc_def0, u64::MAX, 0x8000_0000_0000_0000] {
             assert_eq!(mix_reference(value), mix_independent(value));
         }
+    }
+
+
+    #[test]
+    fn report_aggregates_telemetry_and_worker_count() {
+        let inventory = CpuInventory {
+            name: "CPU de teste".into(),
+            manufacturer: Some("Vendor".into()),
+            socket: None,
+            physical_cores: 4,
+            logical_processors: 8,
+            max_clock_mhz: Some(4000),
+            sensor_available: true,
+            sensor_provider: Some("root\\LibreHardwareMonitor".into()),
+            temperature_sensors: vec!["CPU Package".into()],
+            sensor_note: String::new(),
+        };
+        let samples = vec![
+            CpuTelemetrySample {
+                elapsed_ms: 0,
+                timestamp_utc: "2026-01-01T00:00:00Z".into(),
+                temperature_c: Some(40.0),
+                temperature_sensor: Some("CPU Package".into()),
+                cpu_utilization_percent: Some(10.0),
+                frequency_mhz: Some(1200.0),
+            },
+            CpuTelemetrySample {
+                elapsed_ms: 1000,
+                timestamp_utc: "2026-01-01T00:00:01Z".into(),
+                temperature_c: Some(80.0),
+                temperature_sensor: Some("CPU Package".into()),
+                cpu_utilization_percent: Some(90.0),
+                frequency_mhz: Some(4200.0),
+            },
+        ];
+        let report = build_report(
+            "cpu-report-test".into(),
+            &inventory,
+            CpuTestProfile::Quick,
+            "2026-01-01T00:00:00Z".into(),
+            1000,
+            samples,
+            2048,
+            0,
+            "completed",
+        );
+        assert_eq!(report.worker_threads, 8);
+        assert_eq!(report.temperature_min_c, Some(40.0));
+        assert_eq!(report.temperature_max_c, Some(80.0));
+        assert_eq!(report.temperature_average_c, Some(60.0));
+        assert_eq!(report.cpu_utilization_average_percent, Some(50.0));
+        assert_eq!(report.frequency_peak_mhz, Some(4200.0));
     }
 
     #[test]
