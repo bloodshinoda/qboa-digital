@@ -1659,9 +1659,14 @@ function renderCpuReport(report) {
   const heading = document.createElement("p");
   heading.textContent = "Resultado: " + cpuTestStatusLabel(report.execution_status);
   result.appendChild(heading);
+  const profileLabel = {
+    quick: "Rápido · 5 min",
+    standard: "Padrão · 15 min",
+    extended: "Estendido · 30 min"
+  }[report.profile] || "Perfil não informado";
   const summary = document.createElement("p");
-  summary.textContent = (report.processor_name || "CPU") + " · " +
-    Math.floor(Number(report.duration_ms || 0) / 60000) + " min · " +
+  summary.textContent = (report.processor_name || "CPU") + " · " + profileLabel + " · " +
+    Math.floor(Number(report.duration_ms || 0) / 60000) + " min efetivos · " +
     Number(report.worker_threads || report.logical_processors || 0) + " threads de carga · " +
     Number(report.iterations || 0).toLocaleString("pt-BR") + " verificações";
   result.appendChild(summary);
