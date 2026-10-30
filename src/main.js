@@ -1674,10 +1674,13 @@ function renderCpuReport(report) {
     Number(report.iterations || 0).toLocaleString("pt-BR") + " verificações";
   result.appendChild(summary);
   const metrics = document.createElement("p");
-  metrics.textContent = "Temperatura mín./média/máx.: " +
-    cpuFormat(report.temperature_min_c, " °C") + " / " +
-    cpuFormat(report.temperature_average_c, " °C") + " / " +
-    cpuFormat(report.temperature_max_c, " °C") +
+  const temperatureSummary = report.temperature_max_c === null || report.temperature_max_c === undefined
+    ? "Temperatura: não avaliada"
+    : "Temperatura mín./média/máx.: " +
+      cpuFormat(report.temperature_min_c, " °C") + " / " +
+      cpuFormat(report.temperature_average_c, " °C") + " / " +
+      cpuFormat(report.temperature_max_c, " °C");
+  metrics.textContent = temperatureSummary +
     " · utilização média: " + cpuFormat(report.cpu_utilization_average_percent, "%") +
     " · pico de frequência: " + cpuFormat(report.frequency_peak_mhz, " MHz", 0);
   result.appendChild(metrics);
@@ -1703,7 +1706,7 @@ function renderCpuReport(report) {
   document.getElementById("cpu-test-progress-label").textContent = cpuTestStatusLabel(report.execution_status);
   document.getElementById("cpu-test-progress-detail").textContent =
     Math.floor(Number(report.duration_ms || 0) / 60000) + " min efetivos · " +
-    Number(report.samples?.length || 0).toLocaleString("pt-BR") + " amostras térmicas · " +
+    Number(report.samples?.length || 0).toLocaleString("pt-BR") + " amostras de telemetria · " +
     Number(report.calculation_errors || 0) + " divergência(s)";
 }
 
