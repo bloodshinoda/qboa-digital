@@ -6,39 +6,47 @@ const PAWNIO_URL: &str =
     "https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe";
 const PAWNIO_SHA256: &str = "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032";
 
+fn sha256_file(path: &PathBuf) -> Option<String> {
+    let output = Command::new("certutil.exe")
+        .args(["-hashfile"])
+        .arg(path)
+        .arg("SHA256")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| line.chars().filter(|character| character.is_ascii_hexdigit()).collect::<String>())
+        .find(|line| line.len() == 64)
+        .map(|hash| hash.to_ascii_uppercase())
+}
+
 fn ensure_pawnio_installer(output_dir: &PathBuf) {
     let installer = output_dir.join("PawnIO_setup.exe");
     if installer.is_file() {
-        let hash = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command"])
-            .arg(format!(
-                "(Get-FileHash -LiteralPath '{}' -Algorithm SHA256).Hash",
-                installer.display()
-            ))
-            .output()
-            .expect("não foi possível validar o instalador PawnIO com PowerShell");
-        let actual = String::from_utf8_lossy(&hash.stdout)
-            .trim()
-            .to_ascii_uppercase();
-        if hash.status.success() && actual == PAWNIO_SHA256 {
+        if sha256_file(&installer).as_deref() == Some(PAWNIO_SHA256) {
             return;
         }
         std::fs::remove_file(&installer)
             .expect("não foi possível remover instalador PawnIO inválido");
     }
 
-    let script = format!(
-        "$ErrorActionPreference = 'Stop'; Invoke-WebRequest -Uri '{}' -OutFile '{}'; $hash = (Get-FileHash -LiteralPath '{}' -Algorithm SHA256).Hash; if ($hash -ne '{}') {{ Remove-Item -LiteralPath '{}' -Force; throw 'SHA-256 do instalador PawnIO não confere' }}",
-        PAWNIO_URL, installer.display(), installer.display(), PAWNIO_SHA256, installer.display()
-    );
-    let status = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+    let status = Command::new("curl.exe")
+        .args(["--fail", "--location", "--silent", "--show-error", "--output"])
+        .arg(&installer)
+        .arg(PAWNIO_URL)
         .status()
-        .expect("não foi possível baixar o instalador oficial PawnIO. Verifique a conexão com a internet.");
+        .expect("não foi possível executar curl.exe para baixar o instalador PawnIO");
     if !status.success() {
-        panic!(
-            "não foi possível preparar o instalador PawnIO 2.2.0 ou a verificação SHA-256 falhou"
-        );
+        panic!("não foi possível baixar o instalador oficial PawnIO 2.2.0");
+    }
+
+    if sha256_file(&installer).as_deref() != Some(PAWNIO_SHA256) {
+        let _ = std::fs::remove_file(&installer);
+        panic!("SHA-256 do instalador PawnIO não confere");
     }
 }
 
@@ -56,9 +64,20 @@ fn build_hardware_monitor(manifest_dir: &PathBuf) {
     let status = Command::new("dotnet")
         .arg("publish")
         .arg(&project)
-        .args(["--configuration", "Release", "--runtime", "win-x64", "--self-contained", "true",
-            "-p:PublishSingleFile=true", "-p:IncludeNativeLibrariesForSelfExtract=true",
-            "-p:EnableCompressionInSingleFile=true", "-p:DebugType=None", "-p:DebugSymbols=false", "--output"])
+        .args([
+            "--configuration",
+            "Release",
+            "--runtime",
+            "win-x64",
+            "--self-contained",
+            "true",
+            "-p:PublishSingleFile=true",
+            "-p:IncludeNativeLibrariesForSelfExtract=true",
+            "-p:EnableCompressionInSingleFile=true",
+            "-p:DebugType=None",
+            "-p:DebugSymbols=false",
+            "--output",
+        ])
         .arg(&output_dir)
         .status()
         .expect("não foi possível executar dotnet. Instale o .NET 10 SDK para compilar o coletor térmico do QBoa.");
