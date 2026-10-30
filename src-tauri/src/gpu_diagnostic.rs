@@ -1,6 +1,7 @@
 //! Teste de estabilidade da GPU com Direct3D 11 (compute shader).
 //! Usa somente o adaptador de hardware selecionado pelo Windows; não há fallback WARP.
 
+use crate::cpu_diagnostic;
 use serde::{Deserialize, Serialize};
 use std::ffi::{c_char, c_void};
 use std::fs;
@@ -436,11 +437,12 @@ fn run_test<R: Runtime>(
             .temperature_sensor
             .as_deref()
             .filter(|v| !v.trim().is_empty())
-            .ok_or("O coletor não identificou a origem da temperatura da GPU.")?;
+            .ok_or("O coletor não identificou a origem da temperatura da GPU.")?
+            .to_string();
         if temp >= THERMAL_STOP_C {
             return Err(format!("A GPU já está a {temp:.1} °C antes do teste. Aguarde resfriar abaixo de {THERMAL_STOP_C:.0} °C."));
         }
-        first = Some((raw, temp, sensor.to_string()));
+        first = Some((raw, temp, sensor));
     }
     let (first_raw, first_temp, first_sensor) =
         first.ok_or("Pré-verificação térmica da GPU incompleta.")?;
