@@ -1662,7 +1662,7 @@ function renderCpuReport(report) {
   const summary = document.createElement("p");
   summary.textContent = (report.processor_name || "CPU") + " · " +
     Math.floor(Number(report.duration_ms || 0) / 60000) + " min · " +
-    Number(report.logical_processors || 0) + " threads · " +
+    Number(report.worker_threads || report.logical_processors || 0) + " threads de carga · " +
     Number(report.iterations || 0).toLocaleString("pt-BR") + " verificações";
   result.appendChild(summary);
   const metrics = document.createElement("p");
