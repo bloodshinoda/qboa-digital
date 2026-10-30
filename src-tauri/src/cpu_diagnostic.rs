@@ -234,7 +234,7 @@ fn powershell_utf8_preamble() -> &'static str {
 #[cfg(target_os = "windows")]
 fn run_powershell_once(script: &str) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
-    let script = format!("{}\\n{}", powershell_utf8_preamble(), script);
+    let script = format!("{}\n{}", powershell_utf8_preamble(), script);
     let mut command = Command::new("powershell.exe");
     command
         .args([
@@ -337,7 +337,7 @@ while ($true) {{
 #[cfg(target_os = "windows")]
 fn start_telemetry_process(provider: &str) -> Result<Child, String> {
     use std::os::windows::process::CommandExt;
-    let script = format!("{}\\n{}", powershell_utf8_preamble(), telemetry_script(provider));
+    let script = format!("{}\n{}", powershell_utf8_preamble(), telemetry_script(provider));
     let mut command = Command::new("powershell.exe");
     command
         .args([
