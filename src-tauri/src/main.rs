@@ -1935,7 +1935,10 @@ async fn start_memory_test(
         return Err("Já existe uma tarefa do QBoa em andamento. Aguarde sua conclusão antes de testar a RAM.".to_string());
     }
     if cpu_diagnostic::is_active() {
-        return Err("O teste de CPU está em andamento. Aguarde ou cancele antes de iniciar o teste de RAM.".to_string());
+        return Err(
+            "O teste de CPU está em andamento. Aguarde ou cancele antes de iniciar o teste de RAM."
+                .to_string(),
+        );
     }
     let mut config = memory_test::runner::MemoryTestConfig::for_profile(profile);
     if let Some(value) = memory_budget_bytes {
@@ -1991,10 +1994,16 @@ fn start_cpu_test(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if safety_state().lock().unwrap().is_task_running() {
-        return Err("Há uma tarefa de limpeza/manutenção em andamento. Aguarde sua conclusão antes de iniciar um teste de CPU.".to_string());
+        return Err(
+            "Há uma tarefa de limpeza/manutenção em andamento. Aguarde sua conclusão antes de iniciar um teste de CPU."
+                .to_string(),
+        );
     }
     if memory_test::session::is_active() {
-        return Err("O teste de RAM está em andamento. Aguarde ou cancele antes de iniciar o teste de CPU.".to_string());
+        return Err(
+            "O teste de RAM está em andamento. Aguarde ou cancele antes de iniciar o teste de CPU."
+                .to_string(),
+        );
     }
     let inventory = cpu_diagnostic::collect_inventory()?;
     if !inventory.sensor_available {
@@ -2021,7 +2030,9 @@ fn cancel_cpu_test(
 }
 
 #[tauri::command]
-fn get_cpu_diagnostic_reports(app: AppHandle) -> Result<Vec<cpu_diagnostic::CpuTestReport>, String> {
+fn get_cpu_diagnostic_reports(
+    app: AppHandle,
+) -> Result<Vec<cpu_diagnostic::CpuTestReport>, String> {
     let app_data_dir = app
         .path()
         .app_data_dir()
