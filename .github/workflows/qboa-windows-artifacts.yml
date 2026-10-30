@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - feat/qboa-memory-test
+      - feat/gpu-stability-diagnostic
+      - feat/complete-diagnostic-flow
     paths:
       - "src/**"
       - "src-tauri/**"

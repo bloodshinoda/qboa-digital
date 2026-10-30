@@ -1087,7 +1087,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .cpu-test-progress-heading strong { font-size:.9rem; }
 .cpu-test-progress-heading span { font-variant-numeric:tabular-nums; font-weight:800; }
 .cpu-test-progress-track { height:9px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.14); }
-#cpu-test-progress-bar { width:0; height:100%; border-radius:inherit; background:var(--qboa-focus,#facc15); transition:width .2s ease; }
+#cpu-test-progress-bar,#gpu-test-progress-bar { width:0; height:100%; border-radius:inherit; background:var(--qboa-focus,#facc15); transition:width .2s ease; }
 .cpu-test-result { display:grid; gap:6px; line-height:1.5; }
 .cpu-test-result p { margin:0; }
 .cpu-test-result ul { margin:5px 0 0; padding-left:20px; display:grid; gap:5px; }
@@ -1101,3 +1101,26 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   .cpu-test-live-metrics article small { grid-column:1; }
 }
 @media(prefers-reduced-motion:reduce) { #cpu-test-progress-bar { transition:none; } }
+
+
+/* Fluxo integrado do diagnóstico completo: progresso real por etapa e resumo consolidado. */
+.complete-diagnostic-progress { display:grid; gap:14px; margin:18px 0; padding:16px; border:1px solid rgba(255,255,255,.18); border-radius:11px; background:rgba(0,0,0,.2); }
+.complete-diagnostic-progress[hidden],.complete-diagnostic-summary[hidden] { display:none; }
+.complete-diagnostic-progress-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.complete-diagnostic-progress-heading p { margin:5px 0 0; color:rgba(255,255,255,.76); font-size:.86rem; line-height:1.45; }
+#complete-diagnostic-percent { font-size:1.15rem; font-variant-numeric:tabular-nums; }
+.complete-diagnostic-progress-track { height:11px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.14); }
+#complete-diagnostic-progress-bar { width:0; height:100%; border-radius:inherit; background:var(--qboa-focus,#4ade80); transition:width .25s ease; }
+.complete-diagnostic-steps { display:grid; gap:7px; margin:0; padding:0; list-style:none; }
+.complete-diagnostic-steps li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 11px; border:1px solid rgba(255,255,255,.1); border-radius:7px; background:rgba(255,255,255,.035); }
+.complete-diagnostic-steps li span { font-size:.88rem; font-weight:650; }
+.complete-diagnostic-steps li small { color:rgba(255,255,255,.65); text-align:right; font-size:.78rem; }
+.complete-diagnostic-steps li[data-state="running"] { border-color:rgba(250,204,21,.55); background:rgba(250,204,21,.08); }
+.complete-diagnostic-steps li[data-state="completed"] { border-color:rgba(74,222,128,.38); }
+.complete-diagnostic-steps li[data-state="warning"] { border-color:rgba(246,198,106,.45); }
+.complete-diagnostic-steps li[data-state="failed"] { border-color:rgba(255,119,119,.55); }
+.complete-diagnostic-steps li[data-state="skipped"] { opacity:.62; }
+.complete-diagnostic-actions { display:flex; justify-content:flex-end; }
+.complete-diagnostic-summary { margin:16px 0; padding:13px 15px; border:1px solid rgba(255,255,255,.18); border-radius:9px; background:rgba(0,0,0,.18); font-weight:700; line-height:1.5; }
+#diagnostic-modal-close:disabled { opacity:.4; cursor:not-allowed; }
+@media(prefers-reduced-motion:reduce) { #complete-diagnostic-progress-bar { transition:none; } }
