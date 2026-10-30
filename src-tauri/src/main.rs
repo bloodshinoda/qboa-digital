@@ -1891,6 +1891,21 @@ fn list_storage_disks() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json::Value, String> {
+    let _start_guard = operation_start_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cpu_diagnostic::is_active() {
+        return Err(
+            "O diagnóstico de CPU está em andamento. Aguarde ou cancele o teste antes de testar o armazenamento."
+                .to_string(),
+        );
+    }
+    if memory_test::session::is_active() {
+        return Err(
+            "O teste de RAM está em andamento. Aguarde ou cancele a sessão antes de testar o armazenamento."
+                .to_string(),
+        );
+    }
     let started_at = storage_diagnostic::timestamp_now();
     let mut result = execute_storage_script("test", Some(&disk_id))?;
     let mut report: storage_diagnostic::StorageReport = serde_json::from_value(result.clone())
