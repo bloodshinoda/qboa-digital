@@ -268,6 +268,39 @@
         <div id="cpu-test-result" class="cpu-test-result" role="status" aria-live="polite"></div>
         <p class="cpu-test-safety-note">O teste é executado somente sob solicitação. A carga roda em prioridade abaixo do normal, pode ser cancelada e é interrompida ao atingir 85 °C (limite conservador do QBoa, não o TjMax do fabricante) ou perder o sensor térmico. O resultado não certifica estabilidade universal.</p>
       </section>
+
+      <section id="gpu-test-panel" class="cpu-test-panel" hidden aria-label="Teste de estabilidade da GPU">
+        <section class="cpu-inventory-panel">
+          <div class="cpu-inventory-heading">
+            <div><h3>Adaptadores gráficos detectados</h3><p id="gpu-inventory-summary" aria-live="polite">Consultando GPU e sensores térmicos…</p></div>
+            <button class="secondary-button" id="gpu-inventory-refresh" type="button">Atualizar</button>
+          </div>
+          <div id="gpu-inventory-details" class="cpu-inventory-details"></div>
+          <p id="gpu-sensor-status" class="cpu-sensor-status" role="status"></p>
+        </section>
+        <div class="cpu-test-profile-picker">
+          <label for="gpu-test-profile">Duração do teste</label>
+          <select id="gpu-test-profile">
+            <option value="quick">Rápido · 5 minutos</option>
+            <option value="standard" selected>Padrão · 15 minutos</option>
+            <option value="extended">Estendido · 30 minutos</option>
+          </select>
+          <p>Executa carga sintética em compute shader Direct3D 11, com validação dos resultados e telemetria térmica do coletor integrado.</p>
+        </div>
+        <div class="cpu-test-actions">
+          <button class="primary-button" id="gpu-test-start" type="button" disabled>Iniciar teste de GPU</button>
+          <button class="secondary-button" id="gpu-test-cancel" type="button" hidden disabled>Cancelar teste</button>
+          <span id="gpu-test-progress-label" aria-live="polite">Aguardando início.</span>
+        </div>
+        <div class="cpu-test-progress" role="group" aria-label="Progresso do teste de GPU">
+          <div class="cpu-test-progress-heading"><strong id="gpu-test-phase">Aguardando início</strong><span id="gpu-test-progress-percent">0%</span></div>
+          <div id="gpu-test-progress-track" class="cpu-test-progress-track" role="progressbar" aria-label="Progresso do teste de GPU" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="gpu-test-progress-bar" class="cpu-test-progress-bar"></div></div>
+          <p id="gpu-test-progress-detail" aria-live="polite">O teste só começa após três leituras térmicas válidas consecutivas.</p>
+        </div>
+        <div id="gpu-test-result" class="cpu-test-result" role="status" aria-live="polite"></div>
+        <ul id="gpu-test-result-details" class="memory-test-result-details"></ul>
+        <p class="cpu-test-safety-note">O teste exige sensor térmico válido, é cancelável e interrompe a carga a 85 °C (limite conservador do QBoa, não o limite do fabricante) ou quando perde a telemetria. A carga é aplicada em janelas de 650 ms com pausas de 350 ms. Não testa toda a VRAM, o pipeline de renderização completo nem certifica estabilidade universal.</p>
+      </section>
       <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Executar teste</button></div>
       <p id="diagnostic-status" aria-live="polite"></p>
       <ul id="diagnostic-results" class="diagnostic-results"></ul>

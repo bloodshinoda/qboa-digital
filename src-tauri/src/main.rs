@@ -3,6 +3,7 @@
 mod capability_inventory;
 mod cleanup_findings;
 mod cpu_diagnostic;
+mod gpu_diagnostic;
 mod diagnostics;
 mod diagnostics_store;
 mod memory_inventory;
@@ -1894,6 +1895,9 @@ fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json:
     let _start_guard = operation_start_gate()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if gpu_diagnostic::is_active() {
+        return Err("O teste de GPU está em andamento. Aguarde ou cancele antes de testar o armazenamento.".into());
+    }
     if cpu_diagnostic::is_active() {
         return Err(
             "O diagnóstico de CPU está em andamento. Aguarde ou cancele o teste antes de testar o armazenamento."
@@ -1954,6 +1958,9 @@ async fn start_memory_test(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if safety_state().lock().unwrap().is_task_running() {
         return Err("Já existe uma tarefa do QBoa em andamento. Aguarde sua conclusão antes de testar a RAM.".to_string());
+    }
+    if gpu_diagnostic::is_active() {
+        return Err("O teste de GPU está em andamento. Aguarde ou cancele antes de iniciar o teste de RAM.".into());
     }
     if cpu_diagnostic::is_active() {
         return Err(
@@ -2033,6 +2040,9 @@ fn start_cpu_test(
                 .to_string(),
         );
     }
+    if gpu_diagnostic::is_active() {
+        return Err("O teste de GPU está em andamento. Aguarde ou cancele antes de iniciar o teste de CPU.".into());
+    }
     if memory_test::session::is_active() {
         return Err(
             "O teste de RAM está em andamento. Aguarde ou cancele antes de iniciar o teste de CPU."
@@ -2072,6 +2082,47 @@ fn get_cpu_diagnostic_reports(
         .app_data_dir()
         .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
     cpu_diagnostic::load_reports(&app_data_dir)
+}
+
+
+#[tauri::command]
+fn get_gpu_inventory(app: AppHandle) -> Result<gpu_diagnostic::GpuInventory, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    gpu_diagnostic::collect_inventory(&app_data_dir)
+}
+
+#[tauri::command]
+fn start_gpu_test(app: AppHandle, profile: gpu_diagnostic::GpuTestProfile) -> Result<gpu_diagnostic::GpuTestSessionSnapshot, String> {
+    let _start_guard = operation_start_gate().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if safety_state().lock().unwrap().is_task_running() {
+        return Err("Há uma tarefa de limpeza/manutenção em andamento. Aguarde sua conclusão antes de iniciar o teste de GPU.".into());
+    }
+    if memory_test::session::is_active() || cpu_diagnostic::is_active() {
+        return Err("Outro teste de hardware está em andamento. Aguarde ou cancele a sessão atual antes de iniciar o teste de GPU.".into());
+    }
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    let inventory = gpu_diagnostic::collect_inventory(&app_data_dir)?;
+    if !inventory.sensor_available { return Err(inventory.sensor_note); }
+    gpu_diagnostic::start(app, app_data_dir, profile, inventory)
+}
+
+#[tauri::command]
+fn get_gpu_test_session() -> Option<gpu_diagnostic::GpuTestSessionSnapshot> {
+    gpu_diagnostic::get_session()
+}
+
+#[tauri::command]
+fn cancel_gpu_test(app: AppHandle, session_id: Option<String>) -> Result<gpu_diagnostic::GpuTestSessionSnapshot, String> {
+    gpu_diagnostic::cancel(&app, session_id.as_deref())
+}
+
+#[tauri::command]
+fn get_gpu_diagnostic_reports(app: AppHandle) -> Result<Vec<gpu_diagnostic::GpuTestReport>, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    gpu_diagnostic::load_reports(&app_data_dir)
 }
 
 #[tauri::command]
@@ -2201,6 +2252,11 @@ fn main() {
             get_cpu_test_session,
             cancel_cpu_test,
             get_cpu_diagnostic_reports,
+            get_gpu_inventory,
+            start_gpu_test,
+            get_gpu_test_session,
+            cancel_gpu_test,
+            get_gpu_diagnostic_reports,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,

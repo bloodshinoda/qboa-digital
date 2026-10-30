@@ -307,7 +307,6 @@ fn run_test<R: Runtime>(
     let mut errors = 0u64;
     let mut status = "completed".to_string();
     let mut last_sensor = Instant::now();
-    let mut last_checkpoint = Instant::now();
     while started.elapsed() < Duration::from_secs(target) {
         if cancel.load(Ordering::Acquire) { status = "cancelled".into(); break; }
         let active_until = Instant::now() + Duration::from_millis(650);
@@ -338,11 +337,6 @@ fn run_test<R: Runtime>(
                 samples.push(sample.clone());
                 publish_progress(app, session_id, elapsed, target*1000, &sample, dispatches, errors);
                 if temperature >= THERMAL_STOP_C { status = "thermal_limit_reached".into(); break; }
-                if last_checkpoint.elapsed() >= Duration::from_secs(15) {
-                    let checkpoint = build_report(inventory, profile, started_at.clone(), elapsed, samples.clone(), dispatches, errors, "running");
-                    persist_report(app_data_dir, &checkpoint)?;
-                    last_checkpoint = Instant::now();
-                }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if last_sensor.elapsed() >= Duration::from_secs(3) { status = "sensor_lost".into(); break; }
