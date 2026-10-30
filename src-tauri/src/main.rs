@@ -2,6 +2,7 @@
 
 mod capability_inventory;
 mod cleanup_findings;
+mod cpu_diagnostic;
 mod diagnostics;
 mod diagnostics_store;
 mod memory_inventory;
@@ -1933,6 +1934,9 @@ async fn start_memory_test(
     if safety_state().lock().unwrap().is_task_running() {
         return Err("Já existe uma tarefa do QBoa em andamento. Aguarde sua conclusão antes de testar a RAM.".to_string());
     }
+    if cpu_diagnostic::is_active() {
+        return Err("O teste de CPU está em andamento. Aguarde ou cancele antes de iniciar o teste de RAM.".to_string());
+    }
     let mut config = memory_test::runner::MemoryTestConfig::for_profile(profile);
     if let Some(value) = memory_budget_bytes {
         config.memory_budget_bytes = value;
@@ -1971,6 +1975,58 @@ fn cancel_memory_test(
 #[tauri::command]
 async fn get_memory_inventory() -> Result<memory_inventory::MemoryInventory, String> {
     memory_inventory::collect()
+}
+
+#[tauri::command]
+async fn get_cpu_inventory() -> Result<cpu_diagnostic::CpuInventory, String> {
+    cpu_diagnostic::collect_inventory()
+}
+
+#[tauri::command]
+fn start_cpu_test(
+    app: AppHandle,
+    profile: cpu_diagnostic::CpuTestProfile,
+) -> Result<cpu_diagnostic::CpuTestSessionSnapshot, String> {
+    let _start_guard = operation_start_gate()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if safety_state().lock().unwrap().is_task_running() {
+        return Err("Há uma tarefa de limpeza/manutenção em andamento. Aguarde sua conclusão antes de iniciar um teste de CPU.".to_string());
+    }
+    if memory_test::session::is_active() {
+        return Err("O teste de RAM está em andamento. Aguarde ou cancele antes de iniciar o teste de CPU.".to_string());
+    }
+    let inventory = cpu_diagnostic::collect_inventory()?;
+    if !inventory.sensor_available {
+        return Err(inventory.sensor_note);
+    }
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    cpu_diagnostic::start(app, app_data_dir, profile, inventory)
+}
+
+#[tauri::command]
+fn get_cpu_test_session() -> Option<cpu_diagnostic::CpuTestSessionSnapshot> {
+    cpu_diagnostic::get_session()
+}
+
+#[tauri::command]
+fn cancel_cpu_test(
+    app: AppHandle,
+    session_id: Option<String>,
+) -> Result<cpu_diagnostic::CpuTestSessionSnapshot, String> {
+    cpu_diagnostic::cancel(&app, session_id.as_deref())
+}
+
+#[tauri::command]
+fn get_cpu_diagnostic_reports(app: AppHandle) -> Result<Vec<cpu_diagnostic::CpuTestReport>, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    cpu_diagnostic::load_reports(&app_data_dir)
 }
 
 #[tauri::command]
@@ -2094,6 +2150,11 @@ fn main() {
             get_memory_test_session,
             cancel_memory_test,
             get_memory_inventory,
+            get_cpu_inventory,
+            start_cpu_test,
+            get_cpu_test_session,
+            cancel_cpu_test,
+            get_cpu_diagnostic_reports,
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
