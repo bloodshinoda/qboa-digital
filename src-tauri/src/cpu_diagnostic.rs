@@ -19,7 +19,6 @@ use tauri::{AppHandle, Emitter, Runtime};
 const REPORT_SCHEMA_VERSION: u32 = 1;
 const MAX_REPORT_BYTES: u64 = 4 * 1024 * 1024;
 const THERMAL_STOP_C: f64 = 85.0;
-const SENSOR_MISSING_LIMIT: u8 = 3;
 const SAMPLE_TIMEOUT_SECS: u64 = 8;
 static NEXT_REPORT_ID: AtomicU64 = AtomicU64::new(0);
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(0);
@@ -216,7 +215,7 @@ if (-not $provider) {
   sensor_available = ($sensors.Count -gt 0)
   sensor_provider = $provider
   temperature_sensors = @($sensors | ForEach-Object { [string]$_.Name } | Select-Object -Unique)
-  sensor_note = if ($provider) { 'Sensores térmicos de CPU detectados.' } else { 'Nenhum sensor térmico de CPU foi encontrado. Inicie o LibreHardwareMonitor com Options > Remote Web Server > Run e configure o servidor para escutar apenas em 127.0.0.1:8085; ou use o Open Hardware Monitor com sensores WMI habilitados. Mantenha o provedor aberto durante o teste.' }
+  sensor_note = if ($provider) { 'Sensores térmicos de CPU detectados; temperatura será incluída no teste.' } else { 'Sensor térmico não detectado. O teste será executado normalmente, sem a métrica de temperatura.' }
 } | ConvertTo-Json -Compress -Depth 5
 "#;
         let output = run_powershell_once(script)?;
@@ -298,6 +297,27 @@ while ($true) {
 "#
 }
 
+fn native_telemetry_script() -> &'static str {
+    r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+while ($true) {
+  $perf = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" |
+    Select-Object -First 1
+  $utilization = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" |
+    Select-Object -First 1
+  [pscustomobject]@{
+    timestamp_utc = [DateTimeOffset]::UtcNow.ToString('o')
+    temperature_c = $null
+    temperature_sensor = $null
+    cpu_utilization_percent = if ($utilization -and $null -ne $utilization.PercentProcessorTime) { [double]$utilization.PercentProcessorTime } else { $null }
+    frequency_mhz = if ($perf -and $null -ne $perf.ProcessorFrequency) { [double]$perf.ProcessorFrequency } else { $null }
+  } | ConvertTo-Json -Compress
+  Start-Sleep -Seconds 1
+}
+"#
+}
+
 fn telemetry_script(provider: &str) -> String {
     if provider == "hardware_monitor_rest" {
         return rest_telemetry_script().to_string();
@@ -371,9 +391,6 @@ pub(crate) fn start<R: Runtime>(
     profile: CpuTestProfile,
     inventory: CpuInventory,
 ) -> Result<CpuTestSessionSnapshot, String> {
-    if !inventory.sensor_available || inventory.sensor_provider.is_none() {
-        return Err(inventory.sensor_note);
-    }
     let duration_seconds = profile.duration_seconds();
     if !(1..=1800).contains(&duration_seconds) {
         return Err("Duração de teste inválida.".to_string());
@@ -552,10 +569,10 @@ fn run_test<R: Runtime>(
     inventory: CpuInventory,
     cancel: &AtomicBool,
 ) -> Result<CpuTestReport, String> {
-    let provider = inventory
-        .sensor_provider
-        .as_deref()
-        .ok_or_else(|| inventory.sensor_note.clone())?;
+    // A telemetria térmica é opcional. Sem provedor, o coletor nativo
+    // continua publicando utilização/frequência e a carga segue normalmente.
+    let has_temperature_provider = inventory.sensor_provider.is_some();
+    let provider = inventory.sensor_provider.as_deref().unwrap_or("none");
     let child = start_telemetry_process(provider)?;
     let mut child = TelemetryProcess(child);
     let stdout = child
@@ -586,15 +603,11 @@ fn run_test<R: Runtime>(
         .map_err(|error| format!("A primeira amostra de telemetria é inválida: {error}"))?;
     let first_temperature = first_raw
         .temperature_c
-        .filter(|value| value.is_finite() && (0.0..=150.0).contains(value))
-        .ok_or_else(|| {
-            "O sensor de CPU não forneceu uma temperatura válida. O teste não será iniciado sem monitoramento térmico."
-                .to_string()
-        })?;
-    if first_temperature >= THERMAL_STOP_C {
+        .filter(|value| value.is_finite() && (0.0..=150.0).contains(value));
+    if let Some(value) = first_temperature.filter(|value| *value >= THERMAL_STOP_C) {
         return Err(format!(
             "A CPU já está a {:.1} °C antes do teste. Aguarde o resfriamento abaixo de {:.0} °C.",
-            first_temperature, THERMAL_STOP_C
+            value, THERMAL_STOP_C
         ));
     }
 
@@ -611,7 +624,7 @@ fn run_test<R: Runtime>(
     let first_sample = CpuTelemetrySample {
         elapsed_ms: 0,
         timestamp_utc: first_raw.timestamp_utc,
-        temperature_c: Some(first_temperature),
+        temperature_c: first_temperature,
         temperature_sensor: first_raw.temperature_sensor,
         cpu_utilization_percent: first_raw
             .cpu_utilization_percent
@@ -631,7 +644,6 @@ fn run_test<R: Runtime>(
         &errors,
     );
 
-    let mut missing_sensor_samples = 0u8;
     let report_id = new_report_id();
     let mut terminal_status = "completed".to_string();
     let mut last_checkpoint = Instant::now();
@@ -651,14 +663,8 @@ fn run_test<R: Runtime>(
                     .temperature_c
                     .filter(|value| value.is_finite() && (0.0..=150.0).contains(value));
                 if let Some(value) = temperature {
-                    missing_sensor_samples = 0;
                     if value >= THERMAL_STOP_C {
                         terminal_status = "thermal_limit_reached".into();
-                    }
-                } else {
-                    missing_sensor_samples = missing_sensor_samples.saturating_add(1);
-                    if missing_sensor_samples >= SENSOR_MISSING_LIMIT {
-                        terminal_status = "sensor_lost".into();
                     }
                 }
                 let sample = CpuTelemetrySample {
@@ -712,8 +718,24 @@ fn run_test<R: Runtime>(
                             > Duration::from_secs(SAMPLE_TIMEOUT_SECS)
                     })
                 {
-                    terminal_status = "sensor_lost".into();
-                    break;
+                    if has_temperature_provider {
+                        // O desaparecimento do sensor não invalida a carga: a próxima
+                        // versão do coletor pode continuar sem temperatura.
+                        terminal_status = "sensor_lost".into();
+                        break;
+                    }
+                    let elapsed_ms = started_clock.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                    let sample = CpuTelemetrySample {
+                        elapsed_ms,
+                        timestamp_utc: timestamp_now(),
+                        temperature_c: None,
+                        temperature_sensor: None,
+                        cpu_utilization_percent: None,
+                        frequency_mhz: None,
+                    };
+                    samples.push(sample.clone());
+                    publish_progress(app, session_id, elapsed_ms, duration_seconds * 1000,
+                        &sample, &iterations, &errors);
                 }
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
