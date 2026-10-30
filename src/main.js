@@ -1567,8 +1567,11 @@ async function loadCpuInventory() {
       item.append(title, valueElement);
       details.appendChild(item);
     });
+    const providerLabel = inventory.sensor_provider === "hardware_monitor_rest"
+      ? "API local do LibreHardwareMonitor/Open Hardware Monitor"
+      : (inventory.sensor_provider || "provedor de hardware");
     status.textContent = inventory.sensor_available
-      ? "Sensor térmico de CPU disponível via " + (inventory.sensor_provider || "provedor de hardware") + "."
+      ? "Sensor térmico de CPU disponível via " + providerLabel + "."
       : (inventory.sensor_note || "Nenhum sensor térmico compatível foi detectado.");
     status.classList.toggle("available", Boolean(inventory.sensor_available));
     start.disabled = !inventory.sensor_available || ["running", "cancelling"].includes(cpuTestSessionSnapshot?.lifecycle);
