@@ -42,6 +42,14 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
 
 ### Destaques desta versão
 
+- Laudos de diagnóstico em JSON versionado, persistidos localmente e preservados entre sessões.
+- Histórico de laudos com recuperação de execuções interrompidas e preservação de resultados parciais.
+- Teste de integridade da memória RAM com perfis Rápido, Padrão, Prolongado e Personalizado, além de inventário por módulo.
+- Teste de carga controlada da CPU com telemetria, acompanhamento térmico, limite de segurança e laudo próprio.
+- Teste de estabilidade da GPU via Direct3D 11 Compute Shader, com validação independente dos resultados e proteção térmica.
+- Diagnóstico completo integrado: aviso prévio de operação demorada, confirmação, progresso por etapa, cancelamento e resumo consolidado.
+- Diagnósticos individuais continuam disponíveis; o fluxo completo não mistura diagnóstico com limpeza ou manutenção.
+- O laudo registra evidências e estados observados, sem emitir recomendações automáticas.
 - Painel de progresso centralizado, com contraste aprimorado e progresso indeterminado quando a ferramenta não informa percentual real.
 - Diálogos de confirmação e avisos de risco priorizados sobre o painel de progresso, que fica oculto enquanto a pessoa precisa decidir.
 - Bloqueio de execuções concorrentes tanto na interface quanto no backend Rust.
