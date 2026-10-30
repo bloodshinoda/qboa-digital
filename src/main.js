@@ -1682,8 +1682,21 @@ function renderCpuReport(report) {
     });
     result.appendChild(list);
   }
+  const targetDurationMs = Math.max(1, Number(report.target_duration_seconds || 1) * 1000);
+  const percent = report.execution_status === "completed"
+    ? 100
+    : Math.max(0, Math.min(100, Math.floor(Number(report.duration_ms || 0) * 100 / targetDurationMs)));
+  const progressBar = document.getElementById("cpu-test-progress-bar");
+  progressBar.style.width = percent + "%";
+  const progressTrack = document.querySelector(".cpu-test-progress-track");
+  progressTrack.setAttribute("aria-valuenow", String(percent));
+  document.getElementById("cpu-test-progress-percent").textContent = percent + "%";
   document.getElementById("cpu-test-phase").textContent = cpuTestStatusLabel(report.execution_status);
   document.getElementById("cpu-test-progress-label").textContent = cpuTestStatusLabel(report.execution_status);
+  document.getElementById("cpu-test-progress-detail").textContent =
+    Math.floor(Number(report.duration_ms || 0) / 60000) + " min efetivos · " +
+    Number(report.samples?.length || 0).toLocaleString("pt-BR") + " amostras térmicas · " +
+    Number(report.calculation_errors || 0) + " divergência(s)";
 }
 
 function renderCpuTestSession(session) {
