@@ -665,7 +665,7 @@ $policies = @(
 )
 foreach ($policy in $policies) {
     try {
-        $hive = [Microsoft.Win32.RegistryHive]::$($policy.Hive)
+        $hive = [System.Enum]::Parse([Microsoft.Win32.RegistryHive], [string]$policy.Hive)
         $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Default)
         $key = $base.CreateSubKey($policy.Path)
         if (-not $key) { throw 'Não foi possível abrir/criar a chave de política.' }
