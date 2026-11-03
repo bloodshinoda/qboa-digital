@@ -31,6 +31,8 @@ if ($env:QBOA_CLEAN_BROWSER_CACHE -ne '1') {
         "$env:APPDATA\Opera Software\Opera GX Stable"
     ) | Where-Object { Test-Path -LiteralPath $_ }
 
+    Write-Output '[Etapa 1/1] Localizando perfis e limpando históricos...'
+
     foreach ($root in $chromiumRoots) {
         $historyFiles = @(Get-ChildItem -LiteralPath $root -Filter 'History' -File -Recurse -Force -ErrorAction SilentlyContinue)
         foreach ($file in $historyFiles) {
@@ -54,8 +56,8 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class QboaNativeSqlite {
-    [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-    private static extern int sqlite3_open(string filename, out IntPtr db);
+    [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    private static extern int sqlite3_open16(string filename, out IntPtr db);
     [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     private static extern int sqlite3_exec(IntPtr db, string sql, IntPtr callback, IntPtr arg, out IntPtr error);
     [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -66,7 +68,7 @@ public static class QboaNativeSqlite {
     private static extern void sqlite3_free(IntPtr value);
     public static string Execute(string filename, string sql) {
         IntPtr db;
-        int result = sqlite3_open(filename, out db);
+        int result = sqlite3_open16(filename, out db);
         if (result != 0) throw new Exception("SQLite open: " + result);
         try {
             IntPtr error;
@@ -90,7 +92,7 @@ public static class QboaNativeSqlite {
         foreach ($database in $placesFiles) {
             try {
                 $before = [long](Get-Item -LiteralPath $database.FullName -Force).Length
-                $sql = 'PRAGMA foreign_keys=ON; BEGIN IMMEDIATE; DELETE FROM moz_historyvisits; DELETE FROM moz_places WHERE id NOT IN (SELECT fk FROM moz_bookmarks WHERE fk IS NOT NULL); COMMIT; VACUUM;'
+                $sql = 'PRAGMA foreign_keys=ON; BEGIN IMMEDIATE; DELETE FROM moz_historyvisits; DELETE FROM moz_inputhistory; DELETE FROM moz_places WHERE id NOT IN (SELECT fk FROM moz_bookmarks WHERE fk IS NOT NULL); COMMIT; VACUUM;'
                 [QboaNativeSqlite]::Execute($database.FullName, $sql) | Out-Null
                 $after = [long](Get-Item -LiteralPath $database.FullName -Force).Length
                 $freedBytes += [Math]::Max(0, $before - $after)
