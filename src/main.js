@@ -216,75 +216,56 @@ function renderTabs() {
   const tabsEl = document.getElementById("tabs");
   tabsEl.innerHTML = "";
 
-  // Diagnóstico possui cards e fluxo próprios; não renderizar também a aba antiga definida no JSON.
-  structure.sections.filter((section) => section.id !== "diagnostico").forEach((section) => {
+  const tabs = [
+    {
+      id: "limpeza",
+      label: "🧹 Limpeza",
+      summary: () => renderSectionSummary()
+    },
+    {
+      id: "diagnostico",
+      label: "🩺 Diagnóstico",
+      summary: () => { document.getElementById("section-summary").textContent = "Testes de hardware e saúde do sistema"; }
+    },
+    {
+      id: "servicos",
+      label: "🛠️ Serviços",
+      summary: () => { document.getElementById("section-summary").textContent = "Gerenciamento dos serviços do Windows"; }
+    },
+    {
+      id: "capacidades",
+      label: "🧩 Capacidades",
+      summary: () => { document.getElementById("section-summary").textContent = "Inventário de hardware, firmware e recursos do Windows"; }
+    },
+    {
+      id: "sobre",
+      label: "ℹ️ Sobre",
+      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.0"; }
+    }
+  ];
+
+  tabs.forEach((tab) => {
     const btn = document.createElement("button");
-    btn.className = "tab" + (section.id === activeSection ? " active" : "");
-    btn.textContent = `${section.icon} ${section.title}`;
-    btn.addEventListener("click", () => {
-      activeSection = section.id;
+    btn.className = "tab" + (tab.id === activeSection ? " active" : "");
+    btn.textContent = tab.label;
+    btn.addEventListener("click", async () => {
+      activeSection = tab.id;
       renderTabs();
-      renderSectionSummary();
+      tab.summary();
       renderCards();
+      if (tab.id === "servicos" && !serviceProfileState) await loadServiceProfileState();
+      if (tab.id === "capacidades") void loadCapabilityInventory();
     });
     tabsEl.appendChild(btn);
   });
-
-  const serviceTab = document.createElement("button");
-  serviceTab.className = "tab" + (activeSection === "servicos" ? " active" : "");
-  serviceTab.textContent = "🛠️ Serviços";
-  serviceTab.addEventListener("click", async () => {
-    activeSection = "servicos";
-    renderTabs();
-    document.getElementById("section-summary").textContent = "Alterar perfil de serviços do Windows";
-    renderCards();
-    if (!serviceProfileState) await loadServiceProfileState();
-  });
-  tabsEl.appendChild(serviceTab);
-
-  const capabilityTab = document.createElement("button");
-  capabilityTab.className = "tab" + (activeSection === "capacidades" ? " active" : "");
-  capabilityTab.textContent = "🧩 Capacidades";
-  capabilityTab.addEventListener("click", () => {
-    activeSection = "capacidades";
-    renderTabs();
-    document.getElementById("section-summary").textContent = "Inventário de hardware, firmware e recursos do Windows";
-    renderCards();
-    void loadCapabilityInventory();
-  });
-  tabsEl.appendChild(capabilityTab);
-
-  const diagnosticTab = document.createElement("button");
-  diagnosticTab.className = "tab" + (activeSection === "diagnostico" ? " active" : "");
-  diagnosticTab.textContent = "🩺 Diagnóstico";
-  diagnosticTab.addEventListener("click", () => {
-    activeSection = "diagnostico";
-    renderTabs();
-    document.getElementById("section-summary").textContent = "Testes de hardware e saúde do sistema";
-    renderCards();
-  });
-  tabsEl.appendChild(diagnosticTab);
-
-  const contributionTab = document.createElement("button");
-  contributionTab.className = "tab" + (activeSection === "sobre" ? " active" : "");
-  contributionTab.textContent = "ℹ️ Sobre";
-  contributionTab.addEventListener("click", () => {
-    activeSection = "sobre";
-    renderTabs();
-    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.0";
-    renderCards();
-  });
-  tabsEl.appendChild(contributionTab);
 }
 
 function syncExecutionControls() {
   const running = Boolean(activeTaskId || launchPending || presetSequenceRunning);
-  const presetButton = document.getElementById("preset-run-btn");
   const cancelButton = document.getElementById("cancel-task-btn");
 
   cancelButton.hidden = !activeTaskId;
   cancelButton.disabled = !activeTaskId;
-  presetButton.disabled = running || activeSection === "servicos";
   const progress = document.getElementById("operation-progress");
   if (progress) progress.hidden = !running;
   if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a operação…", null);
@@ -300,7 +281,6 @@ function renderCards() {
   capabilityPanel.hidden = activeSection !== "capacidades";
   dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
   dashboard.classList.toggle("contribution-view", activeSection === "sobre");
-  document.querySelector(".levels").hidden = activeSection !== "limpeza";
   syncExecutionControls();
   cardsEl.innerHTML = "";
   if (activeSection === "servicos" || activeSection === "capacidades") { if (activeSection === "servicos" && !windowsServices.length) void loadWindowsServices(); return; }
@@ -3339,7 +3319,6 @@ async function registerEvents() {
   renderTabs();
   renderSectionSummary();
   renderCards();
-  bindLevels();
   await registerEvents();
   await refreshHistory();
   await loadDiagnosticHistory(true);
