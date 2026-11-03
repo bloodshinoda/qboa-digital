@@ -1019,7 +1019,7 @@ async function prepareBrowserCleanupIfNeeded() {
         chrome: "Google Chrome", msedge: "Microsoft Edge", brave: "Brave", vivaldi: "Vivaldi", opera: "Opera", firefox: "Mozilla Firefox"
       }[name.toLowerCase()] || name)).join(", ");
       const closeRunning = await askConfirmation(
-        `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os caches. Salve seu trabalho antes de continuar. Se recusar, a limpeza dos caches será ignorada.`,
+        `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os dados selecionados. Salve seu trabalho antes de continuar. Se recusar, os dados dos navegadores serão preservados.`,
         "Fechar navegadores abertos?",
         "Fechar Navegadores",
         "Não Fechar"
@@ -1027,8 +1027,8 @@ async function prepareBrowserCleanupIfNeeded() {
       await Qboa.prepareBrowserCleanup(closeRunning);
       browserCleanupDecision = closeRunning;
       appendConsole(closeRunning
-        ? "Navegadores autorizados para fechamento; a limpeza dos caches será executada."
-        : "Você optou por manter os navegadores abertos; seus caches serão ignorados.");
+        ? "Navegadores autorizados para fechamento; a limpeza selecionada poderá continuar."
+        : "Você optou por manter os navegadores abertos; os dados deles serão preservados.");
     } else {
       await Qboa.prepareBrowserCleanup(true);
       browserCleanupDecision = true;
@@ -1043,7 +1043,7 @@ async function prepareBrowserCleanupIfNeeded() {
 async function executeTask(item, cardEl) {
   if (operationIsBusy(item?.name)) return false;
   launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
-  if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id)) {
+  if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
     await prepareBrowserCleanupIfNeeded();
   }
   if (cardEl) cardEl.classList.add("running");
