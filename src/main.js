@@ -1063,6 +1063,7 @@ async function executeTask(item, cardEl) {
     return true;
   } catch (err) {
     stopActivity();
+    if (isCleanupTask(item.id)) browserCleanupDecision = null;
     appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
     activeTaskId = null; activeExecutionId = null; launchPending = false; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
@@ -3243,6 +3244,7 @@ async function registerEvents() {
       if (isCleanupTask(payload.task_id)) {
         const resultStatus = payload.event === "task-completed" ? "success" : payload.event === "task-cancelled" ? "cancelled" : "error";
         showCleanupResult(payload.task_id, resultStatus, payload.message || "");
+        browserCleanupDecision = null;
       }
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
