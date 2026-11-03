@@ -626,10 +626,37 @@ fn run_cleanmgr_silently(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
-    // cleanmgr é um aplicativo gráfico: ocultar apenas o console do processo
-    // pai não oculta sua janela. Start-Process -WindowStyle Hidden aplica SW_HIDE
-    // ao próprio Disk Cleanup e aguarda seu encerramento sem prompts.
-    let script = "$p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\cleanmgr.exe') -ArgumentList @('/verylowdisk','/d',$env:SystemDrive) -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode";
+    // cleanmgr é Win32 GUI; -WindowStyle Hidden não oculta de forma confiável
+    // a janela principal. Ocultamos as janelas vinculadas ao PID do processo
+    // durante toda a execução, inclusive as que surgem após a inicialização.
+    let script = r#"
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class QboaWindowHider {
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr extra);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
+    delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr extra);
+    public static void Hide(uint targetPid) {
+        EnumWindows((hwnd, extra) => {
+            uint pid;
+            GetWindowThreadProcessId(hwnd, out pid);
+            if (pid == targetPid) ShowWindow(hwnd, 0);
+            return true;
+        }, IntPtr.Zero);
+    }
+}
+'@
+$exe = Join-Path $env:SystemRoot 'System32\cleanmgr.exe'
+$p = Start-Process -FilePath $exe -ArgumentList @('/verylowdisk','/d',$env:SystemDrive) -PassThru
+while (-not $p.HasExited) {
+    [QboaWindowHider]::Hide([uint32]$p.Id)
+    Start-Sleep -Milliseconds 200
+    $p.Refresh()
+}
+exit $p.ExitCode
+"#;
     on_output("Executando CleanMGR silenciosamente com as opções padrão de baixa intervenção...");
     run_command(
         "powershell",
