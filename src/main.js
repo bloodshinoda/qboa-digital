@@ -1010,7 +1010,7 @@ function closeConfirmationModal(confirmed = false) {
   if (resolve) resolve(confirmed);
 }
 
-async function prepareBrowserCleanupIfNeeded() {
+async async function prepareBrowserCleanupIfNeeded() {
   if (browserCleanupDecision !== null) return;
   try {
     const runningBrowsers = await Qboa.getRunningBrowsers();
