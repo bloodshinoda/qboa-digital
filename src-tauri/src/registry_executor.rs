@@ -420,42 +420,6 @@ fn registry_mutations(task_id: &str) -> Option<Vec<RegistryMutation>> {
             "DisableTelemetryOptInChangeNotification",
             1,
         ),
-        (
-            "LocalMachine",
-            r"SOFTWARE\Policies\Microsoft\Windows\DataCollection",
-            "DisableEnterpriseAuthProxy",
-            1,
-        ),
-        (
-            "LocalMachine",
-            r"SOFTWARE\Policies\Microsoft\Windows\WindowsAI",
-            "DisableAIDataAnalysis",
-            1,
-        ),
-        (
-            "LocalMachine",
-            r"SOFTWARE\Policies\Microsoft\Windows\WindowsAI",
-            "TurnOffWindowsCopilot",
-            1,
-        ),
-        (
-            "CurrentUser",
-            r"SOFTWARE\Policies\Microsoft\Windows\WindowsAI",
-            "DisableAIDataAnalysis",
-            1,
-        ),
-        (
-            "LocalMachine",
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-            "EnableRecallOnDevice",
-            0,
-        ),
-        (
-            "CurrentUser",
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-            "EnableRecallOnDevice",
-            0,
-        ),
     ];
     Some(
         values
