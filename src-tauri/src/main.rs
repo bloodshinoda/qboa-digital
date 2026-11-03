@@ -1716,12 +1716,7 @@ fn start_task(
                 if cancelled && !err.starts_with("Cancelamento não confirmado") {
                     let mut cancellation_message = err.clone();
                     let rollback_result = if let Some(change) = registry_change.take() {
-                        Some(
-                            safety_state()
-                                .lock()
-                                .unwrap()
-                                .rollback_task(&change.id),
-                        )
+                        Some(safety_state().lock().unwrap().rollback_task(&change.id))
                     } else if task_for_spawn.reversible && task_for_spawn.rollback_on_failure {
                         let recorded = safety_state().lock().unwrap().record_change(
                             &execution_id_for_spawn,
@@ -1732,10 +1727,7 @@ fn start_task(
                             "cancelled_pending_rollback",
                         );
                         Some(match recorded {
-                            Ok(change) => safety_state()
-                                .lock()
-                                .unwrap()
-                                .rollback_task(&change.id),
+                            Ok(change) => safety_state().lock().unwrap().rollback_task(&change.id),
                             Err(record_error) => safety_state()
                                 .lock()
                                 .unwrap()
