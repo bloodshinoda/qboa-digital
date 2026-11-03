@@ -155,8 +155,14 @@
   <div id="execution-summary-modal" class="execution-summary-modal hidden" aria-hidden="true">
     <section class="execution-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="execution-summary-title">
       <header class="execution-summary-header"><div><span class="eyebrow">QBoa Digital · resultado</span><h2 id="execution-summary-title">Resumo da execução</h2></div><button id="execution-summary-close" class="secondary-button" type="button">Fechar</button></header>
-      <p id="execution-summary-task" class="execution-summary-task"></p><p id="execution-summary-status" class="execution-summary-status"></p>
-      <h3>Atividades e etapas</h3><pre id="execution-summary-output" class="execution-summary-output"></pre>
+      <div class="execution-summary-result"><span id="execution-summary-icon" class="execution-summary-icon success" aria-hidden="true">✓</span><div><p id="execution-summary-task" class="execution-summary-task"></p><p id="execution-summary-status" class="execution-summary-status"></p></div></div>
+      <div class="execution-summary-grid" aria-label="Resumo da limpeza">
+        <article class="execution-summary-metric"><span>Arquivos removidos</span><strong id="execution-summary-files">0</strong></article>
+        <article class="execution-summary-metric"><span>Registro</span><strong id="execution-summary-registry">0</strong><small>entradas removidas</small></article>
+        <article class="execution-summary-metric"><span>Espaço liberado</span><strong id="execution-summary-space">0 B</strong></article>
+        <article class="execution-summary-metric"><span>Falhas</span><strong id="execution-summary-failures">0</strong></article>
+      </div>
+      <p class="execution-summary-duration">Tempo de execução <strong id="execution-summary-duration">Não informado</strong></p>
       <div class="execution-summary-actions"><button id="execution-summary-ok" class="primary-button" type="button">Entendi</button></div>
     </section>
   </div>
