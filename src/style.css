@@ -84,33 +84,6 @@ button {
   opacity: 0.9;
 }
 
-.levels {
-  display: flex;
-  gap: 8px;
-}
-
-.level {
-  padding: 8px 16px;
-  border: 2px solid var(--qboa-white);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--qboa-white);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.level:hover {
-  background: var(--qboa-white);
-  color: var(--qboa-green-dark);
-}
-
-.level.active {
-  background: var(--qboa-red);
-  border-color: var(--qboa-red);
-  color: var(--qboa-white);
-}
-
 .preset-button,
 .primary-button,
 .secondary-button {
@@ -605,8 +578,7 @@ button {
 }
 
 @media (max-width: 720px) {
-  .app-header,
-  .levels {
+  .app-header {
     align-items: stretch;
     flex-direction: column;
   }
@@ -622,11 +594,11 @@ button {
 }
 
 /* Ações da interface seguem o mesmo padrão visual. */
-button:not(.tab):not(.level) { font-family: var(--font-ui); font-weight: 700; }
+button:not(.tab) { font-family: var(--font-ui); font-weight: 700; }
 
 
 /* Ações principais usam o mesmo padrão visual em toda a interface. */
-button:not(.tab):not(.level) {
+button:not(.tab) {
   min-height: 36px;
   padding: 8px 13px;
   border: 1px solid rgba(255, 255, 255, 0.22);
@@ -640,16 +612,16 @@ button:not(.tab):not(.level) {
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
-button:not(.tab):not(.level):hover:not(:disabled) {
+button:not(.tab):hover:not(:disabled) {
   background: #c90008;
   border-color: rgba(255, 255, 255, 0.55);
   transform: translateY(-1px);
 }
-button:not(.tab):not(.level):focus-visible {
+button:not(.tab):focus-visible {
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
-button:not(.tab):not(.level):disabled {
+button:not(.tab):disabled {
   opacity: 0.48;
   cursor: not-allowed;
   transform: none;
