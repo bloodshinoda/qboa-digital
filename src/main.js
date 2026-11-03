@@ -192,6 +192,7 @@ const Qboa = {
   },
 
   async finishStartup() {
+    await new Promise((resolve) => window.setTimeout(resolve, 700));
     return invoke("finish_startup");
   }
 };
