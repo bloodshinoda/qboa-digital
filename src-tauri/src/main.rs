@@ -1221,6 +1221,8 @@ fn start_task(
         let mut streamed_output = String::new();
         let mut cleanup_step: Option<(u32, u32)> = None;
         let mut dism_percent = 0u32;
+        let mut dism_active = false;
+        let mut dism_stage_label = String::new();
         let mut on_output = |line: &str| {
             streamed_output.push_str(line);
             streamed_output.push('\n');
@@ -1233,6 +1235,8 @@ fn start_task(
                             if total > 0 && current > 0 && current <= total {
                                 cleanup_step = Some((current, total));
                                 dism_percent = 0;
+                                dism_active = description.to_ascii_lowercase().contains("dism") || description.to_ascii_lowercase().contains("imagem");
+                                dism_stage_label = description.trim_end_matches("...").to_string();
                                 let percent = (((current - 1) as f64 / total as f64) * 100.0).floor() as u32;
                                 let friendly = description.trim_end_matches("...");
                                 emit_event(
@@ -1245,7 +1249,7 @@ fn start_task(
                         }
                     }
                 }
-            } else if trimmed.contains("DISM") || trimmed.contains("dism") || cleanup_step.is_some() {
+            } else if dism_active {
                 if let Some(percent_pos) = trimmed.find('%') {
                     let prefix = &trimmed[..percent_pos];
                     let number: String = prefix.chars().rev().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',').collect::<String>().chars().rev().collect();
@@ -1259,7 +1263,7 @@ fn start_task(
                                 emit_event(
                                     &app_for_output, "task-progress", &task_id_for_output,
                                     &execution_id_for_output,
-                                    &format!("Passo {current}/{total} · Reparando a imagem do Windows ({rounded}%)"),
+                                    &format!("Passo {current}/{total} · {} ({rounded}%)", dism_stage_label.trim_end_matches('.')),
                                     true, Some(&format!("{overall}%")), &task_risk_for_output,
                                 );
                             }
