@@ -633,7 +633,14 @@ fn run_cleanmgr_silently(
     on_output("Executando CleanMGR silenciosamente com as opções padrão de baixa intervenção...");
     run_command(
         "powershell",
-        &["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script],
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            script,
+        ],
         execution_id,
         on_output,
         is_cancelled,
