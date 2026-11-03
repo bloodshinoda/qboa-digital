@@ -1040,7 +1040,7 @@ async function prepareBrowserCleanupIfNeeded() {
   }
 }
 
-async function executeTask(item, cardEl) {
+async async function executeTask(item, cardEl) {
   if (operationIsBusy(item?.name)) return false;
   launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
   if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id)) {
