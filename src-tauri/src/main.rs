@@ -2572,15 +2572,15 @@ fn finish_startup(app: AppHandle) -> Result<(), String> {
     let main_window = app
         .get_webview_window("main")
         .ok_or_else(|| "A janela principal do QBoa não foi encontrada.".to_string())?;
+    if let Some(splash) = app.get_webview_window("splashscreen") {
+        let _ = splash.close();
+    }
     main_window
         .show()
         .map_err(|error| format!("Não foi possível exibir a janela principal: {error}"))?;
     main_window
         .set_focus()
         .map_err(|error| format!("Não foi possível ativar a janela principal: {error}"))?;
-    if let Some(splash) = app.get_webview_window("splashscreen") {
-        let _ = splash.close();
-    }
     Ok(())
 }
 
