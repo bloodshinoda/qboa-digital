@@ -240,7 +240,7 @@ function renderTabs() {
     {
       id: "sobre",
       label: "ℹ️ Sobre",
-      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.0"; }
+      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.1"; }
     }
   ];
 
@@ -316,10 +316,10 @@ function renderCards() {
       <article class="contribution-panel about-panel">
         <div class="contribution-copy">
           <span class="eyebrow">Sobre o aplicativo</span>
-          <h2>QBoa Digital <span class="about-version">3.2.0</span></h2>
+          <h2>QBoa Digital <span class="about-version">3.2.1</span></h2>
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
-            <p><strong>Versão:</strong> 3.2.0</p>
+            <p><strong>Versão:</strong> 3.2.1</p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
           </div>
@@ -977,11 +977,12 @@ function closeRiskModal() {
   pendingTask = null;
 }
 
-function askConfirmation(message, title = "Confirmar operação") {
+function askConfirmation(message, title = "Confirmar operação", confirmLabel = "Continuar", cancelLabel = "Cancelar") {
   const modal = document.getElementById("confirmation-modal");
   const titleElement = document.getElementById("confirmation-title");
   const messageElement = document.getElementById("confirmation-message");
   const confirmButton = document.getElementById("confirmation-confirm");
+  const cancelButton = document.getElementById("confirmation-cancel");
 
   if (pendingConfirmationResolver) {
     pendingConfirmationResolver(false);
@@ -990,6 +991,8 @@ function askConfirmation(message, title = "Confirmar operação") {
 
   titleElement.textContent = title;
   messageElement.textContent = message;
+  confirmButton.textContent = confirmLabel;
+  cancelButton.textContent = cancelLabel;
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
   confirmButton.focus();
@@ -1020,7 +1023,10 @@ async function prepareBrowserCleanupIfNeeded() {
       }[name.toLowerCase()] || name)).join(", ");
       const closeRunning = await askConfirmation(
         `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os caches. Salve seu trabalho antes de continuar. Se recusar, a limpeza dos caches será ignorada.`,
-        "Fechar navegadores abertos?"
+        "Fechar navegadores abertos?",
+        "Fechar navegadores?",
+        "Fechar Navegadores",
+        "Ignorar"
       );
       await Qboa.prepareBrowserCleanup(closeRunning);
       browserCleanupDecision = closeRunning;
