@@ -620,6 +620,35 @@ fn disable_diagnostic_tasks(
     )
 }
 
+#[cfg(target_os = "windows")]
+fn run_cleanmgr_silently(
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    // cleanmgr é um aplicativo gráfico: ocultar apenas o console do processo
+    // pai não oculta sua janela. Start-Process -WindowStyle Hidden aplica SW_HIDE
+    // ao próprio Disk Cleanup e aguarda seu encerramento sem prompts.
+    let script = "$p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\cleanmgr.exe') -ArgumentList @('/verylowdisk','/d',$env:SystemDrive) -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode";
+    on_output("Executando CleanMGR silenciosamente com as opções padrão de baixa intervenção...");
+    run_command(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script],
+        execution_id,
+        on_output,
+        is_cancelled,
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn run_cleanmgr_silently(
+    _execution_id: &str,
+    _on_output: &mut dyn FnMut(&str),
+    _is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    Err("CleanMGR só está disponível no Windows.".to_string())
+}
+
 fn run_system_command(
     command_name: &str,
     args: &[&str],
@@ -872,13 +901,7 @@ fn execute_task(
                 apply_registry,
             )?;
             on_output("[Etapa 2/5] Executando a Limpeza de Disco do Windows (cleanmgr)...");
-            let part_2 = run_system_command(
-                "cleanmgr",
-                &["/verylowdisk"],
-                execution_id,
-                on_output,
-                is_cancelled,
-            )?;
+            let part_2 = run_cleanmgr_silently(execution_id, on_output, is_cancelled)?;
             on_output("[Etapa 3/5] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output(
