@@ -3295,9 +3295,11 @@ async function registerEvents() {
     }
 
 
-    if (payload.event === "task-output" && payload.message) {
-      executionOutput.push(payload.message); currentOperationStage = payload.message;
-      updateOperationProgress(currentOperationName, currentOperationStage, payload.progress || payload.message); appendConsole(payload.message);
+    if (payload.event === "task-progress" && payload.message) {
+      currentOperationStage = payload.message;
+      updateOperationProgress(currentOperationName, currentOperationStage, payload.progress);
+    } else if (payload.event === "task-output" && payload.message) {
+      executionOutput.push(payload.message); appendConsole(payload.message);
     } else if (payload.event === "task-completed") {
       stopActivity();
       appendConsole(taskSuccessMessage(taskDisplayName(payload.task_id)));
