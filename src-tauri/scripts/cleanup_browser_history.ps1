@@ -27,6 +27,10 @@ if ($env:QBOA_CLEAN_BROWSER_CACHE -ne '1') {
         "$env:LOCALAPPDATA\Microsoft\Edge\User Data",
         "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data",
         "$env:LOCALAPPDATA\Vivaldi\User Data",
+        "$env:LOCALAPPDATA\Yandex\YandexBrowser\User Data",
+        "$env:LOCALAPPDATA\Chromium\User Data",
+        "$env:LOCALAPPDATA\CocCoc\Browser\User Data",
+        "$env:LOCALAPPDATA\Arc\User Data",
         "$env:APPDATA\Opera Software\Opera Stable",
         "$env:APPDATA\Opera Software\Opera GX Stable"
     ) | Where-Object { Test-Path -LiteralPath $_ }
@@ -45,6 +49,20 @@ if ($env:QBOA_CLEAN_BROWSER_CACHE -ne '1') {
         }
     }
 
+    # Internet Explorer / componentes legados do Internet Options.
+    # O identificador 1 limpa somente o histórico de navegação.
+    try {
+        $ieCommand = Start-Process -FilePath "$env:WINDIR\System32\rundll32.exe" -ArgumentList "InetCpl.cpl,ClearMyTracksByProcess 1" -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
+        if ($ieCommand.ExitCode -eq 0) {
+            $processedProfiles++
+            Write-Output 'Solicitada a limpeza do histórico do Internet Explorer / Internet Options.'
+        } else {
+            $failed++
+            Write-Output ("A rotina de histórico do Internet Explorer retornou código {0}." -f $ieCommand.ExitCode)
+        }
+    } catch {
+        Write-Output ("Internet Explorer indisponível nesta instalação: " + $_.Exception.Message)
+    }
     $firefoxRoots = @(
         "$env:APPDATA\Mozilla\Firefox\Profiles",
         "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
