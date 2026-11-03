@@ -605,19 +605,19 @@ foreach ($serviceName in @('DiagTrack', 'dmwappushservice')) {
 }
 
 $scheduledTasks = @(
-    @('\Microsoft\Windows\Application Experience\', 'Microsoft Compatibility Appraiser'),
-    @('\Microsoft\Windows\Application Experience\', 'ProgramDataUpdater'),
-    @('\Microsoft\Windows\Autochk\', 'Proxy'),
-    @('\Microsoft\Windows\Customer Experience Improvement Program\', 'Consolidator'),
-    @('\Microsoft\Windows\Customer Experience Improvement Program\', 'UsbCeip'),
-    @('\Microsoft\Windows\Customer Experience Improvement Program\', 'KernelCeipTask'),
-    @('\Microsoft\Windows\DiskDiagnostic\', 'Microsoft-Windows-DiskDiagnosticDataCollector'),
-    @('\Microsoft\Windows\Feedback\Siuf\', 'DmClient'),
-    @('\Microsoft\Windows\Feedback\Siuf\', 'DmClientOnScenarioDownload')
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Application Experience\'; TaskName = 'Microsoft Compatibility Appraiser' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Application Experience\'; TaskName = 'ProgramDataUpdater' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Autochk\'; TaskName = 'Proxy' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Customer Experience Improvement Program\'; TaskName = 'Consolidator' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Customer Experience Improvement Program\'; TaskName = 'UsbCeip' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Customer Experience Improvement Program\'; TaskName = 'KernelCeipTask' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\DiskDiagnostic\'; TaskName = 'Microsoft-Windows-DiskDiagnosticDataCollector' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Feedback\Siuf\'; TaskName = 'DmClient' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Feedback\Siuf\'; TaskName = 'DmClientOnScenarioDownload' }
 )
 foreach ($entry in $scheduledTasks) {
-    $taskPath = $entry[0]
-    $taskName = $entry[1]
+    $taskPath = $entry.TaskPath
+    $taskName = $entry.TaskName
     try {
         $scheduled = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
         if (-not $scheduled) { $skipped++; continue }
