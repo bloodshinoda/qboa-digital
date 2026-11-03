@@ -638,7 +638,8 @@ fn task_impact(id: &str) -> Vec<ExpectedImpact> {
             ImpactArea::Space,
             "Pode liberar espaço removendo arquivos temporários definidos pela tarefa.",
         ),
-        "desengordurar_telemetria"
+        "limpeza_historico_navegadores"
+        | "desengordurar_telemetria"
         | "desengordurar_tarefas"
         | "desengordurar_telemetria_avancada" => (
             ImpactArea::Privacy,
@@ -686,6 +687,9 @@ fn task_verification(id: &str) -> &'static str {
         }
         "diagnostico_informacoes" => {
             "O backend verifica o código de saída de systeminfo e apresenta a saída."
+        }
+        "limpeza_historico_navegadores" => {
+            "O backend verifica o resultado da limpeza dos bancos de histórico dos perfis Chromium e Firefox encontrados; favoritos e credenciais são preservados."
         }
         _ => {
             "O backend verifica o código de saída do executor e apresenta sua saída; não verifica individualmente cada alteração."
