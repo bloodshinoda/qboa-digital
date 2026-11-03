@@ -1235,7 +1235,11 @@ fn start_task(
                             if total > 0 && current > 0 && current <= total {
                                 cleanup_step = Some((current, total));
                                 dism_percent = 0;
-                                dism_active = description.to_ascii_lowercase().contains("dism") || description.to_ascii_lowercase().contains("imagem") || description.to_ascii_lowercase().contains("componentes substituídos");
+                                dism_active = description.to_ascii_lowercase().contains("dism")
+                                    || description.to_ascii_lowercase().contains("imagem")
+                                    || description
+                                        .to_ascii_lowercase()
+                                        .contains("componentes substituídos");
                                 dism_stage_label = description.trim_end_matches("...").to_string();
                                 let percent = (((current - 1) as f64 / total as f64) * 100.0).floor() as u32;
                                 let friendly = description.trim_end_matches("...");
