@@ -1219,18 +1219,58 @@ fn start_task(
         let execution_id_for_output = execution_id_for_spawn.clone();
         let task_risk_for_output = task_risk_for_spawn.clone();
         let mut streamed_output = String::new();
+        let mut cleanup_step: Option<(u32, u32)> = None;
+        let mut dism_percent = 0u32;
         let mut on_output = |line: &str| {
             streamed_output.push_str(line);
             streamed_output.push('\n');
+
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("[Etapa ") {
+                if let Some((position, description)) = rest.split_once("] ") {
+                    if let Some((current, total)) = position.split_once('/') {
+                        if let (Ok(current), Ok(total)) = (current.parse::<u32>(), total.parse::<u32>()) {
+                            if total > 0 && current > 0 && current <= total {
+                                cleanup_step = Some((current, total));
+                                dism_percent = 0;
+                                let percent = (((current - 1) as f64 / total as f64) * 100.0).floor() as u32;
+                                let friendly = description.trim_end_matches("...");
+                                emit_event(
+                                    &app_for_output, "task-progress", &task_id_for_output,
+                                    &execution_id_for_output,
+                                    &format!("Passo {current}/{total} · {friendly}"),
+                                    true, Some(&format!("{percent}%")), &task_risk_for_output,
+                                );
+                            }
+                        }
+                    }
+                }
+            } else if trimmed.contains("DISM") || trimmed.contains("dism") || cleanup_step.is_some() {
+                if let Some(percent_pos) = trimmed.find('%') {
+                    let prefix = &trimmed[..percent_pos];
+                    let number: String = prefix.chars().rev().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',').collect::<String>().chars().rev().collect();
+                    if let Ok(value) = number.replace(',', ".").parse::<f64>() {
+                        let value = value.clamp(0.0, 100.0);
+                        let rounded = value.round() as u32;
+                        if rounded >= dism_percent {
+                            dism_percent = rounded;
+                            if let Some((current, total)) = cleanup_step {
+                                let overall = ((((current - 1) as f64 + value / 100.0) / total as f64) * 100.0).floor() as u32;
+                                emit_event(
+                                    &app_for_output, "task-progress", &task_id_for_output,
+                                    &execution_id_for_output,
+                                    &format!("Passo {current}/{total} · Reparando a imagem do Windows ({rounded}%)"),
+                                    true, Some(&format!("{overall}%")), &task_risk_for_output,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
             emit_event(
-                &app_for_output,
-                "task-output",
-                &task_id_for_output,
-                &execution_id_for_output,
-                line,
-                true,
-                Some("running"),
-                &task_risk_for_output,
+                &app_for_output, "task-output", &task_id_for_output,
+                &execution_id_for_output, line, true, Some("running"), &task_risk_for_output,
             );
         };
         let execution_id_for_cancel = execution_id_for_spawn.clone();
