@@ -1266,12 +1266,8 @@ fn start_task(
                                         .to_ascii_lowercase()
                                         .contains("componentes substituídos");
                                 dism_stage_label = description.trim_end_matches("...").to_string();
-                                let percent = cleanup_progress_percent(
-                                    current,
-                                    total,
-                                    dism_active,
-                                    0.0,
-                                );
+                                let percent =
+                                    cleanup_progress_percent(current, total, dism_active, 0.0);
                                 let friendly = description.trim_end_matches("...");
                                 emit_event(
                                     &app_for_output,
@@ -1304,12 +1300,7 @@ fn start_task(
                         if rounded >= dism_percent {
                             dism_percent = rounded;
                             if let Some((current, total)) = cleanup_step {
-                                let overall = cleanup_progress_percent(
-                                    current,
-                                    total,
-                                    true,
-                                    value,
-                                );
+                                let overall = cleanup_progress_percent(current, total, true, value);
                                 emit_event(
                                     &app_for_output,
                                     "task-progress",
