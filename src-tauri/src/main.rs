@@ -1231,7 +1231,9 @@ fn start_task(
             if let Some(rest) = trimmed.strip_prefix("[Etapa ") {
                 if let Some((position, description)) = rest.split_once("] ") {
                     if let Some((current, total)) = position.split_once('/') {
-                        if let (Ok(current), Ok(total)) = (current.parse::<u32>(), total.parse::<u32>()) {
+                        if let (Ok(current), Ok(total)) =
+                            (current.parse::<u32>(), total.parse::<u32>())
+                        {
                             if total > 0 && current > 0 && current <= total {
                                 cleanup_step = Some((current, total));
                                 dism_percent = 0;
@@ -1241,13 +1243,18 @@ fn start_task(
                                         .to_ascii_lowercase()
                                         .contains("componentes substituídos");
                                 dism_stage_label = description.trim_end_matches("...").to_string();
-                                let percent = (((current - 1) as f64 / total as f64) * 100.0).floor() as u32;
+                                let percent =
+                                    (((current - 1) as f64 / total as f64) * 100.0).floor() as u32;
                                 let friendly = description.trim_end_matches("...");
                                 emit_event(
-                                    &app_for_output, "task-progress", &task_id_for_output,
+                                    &app_for_output,
+                                    "task-progress",
+                                    &task_id_for_output,
                                     &execution_id_for_output,
                                     &format!("Passo {current}/{total} · {friendly}"),
-                                    true, Some(&format!("{percent}%")), &task_risk_for_output,
+                                    true,
+                                    Some(&format!("{percent}%")),
+                                    &task_risk_for_output,
                                 );
                             }
                         }
@@ -1256,19 +1263,36 @@ fn start_task(
             } else if dism_active {
                 if let Some(percent_pos) = trimmed.find('%') {
                     let prefix = &trimmed[..percent_pos];
-                    let number: String = prefix.chars().rev().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',').collect::<String>().chars().rev().collect();
+                    let number: String = prefix
+                        .chars()
+                        .rev()
+                        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect();
                     if let Ok(value) = number.replace(',', ".").parse::<f64>() {
                         let value = value.clamp(0.0, 100.0);
                         let rounded = value.round() as u32;
                         if rounded >= dism_percent {
                             dism_percent = rounded;
                             if let Some((current, total)) = cleanup_step {
-                                let overall = ((((current - 1) as f64 + value / 100.0) / total as f64) * 100.0).floor() as u32;
+                                let overall = ((((current - 1) as f64 + value / 100.0)
+                                    / total as f64)
+                                    * 100.0)
+                                    .floor() as u32;
                                 emit_event(
-                                    &app_for_output, "task-progress", &task_id_for_output,
+                                    &app_for_output,
+                                    "task-progress",
+                                    &task_id_for_output,
                                     &execution_id_for_output,
-                                    &format!("Passo {current}/{total} · {} ({rounded}%)", dism_stage_label.trim_end_matches('.')),
-                                    true, Some(&format!("{overall}%")), &task_risk_for_output,
+                                    &format!(
+                                        "Passo {current}/{total} · {} ({rounded}%)",
+                                        dism_stage_label.trim_end_matches('.')
+                                    ),
+                                    true,
+                                    Some(&format!("{overall}%")),
+                                    &task_risk_for_output,
                                 );
                             }
                         }
@@ -1277,8 +1301,14 @@ fn start_task(
             }
 
             emit_event(
-                &app_for_output, "task-output", &task_id_for_output,
-                &execution_id_for_output, line, true, Some("running"), &task_risk_for_output,
+                &app_for_output,
+                "task-output",
+                &task_id_for_output,
+                &execution_id_for_output,
+                line,
+                true,
+                Some("running"),
+                &task_risk_for_output,
             );
         };
         let execution_id_for_cancel = execution_id_for_spawn.clone();
