@@ -660,9 +660,8 @@ $skipped = 0
 $policies = @(
     @{ Hive = 'LocalMachine'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsAI'; Name = 'DisableAIDataAnalysis'; Value = 1 },
     @{ Hive = 'CurrentUser'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsAI'; Name = 'DisableAIDataAnalysis'; Value = 1 },
-    @{ Hive = 'LocalMachine'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsAI'; Name = 'TurnOffWindowsCopilot'; Value = 1 },
-    @{ Hive = 'LocalMachine'; Path = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'EnableRecallOnDevice'; Value = 0 },
-    @{ Hive = 'CurrentUser'; Path = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'EnableRecallOnDevice'; Value = 0 }
+    @{ Hive = 'LocalMachine'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsAI'; Name = 'AllowRecallEnablement'; Value = 0 },
+    @{ Hive = 'CurrentUser'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'; Name = 'TurnOffWindowsCopilot'; Value = 1 }
 )
 foreach ($policy in $policies) {
     try {
