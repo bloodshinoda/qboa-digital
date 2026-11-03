@@ -1323,7 +1323,7 @@ fn start_task(
 
         if task_for_spawn.creates_restore_point || task_for_spawn.risk.requires_restore_point() {
             write_execution_log(&execution_id_for_spawn, "restore-point-phase-started");
-            let restore_point_manager = safety_state().lock().unwrap().clone();
+            let mut restore_point_manager = safety_state().lock().unwrap().clone();
             match restore_point_manager.create_restore_point(&format!(
                 "Qboa Digital — Antes da tarefa: {}",
                 task_for_spawn.name
