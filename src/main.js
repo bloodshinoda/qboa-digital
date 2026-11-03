@@ -3,15 +3,11 @@ const { listen } = window.__TAURI__.event;
 
 let structure = null;
 let activeSection = "limpeza";
-let activeLevel = "normal";
 let pendingTask = null;
 let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
 let launchPending = false;
-let presetSequenceRunning = false;
-let presetExpectedCount = 0;
-let presetTerminalCount = 0;
 let currentOperationName = "";
 let currentOperationStage = "";
 let consoleBuffer = "";
@@ -60,10 +56,6 @@ const Qboa = {
 
   async respondRestorePointFailure(executionId, proceed) {
     return invoke("respond_restore_point_failure", { executionId, proceed });
-  },
-
-  async runPreset(presetId) {
-    return invoke("run_preset", { presetId });
   },
 
   async getSessionHistory() {
@@ -197,6 +189,10 @@ const Qboa = {
 
   async cancelTask(taskId) {
     return invoke("cancel_task", { taskId, executionId: activeExecutionId });
+  },
+
+  async finishStartup() {
+    return invoke("finish_startup");
   }
 };
 
@@ -261,7 +257,7 @@ function renderTabs() {
 }
 
 function syncExecutionControls() {
-  const running = Boolean(activeTaskId || launchPending || presetSequenceRunning);
+  const running = Boolean(activeTaskId || launchPending);
   const cancelButton = document.getElementById("cancel-task-btn");
 
   cancelButton.hidden = !activeTaskId;
@@ -949,7 +945,7 @@ function closeRunningOperationPopup() {
   modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
 }
 function operationIsBusy(requestedName = "") {
-  if (!(activeTaskId || launchPending || presetSequenceRunning)) return false;
+  if (!(activeTaskId || launchPending)) return false;
   showRunningOperationPopup(requestedName); return true;
 }
 
@@ -1024,7 +1020,6 @@ async function prepareBrowserCleanupIfNeeded() {
       const closeRunning = await askConfirmation(
         `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os caches. Salve seu trabalho antes de continuar. Se recusar, a limpeza dos caches será ignorada.`,
         "Fechar navegadores abertos?",
-        "Fechar navegadores?",
         "Fechar Navegadores",
         "Não Fechar"
       );
@@ -1054,7 +1049,7 @@ async function executeTask(item, cardEl) {
   activeTaskId = item.id;
   currentOperationName = item.name; currentOperationStage = "Solicitando início ao mecanismo…";
   updateOperationProgress(currentOperationName, currentOperationStage, null);
-  writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
+  writeStatus(`> Rodando "${item.name}"...`);
   startActivity(item.name);
   closeRiskModal();
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
@@ -1085,14 +1080,6 @@ async function runTask(item, cardEl) {
   await executeTask(item, cardEl);
 }
 
-function presetDisplayName(level) {
-  return {
-    express: "Rápido",
-    normal: "Equilibrado",
-    turbo: "Completo"
-  }[level] || "Personalizado";
-}
-
 function rollbackStatusLabel(status) {
   return {
     Pending: "Pendente",
@@ -1105,53 +1092,6 @@ function rollbackStatusLabel(status) {
     Unknown: "Desconhecido",
     Irreversible: "Irreversível"
   }[status] || status;
-}
-
-function bindLevels() {
-  document.querySelectorAll(".level").forEach((btn) => {
-    if (btn.dataset.level === activeLevel) btn.classList.add("active");
-    btn.addEventListener("click", () => {
-      activeLevel = btn.dataset.level;
-      document.querySelectorAll(".level").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      if (activeLevel === "express" || activeLevel === "normal" || activeLevel === "turbo") {
-        renderCards();
-      }
-    });
-  });
-
-  document.getElementById("preset-run-btn").addEventListener("click", async () => {
-    if (operationIsBusy(`Perfil ${presetDisplayName(activeLevel)}`)) return;
-    launchPending = true; presetSequenceRunning = true; presetExpectedCount = 0; presetTerminalCount = 0;
-    currentOperationName = `Perfil ${presetDisplayName(activeLevel)}`; currentOperationStage = "Preparando a sequência de tarefas…"; syncExecutionControls();
-
-    const presetTasks = structure.sections.flatMap((section) =>
-      section.items.filter((item) => item.preset && item.preset.includes(activeLevel))
-    );
-    if (!presetTasks.length) {
-      appendConsole(`Nenhuma tarefa disponível para o perfil ${presetDisplayName(activeLevel)}.`);
-      return;
-    }
-
-    if (activeLevel === "turbo" && !(await askConfirmation("O preset Turbo executará alterações avançadas no Windows. Deseja continuar?", "Executar preset Turbo?"))) {
-      return;
-    }
-
-    try {
-      if (presetTasks.some((item) => ["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id))) {
-        await prepareBrowserCleanupIfNeeded();
-      }
-      const ids = await Qboa.runPreset(activeLevel);
-      launchPending = false; presetExpectedCount = ids.length;
-      currentOperationName = `Perfil ${presetDisplayName(activeLevel)}`;
-      currentOperationStage = `Executando sequência: ${presetTerminalCount} de ${presetExpectedCount} tarefas concluídas.`;
-      if (presetTerminalCount >= presetExpectedCount) { presetSequenceRunning = false; currentOperationName = ""; currentOperationStage = ""; }
-      syncExecutionControls(); appendConsole(`Perfil ${presetDisplayName(activeLevel)} iniciado: ${ids.length} tarefas em sequência.`);
-    } catch (error) {
-      appendConsole(String(error)); launchPending = false; presetSequenceRunning = false; presetExpectedCount = 0; presetTerminalCount = 0; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
-    }
-  });
-
 }
 
 async function refreshHistory() {
@@ -2739,7 +2679,7 @@ async function cancelCompleteDiagnostic() {
 
 async function runCompleteDiagnostic() {
   if (completeDiagnosticRunning) return;
-  if (activeTaskId || launchPending || presetSequenceRunning) {
+  if (activeTaskId || launchPending) {
     document.getElementById("diagnostic-status").textContent = "Conclua a limpeza ou manutenção em andamento antes de iniciar o diagnóstico completo.";
     return;
   }
@@ -3250,7 +3190,7 @@ async function registerEvents() {
     const payload = event.payload;
     if (payload.event === "task-started") {
       executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
-      currentOperationName = presetSequenceRunning ? `Perfil ${presetDisplayName(activeLevel)} · ${taskDisplayName(payload.task_id)}` : taskDisplayName(payload.task_id);
+      currentOperationName = taskDisplayName(payload.task_id);
       currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
@@ -3300,7 +3240,6 @@ async function registerEvents() {
     }
 
     if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
-      if (presetSequenceRunning) { presetTerminalCount += 1; currentOperationStage = `Sequência: ${presetTerminalCount}${presetExpectedCount ? ` de ${presetExpectedCount}` : ""} tarefa(s) finalizada(s).`; }
       if (isCleanupTask(payload.task_id)) {
         const resultStatus = payload.event === "task-completed" ? "success" : payload.event === "task-cancelled" ? "cancelled" : "error";
         showCleanupResult(payload.task_id, resultStatus, payload.message || "");
@@ -3308,8 +3247,8 @@ async function registerEvents() {
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
-      if (presetSequenceRunning && presetExpectedCount > 0 && presetTerminalCount >= presetExpectedCount) { presetSequenceRunning = false; currentOperationName = ""; currentOperationStage = ""; }
-      else if (!presetSequenceRunning) { currentOperationName = ""; currentOperationStage = ""; }
+      currentOperationName = "";
+      currentOperationStage = "";
       syncExecutionControls();
       refreshHistory();
     }
@@ -3590,4 +3529,11 @@ async function registerEvents() {
       appendConsole(String(error));
     }
   });
+
+  try {
+    await Qboa.finishStartup();
+  } catch (error) {
+    console.error("Não foi possível finalizar a abertura do QBoa:", error);
+    appendConsole(`A janela principal não pôde ser exibida automaticamente: ${String(error)}`);
+  }
 })();
