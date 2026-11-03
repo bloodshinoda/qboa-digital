@@ -712,9 +712,7 @@ mod tests {
     fn registry_resolves_known_tasks() {
         let registry = TaskRegistry::try_new().unwrap();
         assert!(registry.resolve("limpeza_leve").is_some());
-        assert!(registry
-            .resolve("limpeza_historico_navegadores")
-            .is_some());
+        assert!(registry.resolve("limpeza_historico_navegadores").is_some());
         assert!(registry.resolve("desengordurar_telemetria").is_some());
         assert!(registry
             .resolve("desengordurar_telemetria_avancada")
