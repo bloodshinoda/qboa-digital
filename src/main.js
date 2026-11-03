@@ -16,6 +16,7 @@ let currentOperationName = "";
 let currentOperationStage = "";
 let consoleBuffer = "";
 let executionOutput = [];
+let executionStartedAt = null;
 let executionToastTimer = null;
 let activityLabel = "";
 let activityDots = "";
@@ -866,15 +867,56 @@ function showExecutionToast(status, title, message) {
   executionToastTimer = window.setTimeout(() => { toast.hidden = true; executionToastTimer = null; }, 6500);
 }
 
+function formatCleanupBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / (1024 ** index);
+  return `${value.toLocaleString("pt-BR", { maximumFractionDigits: index >= 2 ? 2 : 1 })} ${units[index]}`;
+}
+
+function collectCleanupSummary() {
+  const summary = { files: 0, bytes: 0, registry: 0, failures: 0 };
+  executionOutput.forEach((raw) => {
+    const line = String(raw ?? "");
+    const metrics = line.match(/QBOA_METRICS\\s+files=(\\d+)\\s+bytes=(\\d+)\\s+registry=(\\d+)/i);
+    if (metrics) {
+      summary.files += Number(metrics[1]) || 0;
+      summary.bytes += Number(metrics[2]) || 0;
+      summary.registry += Number(metrics[3]) || 0;
+    }
+    const failureMatches = [...line.matchAll(/(\\d+)\\s+falha(?:s|\\(s\\))?/gi)];
+    failureMatches.forEach((match) => { summary.failures += Number(match[1]) || 0; });
+  });
+  return summary;
+}
+
+function formatCleanupDuration() {
+  if (!executionStartedAt) return "Não informado";
+  const seconds = Math.max(0, Math.round((Date.now() - executionStartedAt) / 1000));
+  if (seconds < 60) return `${seconds} s`;
+  return `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+}
+
 function showCleanupResult(taskId, status, detail = "") {
   const successful = status === "success"; const cancelled = status === "cancelled";
-  const title = successful ? "Limpeza concluída com sucesso" : cancelled ? "Limpeza cancelada" : "A limpeza terminou com falha";
+  const title = successful ? "Limpeza concluída" : cancelled ? "Limpeza cancelada" : "Limpeza não concluída";
   const modal = document.getElementById("execution-summary-modal");
+  const summary = collectCleanupSummary();
   document.getElementById("execution-summary-title").textContent = title;
   document.getElementById("execution-summary-task").textContent = taskDisplayName(taskId);
-  document.getElementById("execution-summary-status").textContent = successful ? "Todas as etapas reportadas pela tarefa foram concluídas." : cancelled ? "A execução foi cancelada antes de terminar." : (detail || "O QBoa informou uma falha durante a execução.");
-  const lines = executionOutput.map((line) => String(line).trim()).filter(Boolean);
-  document.getElementById("execution-summary-output").textContent = lines.length ? lines.join("\n") : (detail || "A tarefa não forneceu detalhes adicionais.");
+  document.getElementById("execution-summary-status").textContent = successful
+    ? (summary.failures ? "A operação terminou, mas alguns itens não puderam ser processados." : "A operação foi finalizada.")
+    : cancelled ? "A operação foi interrompida antes da conclusão."
+      : "A operação encontrou um erro e não pôde ser concluída.";
+  document.getElementById("execution-summary-files").textContent = summary.files.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-registry").textContent = summary.registry.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-space").textContent = formatCleanupBytes(summary.bytes);
+  document.getElementById("execution-summary-failures").textContent = summary.failures.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-duration").textContent = formatCleanupDuration();
+  const statusIcon = document.getElementById("execution-summary-icon");
+  statusIcon.textContent = successful ? "✓" : cancelled ? "Ⅱ" : "!";
+  statusIcon.className = `execution-summary-icon ${successful ? "success" : cancelled ? "warning" : "error"}`;
   modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
   showExecutionToast(successful ? "success" : cancelled ? "warning" : "error", title, taskDisplayName(taskId));
 }
@@ -3221,7 +3263,7 @@ async function registerEvents() {
   void listen("qboa-event", (event) => {
     const payload = event.payload;
     if (payload.event === "task-started") {
-      executionOutput = []; activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
+      executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
       currentOperationName = presetSequenceRunning ? `Perfil ${presetDisplayName(activeLevel)} · ${taskDisplayName(payload.task_id)}` : taskDisplayName(payload.task_id);
       currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
