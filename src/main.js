@@ -879,13 +879,13 @@ function collectCleanupSummary() {
   const summary = { files: 0, bytes: 0, registry: 0, failures: 0 };
   executionOutput.forEach((raw) => {
     const line = String(raw ?? "");
-    const metrics = line.match(/QBOA_METRICS\\s+files=(\\d+)\\s+bytes=(\\d+)\\s+registry=(\\d+)/i);
+    const metrics = line.match(/QBOA_METRICS\s+files=(\d+)\s+bytes=(\d+)\s+registry=(\d+)/i);
     if (metrics) {
       summary.files += Number(metrics[1]) || 0;
       summary.bytes += Number(metrics[2]) || 0;
       summary.registry += Number(metrics[3]) || 0;
     }
-    const failureMatches = [...line.matchAll(/(\\d+)\\s+falha(?:s|\\(s\\))?/gi)];
+    const failureMatches = [...line.matchAll(/(\d+)\s+falha(?:s|\(s\))?/gi)];
     failureMatches.forEach((match) => { summary.failures += Number(match[1]) || 0; });
   });
   return summary;
