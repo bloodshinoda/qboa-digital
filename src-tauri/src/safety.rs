@@ -959,6 +959,14 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn advanced_privacy_uses_a_reversible_telemetry_snapshot() {
+        assert_eq!(
+            known_strategy("desengordurar_telemetria_avancada"),
+            Some("telemetry")
+        );
+    }
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct FakeRegistry {
         exists: bool,
