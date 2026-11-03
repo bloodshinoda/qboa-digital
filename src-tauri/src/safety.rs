@@ -651,7 +651,7 @@ fn run_snapshot_script(strategy: &str) -> Result<String, String> {
     let script = if strategy == "telemetry" {
         snapshot_script(strategy).replace(
             "$sv=@();",
-            "$specs+=@(@('LocalMachine','SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection','AllowTelemetry'),@('LocalMachine','SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Policies\DataCollection','AllowTelemetry'),@('LocalMachine','SOFTWARE\Policies\Microsoft\Windows\WindowsAI','DisableAIDataAnalysis'),@('LocalMachine','SOFTWARE\Policies\Microsoft\Windows\WindowsAI','AllowRecallEnablement'),@('CurrentUser','SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot','TurnOffWindowsCopilot'));$sv=@();",
+            r"$specs+=@(@('LocalMachine','SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection','AllowTelemetry'),@('LocalMachine','SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Policies\DataCollection','AllowTelemetry'),@('LocalMachine','SOFTWARE\Policies\Microsoft\Windows\WindowsAI','DisableAIDataAnalysis'),@('LocalMachine','SOFTWARE\Policies\Microsoft\Windows\WindowsAI','AllowRecallEnablement'),@('CurrentUser','SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot','TurnOffWindowsCopilot'));$sv=@();",
         ).replace("$t-eq'Binary'", "($t-eq'Binary' -or $t-eq'None')")
     } else {
         snapshot_script(strategy).to_string()
