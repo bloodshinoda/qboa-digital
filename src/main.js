@@ -830,7 +830,7 @@ function startActivity(taskName) {
 }
 
 function isCleanupTask(taskId) {
-  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update"].includes(taskId);
+  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update", "limpeza_historico_navegadores"].includes(taskId);
 }
 
 function showExecutionToast(status, title, message) {
