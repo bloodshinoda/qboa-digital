@@ -40,33 +40,33 @@
   </main>
 
   <section class="service-profile-panel" id="service-profile-panel" hidden>
-    <div class="service-profile-heading"><h2>Alterar perfil de serviços do Windows</h2><button id="open-service-inventory" type="button" class="secondary-button">🧾 Serviços instalados</button></div>
+    <div class="service-profile-heading"><h2>Organizar serviços do Windows</h2><button id="open-service-inventory" type="button" class="secondary-button">🧾 Serviços instalados</button></div>
     <p id="service-profile-status">Nenhum perfil validado. Aplicação indisponível.</p>
     <p id="service-system-details"></p>
-    <label for="service-profile-select">Preset de serviços</label>
+    <label for="service-profile-select">Perfil de serviços</label>
     <select id="service-profile-select">
       <option value="recommended">Padrão — referência do Windows</option>
       <option value="safe">Seguro — alterações conservadoras</option>
       <option value="refined">Refinado — otimização adaptada ao hardware</option>
       <option value="aggressive">Agressivo — alterações avançadas</option>
     </select>
-    <p class="service-profile-hint">O QBoa aplica regras validadas ou heurísticas restritas quando o estado atual coincide com o baseline e o hardware exigido é confirmado. Confira a prévia; padrões não validados não serão restaurados.</p>
+    <p class="service-profile-hint">O QBoa só altera serviços quando as condições de segurança são atendidas. Confira cada mudança antes de aplicar; configurações sem referência confiável ficam de fora.</p>
     <div class="service-profile-actions">
       <button id="service-profile-preview-btn" type="button">Pré-visualizar alterações</button>
       <button id="service-profile-apply-btn" type="button" disabled>Aplicar perfil</button>
       <button id="service-profile-defaults-btn" type="button" disabled>Restaurar configuração inicial</button>
       <button id="service-profile-undo-btn" type="button" disabled>Desfazer minhas alterações</button>
     </div>
-    <p class="service-profile-hint">Confira as alterações em uma janela própria antes de aplicar.</p>
+    <p class="service-profile-hint">Dê uma olhada nas mudanças antes de confirmar. Nada será alterado sem sua autorização.</p>
   </section>
 
   <div class="service-profile-preview-modal hidden" id="service-profile-preview-modal" aria-hidden="true">
     <section class="service-profile-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="service-profile-preview-title">
-      <header class="service-profile-preview-header"><div><span class="eyebrow">QBoa Digital · revisão</span><h2 id="service-profile-preview-title">Prévia do perfil de serviços</h2><p id="service-profile-preview-status" aria-live="polite"></p></div><button id="service-profile-preview-close" class="secondary-button" type="button">✕ Fechar</button></header>
-      <p class="service-profile-preview-help">Desmarque as alterações que não deseja aplicar ou escolha outro tipo de inicialização. Nada muda até confirmar.</p>
+      <header class="service-profile-preview-header"><div><span class="eyebrow">QBoa Digital · revisão</span><h2 id="service-profile-preview-title">Confira as mudanças</h2><p id="service-profile-preview-status" aria-live="polite"></p></div><button id="service-profile-preview-close" class="secondary-button" type="button">✕ Fechar</button></header>
+      <p class="service-profile-preview-help">Escolha o que deseja alterar ou ajuste o tipo de inicialização. Fique tranquilo: nada muda até você confirmar.</p>
       <div class="service-profile-preview-legend"><span class="legend-disable">● Desativar</span><span class="legend-enable">● Reativar</span><span class="legend-modify">● Alterar</span></div>
       <ul id="service-profile-preview-list" class="service-profile-preview-list"></ul>
-      <details class="service-profile-ignored-details"><summary>Serviços ignorados pelo perfil</summary><ul id="service-profile-ignored-list"></ul></details>
+      <details class="service-profile-ignored-details"><summary>Serviços que ficaram de fora</summary><ul id="service-profile-ignored-list"></ul></details>
       <footer class="service-profile-preview-actions"><span id="service-profile-preview-count">Nenhuma alteração selecionada</span><button id="service-profile-preview-cancel" class="secondary-button" type="button">Voltar</button><button id="service-profile-modal-apply" class="primary-button" type="button" disabled>Aplicar alterações</button></footer>
     </section>
   </div>
@@ -85,7 +85,7 @@
       <input id="service-inventory-hide-microsoft" type="checkbox">
       <span>Ocultar serviços Microsoft</span>
     </label>
-    <p id="service-inventory-status" aria-live="polite">Aguardando consulta aos serviços do Windows.</p>
+    <p id="service-inventory-status" aria-live="polite">Pronto para consultar os serviços do Windows.</p>
     <div class="service-inventory-table-wrap">
       <table class="service-inventory-table">
         <thead><tr><th>Serviço</th><th>Estado</th><th>Inicialização</th><th>Ações</th></tr></thead>
@@ -103,7 +103,7 @@
       </div>
       <button id="capability-refresh-btn" type="button">Atualizar inventário</button>
     </div>
-    <p id="capability-status" aria-live="polite">O inventário ainda não foi coletado nesta sessão.</p>
+    <p id="capability-status" aria-live="polite">Ainda não demos uma olhada nos recursos deste Windows.</p>
     <div class="capability-summary-actions"><button id="copy-capability-summary" class="secondary-button" type="button">Copiar resumo</button><span id="capability-copy-status" aria-live="polite"></span></div>
     <div id="capability-system" class="capability-system"></div>
     <div id="capability-list" class="capability-list"></div>
@@ -120,7 +120,7 @@
       <input id="shutdown-on-complete" type="checkbox" />
       <span>Desligar ao concluir</span>
     </label>
-    <button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Cancelar tarefa</button>
+    <button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Parar tarefa</button>
   </div>
 
   <div id="risk-modal" class="risk-modal hidden" aria-hidden="true">
@@ -143,12 +143,12 @@
     </div>
   </div>
 
-  <div id="operation-progress" class="operation-progress" hidden aria-live="polite"><div class="operation-progress-copy"><strong id="operation-progress-task">Operação em andamento</strong><span id="operation-progress-stage">Preparando…</span></div><div class="operation-progress-track"><div id="operation-progress-bar" class="operation-progress-bar"></div></div><span id="operation-progress-percent" class="operation-progress-percent">Em andamento</span></div>
+  <div id="operation-progress" class="operation-progress" hidden aria-live="polite"><div class="operation-progress-copy"><strong id="operation-progress-task">Faxina em andamento</strong><span id="operation-progress-stage">Preparando…</span></div><div class="operation-progress-track"><div id="operation-progress-bar" class="operation-progress-bar"></div></div><span id="operation-progress-percent" class="operation-progress-percent">Em andamento</span></div>
   <div id="running-operation-modal" class="running-operation-modal hidden" aria-hidden="true"><section class="running-operation-dialog" role="dialog" aria-modal="true" aria-labelledby="running-operation-title"><span class="eyebrow">QBoa Digital · execução protegida</span><h2 id="running-operation-title">Já existe uma operação em andamento</h2><p class="running-operation-current">Operação atual: <strong id="running-operation-task"></strong></p><p id="running-operation-stage"></p><p id="running-operation-requested" class="running-operation-requested"></p><p class="running-operation-note">Para evitar conflitos, o QBoa não iniciou a nova solicitação. Fechar esta janela não cancela a operação atual.</p><div class="running-operation-actions"><button id="running-operation-close" class="secondary-button" type="button">Voltar</button><button id="running-operation-console" class="primary-button" type="button">Ver progresso</button></div></section></div>
   <div id="execution-toast" class="execution-toast" role="status" aria-live="polite" hidden></div>
   <div id="execution-summary-modal" class="execution-summary-modal hidden" aria-hidden="true">
     <section class="execution-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="execution-summary-title">
-      <header class="execution-summary-header"><div><span class="eyebrow">QBoa Digital · resultado</span><h2 id="execution-summary-title">Resumo da execução</h2></div><button id="execution-summary-close" class="secondary-button" type="button">Fechar</button></header>
+      <header class="execution-summary-header"><div><span class="eyebrow">QBoa Digital · resultado</span><h2 id="execution-summary-title">Como ficou a faxina</h2></div><button id="execution-summary-close" class="secondary-button" type="button">Fechar</button></header>
       <div class="execution-summary-result"><span id="execution-summary-icon" class="execution-summary-icon success" aria-hidden="true">✓</span><div><p id="execution-summary-task" class="execution-summary-task"></p><p id="execution-summary-status" class="execution-summary-status"></p></div></div>
       <div class="execution-summary-grid" aria-label="Resumo da limpeza">
         <article class="execution-summary-metric"><span>Arquivos removidos</span><strong id="execution-summary-files">0</strong></article>
@@ -163,7 +163,7 @@
   <div id="confirmation-modal" class="confirmation-modal hidden" aria-hidden="true">
     <div class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
       <div class="confirmation-head">
-        <h3 id="confirmation-title">Confirmar operação</h3>
+        <h3 id="confirmation-title">Vamos nessa?</h3>
       </div>
       <p id="confirmation-message"></p>
       <div class="confirmation-actions">
@@ -177,13 +177,13 @@
   <div class="diagnostic-modal hidden" id="diagnostic-modal" aria-hidden="true">
     <section class="diagnostic-dialog" role="dialog" aria-modal="true" aria-labelledby="diagnostic-modal-title">
       <header class="diagnostic-dialog-header">
-        <div><span class="eyebrow">QBoa Digital · análise</span><h2 id="diagnostic-modal-title">Diagnóstico do computador</h2></div>
+        <div><span class="eyebrow">QBoa Digital · análise</span><h2 id="diagnostic-modal-title">Vamos dar uma olhada no computador?</h2></div>
         <button id="diagnostic-modal-close" class="diagnostic-close" type="button" aria-label="Fechar diagnóstico">×</button>
       </header>
       <p class="diagnostic-modal-intro" id="diagnostic-modal-intro"></p>
       <section id="complete-diagnostic-progress" class="complete-diagnostic-progress" hidden aria-label="Progresso do diagnóstico completo">
         <div class="complete-diagnostic-progress-heading">
-          <div><strong id="complete-diagnostic-stage">Preparando diagnóstico</strong><p id="complete-diagnostic-detail" aria-live="polite">Aguardando confirmação.</p></div>
+          <div><strong id="complete-diagnostic-stage">Preparando o check-up</strong><p id="complete-diagnostic-detail" aria-live="polite">Aguardando seu sinal para começar.</p></div>
           <strong id="complete-diagnostic-percent">0%</strong>
         </div>
         <div id="complete-diagnostic-progress-track" class="complete-diagnostic-progress-track" role="progressbar" aria-label="Progresso geral do diagnóstico completo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="complete-diagnostic-progress-bar"></div></div>
@@ -194,7 +194,7 @@
           <li data-step="3"><span>Processador</span><small>Aguardando</small></li>
           <li data-step="4"><span>Placa de vídeo</span><small>Aguardando</small></li>
         </ol>
-        <div class="complete-diagnostic-actions"><button id="complete-diagnostic-cancel" class="secondary-button" type="button">Cancelar diagnóstico</button></div>
+        <div class="complete-diagnostic-actions"><button id="complete-diagnostic-cancel" class="secondary-button" type="button">Parar diagnóstico</button></div>
       </section>
       <p id="complete-diagnostic-summary" class="complete-diagnostic-summary" hidden></p>
       <section id="memory-test-panel" class="memory-test-panel" hidden aria-label="Sessão de teste de integridade da RAM">
@@ -322,7 +322,7 @@
         </details>
         <p class="cpu-test-safety-note">O teste exige sensor térmico válido, é cancelável e interrompe a carga a 85 °C (limite conservador do QBoa, não o limite do fabricante) ou quando perde a telemetria. A carga é aplicada em janelas de 650 ms com pausas de 350 ms. Não testa toda a VRAM, o pipeline de renderização completo nem certifica estabilidade universal.</p>
       </section>
-      <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Executar teste</button></div>
+      <div class="diagnostic-modal-actions"><button class="primary-button diagnostic-run-button" id="diagnostic-run-selected" type="button">Começar teste</button></div>
       <p id="diagnostic-status" aria-live="polite"></p>
       <ul id="diagnostic-results" class="diagnostic-results"></ul>
       <details class="diagnostic-saved-reports"><summary>Laudos salvos neste computador</summary><p>Os relatórios ficam localmente e não são apagados automaticamente.</p><ul id="diagnostic-history" class="diagnostic-history"></ul></details>
