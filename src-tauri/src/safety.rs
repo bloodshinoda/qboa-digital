@@ -639,7 +639,7 @@ fn write_safety_log(message: &str) {
 
 fn known_strategy(task_id: &str) -> Option<&'static str> {
     match task_id {
-        "desengordurar_telemetria" => Some("telemetry"),
+        "desengordurar_telemetria" | "desengordurar_telemetria_avancada" => Some("telemetry"),
         "desengordurar_tarefas" => Some("diagnostic_tasks"),
         "limpeza_leve" | "limpeza_media" | "limpeza_pesada" => Some("mru_cleanup"),
         _ => None,
