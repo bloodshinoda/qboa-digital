@@ -492,7 +492,7 @@ fn cleanup_standard(
         is_cancelled,
     )?;
     let registry_keys_removed = apply_registry(task_id)?;
-    let summary = "Limpeza padrão concluída: temporários, caches, MRUs e lixeira.";
+    let summary = "Faxina básica concluída: temporários, caches, histórico recente e lixeira.";
     let registry_metrics = format!("QBOA_METRICS files=0 bytes=0 registry={registry_keys_removed}");
     on_output(summary);
     on_output(&registry_metrics);
@@ -767,7 +767,7 @@ while (-not $p.HasExited) {
 }
 exit $p.ExitCode
 "#;
-    on_output("Executando CleanMGR silenciosamente com as opções padrão de baixa intervenção...");
+    on_output("Chamando a Limpeza de Disco do Windows em modo silencioso...");
     run_command(
         "powershell",
         &[
@@ -1032,7 +1032,7 @@ fn execute_task(
     apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
 ) -> Result<String, String> {
     if is_cancelled() {
-        return Err("Tarefa cancelada pelo usuário.".to_string());
+        return Err("Tudo bem, a tarefa foi interrompida a seu pedido.".to_string());
     }
     match task.id.as_str() {
         "limpeza_leve" => cleanup_standard(
@@ -1352,7 +1352,7 @@ fn start_task(
                         &task_id_for_spawn,
                         &execution_id_for_spawn,
                         &format!(
-                            "Não foi possível criar um ponto de restauração: {err}\nDeseja prosseguir sem ponto de restauração?"
+                            "Não consegui criar um ponto de restauração: {err}\nQuer continuar mesmo assim?"
                         ),
                         false,
                         None,
@@ -1377,7 +1377,7 @@ fn start_task(
                             "task-cancelled",
                             &task_id_for_spawn,
                             &execution_id_for_spawn,
-                            "Tarefa cancelada. O ponto de restauração não foi criado.",
+                            "Tudo bem, cancelei. O ponto de restauração não foi criado.", 
                             false,
                             None,
                             &task_risk_for_spawn,
@@ -1410,7 +1410,7 @@ fn start_task(
             "task-progress",
             &task_id_for_spawn,
             &execution_id_for_spawn,
-            "Preparando execução e monitorando riscos.",
+            "Preparando tudo com cuidado e verificando possíveis riscos.", 
             true,
             Some("30%"),
             &task_risk_for_spawn,
@@ -1650,7 +1650,7 @@ fn start_task(
                     "task-completed",
                     &task_id_for_spawn,
                     &execution_id_for_spawn,
-                    &format!("Tarefa concluída: {}", task_name),
+                    &format!("Prontinho! Tarefa concluída: {}",  task_name),
                     true,
                     Some("100%"),
                     &task_risk_for_spawn,
@@ -1692,7 +1692,7 @@ fn start_task(
                     format!("{:.1} s", elapsed.as_secs_f64())
                 };
                 let summary = format!(
-                    "Resumo parcial da execução — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo até a interrupção/falha: {elapsed_label}.",
+                    "A tarefa parou antes do fim — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo até a interrupção/falha: {elapsed_label}.", 
                     bytes_freed as f64 / 1_000_000_000.0
                 );
                 emit_event(
