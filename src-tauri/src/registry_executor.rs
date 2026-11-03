@@ -756,6 +756,19 @@ mod tests {
     }
 
     #[test]
+    fn telemetry_registry_mutations_are_limited_to_basic_telemetry() {
+        let mutations = registry_mutations("desengordurar_telemetria").unwrap();
+        assert_eq!(mutations.len(), 6);
+        assert!(mutations.iter().all(|mutation| {
+            !mutation.key.path.contains("WindowsAI")
+                && !mutation.key.path.contains("WindowsCopilot")
+                && !mutation.key.value_name.contains("Recall")
+                && mutation.key.value_name != "TurnOffWindowsCopilot"
+        }));
+        assert!(registry_mutations("desengordurar_telemetria_avancada").is_none());
+    }
+
+    #[test]
     fn registry_task_apply_and_rollback_restore_absent_and_existing_values() {
         let catalog = TaskRegistry::try_new().unwrap();
         let (mut safety, journal) = manager();
