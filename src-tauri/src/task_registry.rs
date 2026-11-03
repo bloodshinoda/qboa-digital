@@ -763,7 +763,7 @@ mod tests {
     fn current_catalog_loads_with_complete_metadata() {
         let registry = TaskRegistry::try_new().unwrap();
         let tasks = registry.list();
-        assert_eq!(tasks.len(), 11);
+        assert_eq!(tasks.len(), 12);
         for task in tasks {
             assert!(!task.impact.is_empty());
             assert!(!task.verification.is_empty());
@@ -778,6 +778,7 @@ mod tests {
         let expected = [
             ("limpeza_leve", ExecutorType::Registry),
             ("limpeza_media", ExecutorType::Registry),
+            ("limpeza_historico_navegadores", ExecutorType::PowerShell),
             ("limpeza_pesada", ExecutorType::Registry),
             ("desengordurar_telemetria", ExecutorType::Registry),
             ("desengordurar_tarefas", ExecutorType::PowerShell),
