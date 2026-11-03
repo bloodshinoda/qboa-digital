@@ -1656,7 +1656,7 @@ fn start_task(
                     "task-completed",
                     &task_id_for_spawn,
                     &execution_id_for_spawn,
-                    &format!("Prontinho! Tarefa concluída: {}",  task_name),
+                    &format!("Prontinho! Tarefa concluída: {}", task_name),
                     true,
                     Some("100%"),
                     &task_risk_for_spawn,
