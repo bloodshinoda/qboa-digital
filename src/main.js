@@ -265,7 +265,7 @@ function syncExecutionControls() {
   cancelButton.disabled = !activeTaskId;
   const progress = document.getElementById("operation-progress");
   if (progress) progress.hidden = !running;
-  if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a operação…", null);
+  if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
 }
 
 function renderCards() {
@@ -743,17 +743,17 @@ function humanizeLogMessage(message) {
     "task-started": "Tarefa iniciada",
     "task-output": "Etapa",
     "task-progress": "Progresso",
-    "task-completed": "Tarefa concluída",
-    "task-cancelled": "Tarefa cancelada",
-    "task-error": "Falha na tarefa",
+    "task-completed": "Tudo certo por aqui!",
+    "task-cancelled": "Tudo bem, parei por aqui.",
+    "task-error": "Opa! A tarefa encontrou um problema.",
     "restore-point-created": "Ponto de restauração criado",
-    "restore-point-confirmation-required": "Confirmação necessária para continuar",
-    "snapshot-started": "Preparando cópia de segurança",
+    "restore-point-confirmation-required": "Só preciso confirmar uma coisinha",
+    "snapshot-started": "Preparando um ponto de segurança",
     "restore-point-phase-started": "Criando ponto de restauração",
     "restore-point-phase-completed": "Ponto de restauração criado",
-    "restore-point-phase-failed": "Não foi possível criar o ponto de restauração",
+    "restore-point-phase-failed": "Não consegui criar o ponto de restauração",
     "registry-operation-failed": "Falha ao limpar o histórico do Registro",
-    "task-executor-failed": "A tarefa não pôde ser concluída"
+    "task-executor-failed": "Não consegui terminar esta tarefa"
   };
   return String(message ?? "")
     .replace(/\[(task-started|task-output|task-progress|task-completed|task-cancelled|task-error|snapshot-started|restore-point-phase-started|restore-point-phase-completed|restore-point-phase-failed|registry-operation-failed|task-executor-failed)\]/gi,
@@ -877,15 +877,15 @@ function formatCleanupDuration() {
 
 function showCleanupResult(taskId, status, detail = "") {
   const successful = status === "success"; const cancelled = status === "cancelled";
-  const title = successful ? "Limpeza concluída" : cancelled ? "Limpeza cancelada" : "Limpeza não concluída";
+  const title = successful ? "Faxina concluída!" : cancelled ? "Tudo bem, parei por aqui." : "A faxina não terminou como esperado";
   const modal = document.getElementById("execution-summary-modal");
   const summary = collectCleanupSummary();
   document.getElementById("execution-summary-title").textContent = title;
   document.getElementById("execution-summary-task").textContent = taskDisplayName(taskId);
   document.getElementById("execution-summary-status").textContent = successful
-    ? (summary.failures ? "A operação terminou, mas alguns itens não puderam ser processados." : "A operação foi finalizada.")
-    : cancelled ? "A operação foi interrompida antes da conclusão."
-      : "A operação encontrou um erro e não pôde ser concluída.";
+    ? (summary.failures ? "A faxina terminou, mas alguns itens deram trabalho e não puderam ser tratados." : "Prontinho! A faxina foi concluída.")
+    : cancelled ? "A faxina foi interrompida antes de terminar."
+      : "Opa! Encontrei um problema e não consegui concluir a faxina.";
   document.getElementById("execution-summary-files").textContent = summary.files.toLocaleString("pt-BR");
   document.getElementById("execution-summary-registry").textContent = summary.registry.toLocaleString("pt-BR");
   document.getElementById("execution-summary-space").textContent = formatCleanupBytes(summary.bytes);
@@ -974,7 +974,7 @@ function closeRiskModal() {
   pendingTask = null;
 }
 
-function askConfirmation(message, title = "Confirmar operação", confirmLabel = "Continuar", cancelLabel = "Cancelar") {
+function askConfirmation(message, title = "Vamos nessa?", confirmLabel = "Continuar", cancelLabel = "Cancelar") {
   const modal = document.getElementById("confirmation-modal");
   const titleElement = document.getElementById("confirmation-title");
   const messageElement = document.getElementById("confirmation-message");
@@ -1040,7 +1040,7 @@ async function prepareBrowserCleanupIfNeeded() {
   }
 }
 
-async async function executeTask(item, cardEl) {
+async function executeTask(item, cardEl) {
   if (operationIsBusy(item?.name)) return false;
   launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
   if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id)) {
@@ -1050,7 +1050,7 @@ async async function executeTask(item, cardEl) {
   activeTaskId = item.id;
   currentOperationName = item.name; currentOperationStage = "Solicitando início ao mecanismo…";
   updateOperationProgress(currentOperationName, currentOperationStage, null);
-  writeStatus(`> Rodando "${item.name}"...`);
+  writeStatus(`> Bora cuidar de "${item.name}"...`);
   startActivity(item.name);
   closeRiskModal();
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
@@ -1059,7 +1059,7 @@ async async function executeTask(item, cardEl) {
     const result = await Qboa.runTask(item.id, shutdownOnComplete);
     const output = result.output || "(sem saída)";
     activeExecutionId = result.execution_id || activeExecutionId;
-    launchPending = false; currentOperationStage = "Operação em execução; aguardando atualizações reais do mecanismo."; syncExecutionControls();
+    launchPending = false; currentOperationStage = "Mãos à obra! Aguardando o andamento da tarefa…"; syncExecutionControls();
     appendConsole(output);
     return true;
   } catch (err) {
