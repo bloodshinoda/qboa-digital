@@ -1026,7 +1026,7 @@ async function prepareBrowserCleanupIfNeeded() {
         "Fechar navegadores abertos?",
         "Fechar navegadores?",
         "Fechar Navegadores",
-        "Ignorar"
+        "Não Fechar"
       );
       await Qboa.prepareBrowserCleanup(closeRunning);
       browserCleanupDecision = closeRunning;
