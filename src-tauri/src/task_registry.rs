@@ -693,7 +693,9 @@ mod tests {
         let registry = TaskRegistry::try_new().unwrap();
         assert!(registry.resolve("limpeza_leve").is_some());
         assert!(registry.resolve("desengordurar_telemetria").is_some());
-        assert!(registry.resolve("desengordurar_telemetria_avancada").is_some());
+        assert!(registry
+            .resolve("desengordurar_telemetria_avancada")
+            .is_some());
         assert!(registry.resolve("diagnostico_sfc").is_some());
     }
 
