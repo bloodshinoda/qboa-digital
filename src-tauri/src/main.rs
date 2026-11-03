@@ -1153,6 +1153,12 @@ fn execute_task(
         }
         "desengordurar_tarefas" => disable_diagnostic_tasks(execution_id, on_output, is_cancelled),
         "limpeza_windows_update" => cleanup_windows_update(execution_id, on_output, is_cancelled),
+        "limpeza_historico_navegadores" => run_powershell(
+            include_str!("../scripts/cleanup_browser_history.ps1"),
+            execution_id,
+            on_output,
+            is_cancelled,
+        ),
         "diagnostico_dism_scan" => run_system_command(
             "dism",
             &["/Online", "/Cleanup-Image", "/ScanHealth"],
