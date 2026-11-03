@@ -217,6 +217,22 @@ impl TaskRegistry {
                 presets: vec!["normal".to_string(), "turbo".to_string()],
             },
             LegacyTask {
+                id: "limpeza_historico_navegadores".to_string(),
+                name: "Histórico dos navegadores".to_string(),
+                description: "Remove o histórico de navegação dos perfis encontrados, preservando favoritos, senhas e arquivos baixados.".to_string(),
+                category: TaskCategory::Cleanup,
+                risk: TaskRisk::Moderate,
+                requires_admin: false,
+                estimated_duration: 5,
+                reversible: false,
+                creates_restore_point: false,
+                rollback_strategy: "None".to_string(),
+                rollback_on_failure: false,
+                dependencies: vec![],
+                executor: ExecutorType::PowerShell,
+                presets: vec![],
+            },
+            LegacyTask {
                 id: "limpeza_pesada".to_string(),
                 name: "Limpeza pesada".to_string(),
                 description: "Executa limpeza profunda, corrige atalhos e associações inválidas e remove entradas órfãs confirmadas."
