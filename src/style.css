@@ -579,6 +579,9 @@ button {
 
 #console-output {
   height: 170px;
+  min-height: 110px;
+  max-height: 60vh;
+  resize: vertical;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 8px;
