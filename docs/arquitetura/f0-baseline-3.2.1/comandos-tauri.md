@@ -91,7 +91,7 @@ O executor/coletor PowerShell do armazenamento ainda está implementado em `main
 - `run_preset` retorna a lista de IDs selecionados e executa as tarefas sequencialmente em background.
 - `cancel_task` aceita `execution_id` opcional; quando omitido, o backend tenta resolver a execução pela tarefa e pode rejeitar a ambiguidade.
 - Testes de RAM, CPU e GPU têm comandos e sessões separados.
-- O frontend `src/main.js` contém invocações dos comandos listados. A inspeção estática encontrou também listeners para os eventos descritos em [eventos-tauri.md](./eventos-tauri.md).
+- O frontend `src/main.js` contém invocações diretas para a maior parte dos comandos. Na busca literal por `invoke("nome_do_comando")`, não foram encontradas chamadas diretas para `run_preset` e `get_debloat_profile_tasks`; ambos permanecem registrados no backend e podem ser APIs legadas ou chamadas por outro caminho. Essa distinção deve ser revalidada antes de qualquer remoção. A inspeção estática encontrou também listeners para os eventos descritos em [eventos-tauri.md](./eventos-tauri.md).
 - Tipos e campos serializados estão detalhados em [contratos-e-persistencia.md](./contratos-e-persistencia.md).
 
 ## Regra para extração
