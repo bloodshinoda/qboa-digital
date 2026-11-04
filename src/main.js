@@ -3269,13 +3269,7 @@ async function registerEvents() {
         try {
           await Qboa.respondRestorePointFailure(payload.execution_id, proceed);
           if (!proceed) {
-            stopActivity();
-            document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
-            if (activeExecutionId === payload.execution_id) {
-              activeExecutionId = null;
-              if (activeTaskId === payload.task_id) activeTaskId = null;
-            }
-            syncExecutionControls();
+            appendConsole("Você optou por cancelar a tarefa após a falha do ponto de restauração.");
           }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
