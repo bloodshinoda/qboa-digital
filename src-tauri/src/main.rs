@@ -323,6 +323,7 @@ fn humanize_execution_log(message: &str) -> String {
         .replace("args=", "argumentos=")
         .replace("status=", "resultado=")
         .replace("output_bytes=", "bytes_de_saida=")
+        .replace("output=", "saída=")
         .replace("error=", "detalhe=")
         .replace("reason=", "motivo=")
         .replace("operation=", "operação=");
