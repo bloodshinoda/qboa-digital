@@ -76,7 +76,7 @@ Nao considerar um teste aprovado somente por uma mensagem textual do aplicativo.
 - DISM RestoreHealth e SFC podem modificar arquivos/componentes do sistema e nao possuem rollback granular.
 - Restore Point depende de Protecao do Sistema, espaco disponivel e politicas do Windows.
 - O journal atual e em memoria; reiniciar o aplicativo entre captura e rollback invalida a evidencia.
-- O frontend atual nao envia `execution_id` no cancelamento; em execucoes ambiguas o backend deve rejeitar a operacao.
+- O frontend envia `execution_id` ao cancelar uma tarefa. O backend deve rejeitar pedidos sem identificador quando houver mais de uma execucao ativa compativel; validar esse cenario na matriz W-CON-02.
 
 ## Limitacoes desta etapa
 
@@ -84,4 +84,4 @@ Nao considerar um teste aprovado somente por uma mensagem textual do aplicativo.
 - Nenhuma nova funcionalidade foi implementada.
 - A matriz nao substitui testes automatizados Windows reais.
 - Falha parcial de sequencias irreversiveis continua sem rollback granular por design; esse ponto pertence a uma etapa posterior do Task Engine.
-- A checagem global de `cargo fmt --check` pode apontar formatacao pre-existente em `src-tauri/src/task_registry.rs`; esse arquivo deve permanecer fora desta etapa.
+- O CI Windows da linha principal executa `cargo fmt --check`, testes Rust, self-test do coletor de armazenamento e build. A aprovacao do CI nao substitui a matriz manual desta pagina.
