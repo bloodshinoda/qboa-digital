@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   windows:
-    name: Rust checks and Windows build
+    name: Rust checks, Windows build and artifacts
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -51,3 +51,31 @@ jobs:
 
       - name: Build QBoa for Windows
         run: npm run build
+
+      - name: Prepare Windows release artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $installerDir = "src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem -Path $installerDir -Filter "*.exe" -File | Select-Object -First 1
+          if (-not $installer) {
+            throw "NSIS installer was not generated in $installerDir"
+          }
+
+          $portableSource = "src-tauri/target/release/qboa-digital.exe"
+          if (-not (Test-Path $portableSource -PathType Leaf)) {
+            throw "Portable application executable was not generated: $portableSource"
+          }
+
+          New-Item -ItemType Directory -Path "artifacts" -Force | Out-Null
+          Copy-Item $installer.FullName "artifacts/qboa-digital-$version-x64-installer.exe" -Force
+          Copy-Item $portableSource "artifacts/qboa-digital-$version-x64-portable.exe" -Force
+
+      - name: Upload Windows executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: qboa-digital-windows-${{ github.sha }}
+          path: artifacts/*.exe
+          if-no-files-found: error
+          retention-days: 14
