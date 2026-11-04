@@ -91,6 +91,26 @@ mod platform {
         Ok((files, bytes))
     }
 
+    fn clear_readonly_recursive(path: &Path, check: &dyn Fn() -> bool) -> Result<(), String> {
+        cancelled(check)?;
+        let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+        if meta.file_type().is_symlink() {
+            return Ok(());
+        }
+        if meta.is_dir() {
+            for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                clear_readonly_recursive(&entry.path(), check)?;
+            }
+        }
+        let mut permissions = meta.permissions();
+        if permissions.readonly() {
+            permissions.set_readonly(false);
+            fs::set_permissions(path, permissions).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
     fn remove_entry(
         path: &Path,
         metrics: &mut Metrics,
@@ -98,9 +118,12 @@ mod platform {
     ) -> Result<(), String> {
         cancelled(check)?;
         let (files, bytes) = tree_stats(path, check)?;
+        clear_readonly_recursive(path, check)?;
         let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
         if meta.is_dir() && !meta.file_type().is_symlink() {
             fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+        } else if meta.file_type().is_symlink() && path.is_dir() {
+            fs::remove_dir(path).map_err(|e| e.to_string())?;
         } else {
             fs::remove_file(path).map_err(|e| e.to_string())?;
         }
@@ -511,6 +534,14 @@ mod platform {
         if let Ok(meta) = fs::symlink_metadata(path) {
             if meta.is_file() && !meta.file_type().is_symlink() {
                 let size = meta.len();
+                let mut permissions = meta.permissions();
+                if permissions.readonly() {
+                    permissions.set_readonly(false);
+                    if fs::set_permissions(path, permissions).is_err() {
+                        metrics.failed += 1;
+                        return;
+                    }
+                }
                 if fs::remove_file(path).is_ok() {
                     metrics.files += 1;
                     metrics.bytes = metrics.bytes.saturating_add(size);
