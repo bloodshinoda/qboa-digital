@@ -19,6 +19,7 @@ mod platform {
     use std::fs;
     use std::os::windows::ffi::OsStrExt;
     use std::process::Command;
+    use std::os::windows::process::CommandExt;
 
     const SHERB_NOCONFIRMATION: u32 = 0x00000001;
     const SHERB_NOPROGRESSUI: u32 = 0x00000002;
@@ -159,10 +160,9 @@ mod platform {
             if meta.file_type().is_symlink() || !meta.is_dir() { continue; }
             let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
             if names.iter().any(|n| name == n.to_ascii_lowercase()) || path.to_string_lossy().to_ascii_lowercase().ends_with("\\service worker\\cachestorage") {
-                found.push(path);
-            } else {
-                collect_named_dirs(&path, names, found, depth + 1, check)?;
+                found.push(path.clone());
             }
+            collect_named_dirs(&path, names, found, depth + 1, check)?;
         }
         Ok(())
     }
