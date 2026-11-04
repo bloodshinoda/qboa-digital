@@ -922,11 +922,7 @@ fn execute_task(
             apply_registry,
         ),
         "limpeza_media" => {
-            let conservative_repair = report_system_compatibility(on_output);
-            if conservative_repair {
-                on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa manterá o DISM padrão, sem inventar uma origem de reparo.");
-            }
-            on_output("[Etapa 1/4] Limpando temporários, caches e lixeira com o motor nativo...");
+            on_output("[Etapa 1/4] Executando a limpeza segura de temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -934,24 +930,14 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output("[Etapa 2/4] Processando o cache temporário do Windows Update...");
-            let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output(
-                "[Etapa 3/4] Removendo atalhos quebrados e associações inválidas confirmadas...",
-            );
+            on_output("[Etapa 2/4] Limpando somente o cache de downloads do Windows Update...");
+            let part_2 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            on_output("[Etapa 3/4] Limpando caches regeneráveis conhecidos dos aplicativos Adobe...");
+            let part_3 = cleanup_engine::cleanup_adobe_caches(on_output, is_cancelled)?;
+            on_output("[Etapa 4/4] Removendo somente atalhos quebrados e associações inválidas confirmadas...");
             let findings = apply_cleanup_findings("complete", on_output);
-            on_output(
-                "[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
-            );
-            let part_4 = run_system_command(
-                "dism",
-                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
-                execution_id,
-                on_output,
-                is_cancelled,
-            )?;
             Ok(format!(
-                "{part_1}\n{part_3}\n{}\n{part_4}",
+                "{part_1}\n{part_2}\n{part_3}\n{}",
                 findings_summary(&findings)
             ))
         }
@@ -960,7 +946,7 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa preservará a base de componentes e não executará /ResetBase, pois isso impede a desinstalação de atualizações instaladas.");
             }
-            on_output("[Etapa 1/8] Limpando temporários, caches e lixeira...");
+            on_output("[Etapa 1/9] Limpando temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -968,15 +954,15 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output(
-                "[Etapa 2/8] Limpando diretórios temporários avançados e relatórios de falha...",
-            );
+            on_output("[Etapa 2/9] Limpando caches Adobe regeneráveis...");
+            let part_adobe = cleanup_engine::cleanup_adobe_caches(on_output, is_cancelled)?;
+            on_output("[Etapa 3/9] Limpando Prefetch, temporários avançados e relatórios de falha...");
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 3/8] Processando o cache temporário do Windows Update...");
+            on_output("[Etapa 4/9] Processando o cache de downloads do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 4/8] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
+            on_output("[Etapa 5/9] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
             let findings = apply_cleanup_findings("deep", on_output);
-            on_output("[Etapa 5/8] Verificando a integridade da imagem do Windows...");
+            on_output("[Etapa 6/9] Verificando a integridade da imagem do Windows...");
             let part_4 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/ScanHealth"],
@@ -985,10 +971,10 @@ fn execute_task(
                 is_cancelled,
             )?;
             let part_5 = if conservative_repair {
-                on_output("[Etapa 6/8] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
+                on_output("[Etapa 7/9] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
                 "DISM /ResetBase ignorado por política conservadora.".to_string()
             } else {
-                on_output("[Etapa 6/8] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
+                on_output("[Etapa 7/9] DISM StartComponentCleanup /ResetBase: operação irreversível para desinstalação das atualizações atuais.");
                 run_system_command(
                     "dism",
                     &[
@@ -1002,7 +988,7 @@ fn execute_task(
                     is_cancelled,
                 )?
             };
-            on_output("[Etapa 7/8] Reparando a imagem do Windows com DISM RestoreHealth...");
+            on_output("[Etapa 8/9] Reparando a imagem do Windows com DISM RestoreHealth...");
             let part_6 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/RestoreHealth"],
@@ -1010,11 +996,11 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            on_output("[Etapa 8/8] Verificando arquivos protegidos com SFC...");
+            on_output("[Etapa 9/9] Verificando arquivos protegidos com SFC...");
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
-                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}",
+                "{part_1}\n{part_adobe}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}",
                 findings_summary(&findings)
             ))
         }
