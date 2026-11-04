@@ -633,8 +633,13 @@ fn humanize_safety_log(message: &str) -> String {
         return "Ponto de restauração criado com sucesso.".to_string();
     } else if let Some(details) = message.strip_prefix("restore-point failed") {
         ("Falha ao criar o ponto de restauração", details)
-    } else if let Some(details) = message.strip_prefix("journal replacement succeeded but backup cleanup failed") {
-        ("Histórico atualizado, mas não foi possível remover o backup antigo", details)
+    } else if let Some(details) =
+        message.strip_prefix("journal replacement succeeded but backup cleanup failed")
+    {
+        (
+            "Histórico atualizado, mas não foi possível remover o backup antigo",
+            details,
+        )
     } else {
         return message.to_string();
     };
