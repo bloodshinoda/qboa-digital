@@ -736,39 +736,32 @@ fn run_cleanmgr_silently(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
-    // cleanmgr é Win32 GUI; -WindowStyle Hidden não oculta de forma confiável
-    // a janela principal. Ocultamos as janelas vinculadas ao PID do processo
-    // durante toda a execução, inclusive as que surgem após a inicialização.
-    let script = r#"
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class QboaWindowHider {
-    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr extra);
-    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
-    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
-    delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr extra);
-    public static void Hide(uint targetPid) {
-        EnumWindows((hwnd, extra) => {
-            uint pid;
-            GetWindowThreadProcessId(hwnd, out pid);
-            if (pid == targetPid) ShowWindow(hwnd, 0);
-            return true;
-        }, IntPtr.Zero);
-    }
-}
-'@
+    // Não ocultamos repetidamente todas as janelas do cleanmgr: isso também
+    // pode esconder diálogos modais e deixar o processo aguardando para sempre.
+    // O watchdog limita a espera e encerra a árvore se o utilitário não concluir.
+    const CLEANMGR_TIMEOUT_SECONDS: u64 = 600;
+    let script = format!(
+        r#"
 $exe = Join-Path $env:SystemRoot 'System32\cleanmgr.exe'
-$p = Start-Process -FilePath $exe -ArgumentList @('/verylowdisk','/d',$env:SystemDrive) -PassThru
-while (-not $p.HasExited) {
-    [QboaWindowHider]::Hide([uint32]$p.Id)
-    Start-Sleep -Milliseconds 200
+$p = Start-Process -FilePath $exe -ArgumentList @('/verylowdisk','/d',$env:SystemDrive) -WindowStyle Hidden -PassThru
+$watch = [Diagnostics.Stopwatch]::StartNew()
+while (-not $p.HasExited -and $watch.Elapsed.TotalSeconds -lt {timeout}) {{
+    Start-Sleep -Seconds 1
     $p.Refresh()
-}
-exit $p.ExitCode
-"#;
-    on_output("Chamando a Limpeza de Disco do Windows em modo silencioso...");
-    run_command(
+}}
+if ($p.HasExited) {{
+    exit $p.ExitCode
+}}
+Write-Output 'QBOA_CLEANMGR_TIMEOUT'
+$kill = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\taskkill.exe') -ArgumentList @('/PID',[string]$p.Id,'/T','/F') -WindowStyle Hidden -Wait -PassThru
+if ($kill.ExitCode -ne 0) {{
+    throw 'O cleanmgr excedeu o limite de espera e não foi possível encerrar sua árvore de processos.'
+}}
+"#,
+        timeout = CLEANMGR_TIMEOUT_SECONDS
+    );
+    on_output("Chamando a Limpeza de Disco do Windows em modo silencioso (limite de espera: 10 minutos)...");
+    let output = run_command(
         "powershell",
         &[
             "-NoProfile",
@@ -776,14 +769,20 @@ exit $p.ExitCode
             "-WindowStyle",
             "Hidden",
             "-Command",
-            script,
+            &script,
         ],
         execution_id,
         on_output,
         is_cancelled,
-    )
+    )?;
+    if output.contains("QBOA_CLEANMGR_TIMEOUT") {
+        let warning = "A Limpeza de Disco do Windows não concluiu em 10 minutos e foi encerrada com segurança; as demais etapas continuarão.";
+        on_output(warning);
+        Ok(format!("{output}{warning}\n"))
+    } else {
+        Ok(output)
+    }
 }
-
 #[cfg(not(target_os = "windows"))]
 fn run_cleanmgr_silently(
     _execution_id: &str,
