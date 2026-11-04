@@ -235,7 +235,7 @@ impl TaskRegistry {
             LegacyTask {
                 id: "limpeza_pesada".to_string(),
                 name: "Limpeza pesada".to_string(),
-                description: "Limpeza agressiva com resíduos avançados, manutenção da imagem DISM e verificação SFC. Inclui operação ResetBase, que reduz opções de reversão de atualizações."
+                description: "Limpeza agressiva com resíduos avançados, DISM RestoreHealth e SFC. Em ambiente compatível, inclui /ResetBase após confirmação explícita; em ambiente modificado/restritivo, preserva a reversão de atualizações."
                     .to_string(),
                 category: TaskCategory::Cleanup,
                 risk: TaskRisk::Advanced,
