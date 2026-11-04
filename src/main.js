@@ -3314,7 +3314,8 @@ async function registerEvents() {
     return;
   }
   await refreshHistory();
-  document.getElementById("copy-console-btn")?.addEventListener("click", async () => {
+  document.getElementById("copy-console-btn")?.addEventListener("click", async (event) => {
+    event.stopPropagation();
     const status = document.getElementById("console-copy-status");
     try {
       await navigator.clipboard.writeText(consoleBuffer);
