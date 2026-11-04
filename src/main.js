@@ -811,6 +811,8 @@ function renderConsole() {
     if (index < lines.length - 1) out.appendChild(document.createTextNode("\n"));
   });
   out.scrollTop = out.scrollHeight;
+  const copyButton = document.getElementById("copy-console-btn");
+  if (copyButton) copyButton.disabled = !consoleBuffer.trim();
 }
 
 function stopActivity() {
@@ -3312,6 +3314,15 @@ async function registerEvents() {
     return;
   }
   await refreshHistory();
+  document.getElementById("copy-console-btn")?.addEventListener("click", async () => {
+    const status = document.getElementById("console-copy-status");
+    try {
+      await navigator.clipboard.writeText(consoleBuffer);
+      status.textContent = "Registro copiado.";
+    } catch (error) {
+      status.textContent = "Não foi possível copiar o registro. Verifique a permissão da área de transferência.";
+    }
+  });
   await loadDiagnosticHistory(true);
 
   document.getElementById("restore-point-btn").addEventListener("click", async () => {
