@@ -578,6 +578,9 @@ impl SafetyManager {
         let Some(state) = self.execution_state.get_mut(execution_id) else {
             return false;
         };
+        if state.status != "running" && state.status != "cancelling" {
+            return false;
+        }
         state.cancelled = true;
         state.status = "cancelling".to_string();
         true
@@ -620,6 +623,37 @@ impl SafetyManager {
     }
 }
 
+fn humanize_safety_log(message: &str) -> String {
+    let (label, details) = if let Some(details) = message.strip_prefix("journal load failed") {
+        ("Falha ao carregar o histórico de alterações", details)
+    } else if let Some(details) = message.strip_prefix("journal invalid") {
+        ("Histórico de alterações inválido", details)
+    } else if let Some(details) = message.strip_prefix("journal persist failed") {
+        ("Falha ao salvar o histórico de alterações", details)
+    } else if let Some(details) = message.strip_prefix("restore-point started") {
+        ("Criação do ponto de restauração iniciada", details)
+    } else if message == "restore-point completed" {
+        return "Ponto de restauração criado com sucesso.".to_string();
+    } else if let Some(details) = message.strip_prefix("restore-point failed") {
+        ("Falha ao criar o ponto de restauração", details)
+    } else if let Some(details) =
+        message.strip_prefix("journal replacement succeeded but backup cleanup failed")
+    {
+        (
+            "Histórico atualizado, mas não foi possível remover o backup antigo",
+            details,
+        )
+    } else {
+        return message.to_string();
+    };
+    let details = details
+        .replace("path=", "caminho=")
+        .replace("error=", "detalhe=")
+        .replace("recovery_file=", "arquivo_de_recuperação=")
+        .replace("renamed=", "renomeado=");
+    format!("{label}{details}")
+}
+
 fn write_safety_log(message: &str) {
     let root = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -633,7 +667,7 @@ fn write_safety_log(message: &str) {
         .open(root.join("execution.log"))
     {
         use std::io::Write;
-        let _ = writeln!(file, "[safety] {message}");
+        let _ = writeln!(file, "[segurança] {}", humanize_safety_log(message));
     }
 }
 
@@ -1174,6 +1208,15 @@ mod tests {
         assert!(manager.is_cancelled(&first.execution_id));
         assert!(!manager.is_cancelled(&second.execution_id))
     }
+    #[test]
+    fn finished_execution_cannot_be_cancelled_again() {
+        let mut manager = SafetyManager::new();
+        let execution = manager.register_execution("finished-task");
+        manager.finish_execution(&execution.execution_id, "completed");
+        assert!(!manager.cancel_execution(&execution.execution_id));
+        assert!(!manager.is_cancelled(&execution.execution_id));
+    }
+
     #[test]
     fn timestamp_is_rfc3339_utc() {
         let timestamp = iso_timestamp();

@@ -8,6 +8,7 @@ let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
 let launchPending = false;
+let eventListenersReady = false;
 let currentOperationName = "";
 let currentOperationStage = "";
 let consoleBuffer = "";
@@ -766,8 +767,28 @@ function humanizeLogMessage(message) {
     .replace(/exit code: 0/gi, "concluído");
 }
 
+function humanizeActivityMessage(message) {
+  return String(message ?? "")
+    .replace(/execuÃ§Ã£o/gi, "execução")
+    .replace(/nÃ£o/gi, "não")
+    .replace(/operaÃ§Ã£o/gi, "operação")
+    .replace(/informaÃ§Ã£o/gi, "informação")
+    .replace(/alteraÃ§Ãµes/gi, "alterações")
+    .replace(/concluÃ­da/gi, "concluída")
+    .replace(/concluÃ­do/gi, "concluído")
+    .replace(/â€”/g, "—")
+    .replace(/Deployment Image Servicing and Management tool/gi, "Ferramenta de Gerenciamento e Manutenção de Imagens do Windows (DISM)")
+    .replace(/The restore operation completed successfully\.?/gi, "A operação de restauração foi concluída com sucesso.")
+    .replace(/The operation completed successfully\.?/gi, "A operação foi concluída com sucesso.")
+    .replace(/Beginning system scan\. This process will take some time\./gi, "Iniciando a verificação do sistema. Este processo pode levar algum tempo.")
+    .replace(/Beginning verification phase of system scan\./gi, "Iniciando a etapa de verificação do sistema.")
+    .replace(/Windows Resource Protection did not find any integrity violations\./gi, "A Proteção de Recursos do Windows não encontrou violações de integridade.")
+    .replace(/Windows Resource Protection found corrupt files and successfully repaired them\./gi, "A Proteção de Recursos do Windows encontrou arquivos corrompidos e os reparou com sucesso.")
+    .replace(/Windows Resource Protection found corrupt files but was unable to fix some of them\./gi, "A Proteção de Recursos do Windows encontrou arquivos corrompidos, mas não conseguiu reparar alguns.");
+}
+
 function appendConsole(message) {
-  const line = String(message ?? "").trim();
+  const line = humanizeActivityMessage(humanizeLogMessage(message)).trim();
   if (!line) return;
   const isDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(line);
   const lines = consoleBuffer.split("\n");
@@ -784,6 +805,30 @@ function appendConsole(message) {
 function writeStatus(text) {
   consoleBuffer = text;
   renderConsole();
+}
+
+function restoreConsoleHeight() {
+  const output = document.getElementById("console-output");
+  if (!output) return;
+  try {
+    const savedHeight = Number(localStorage.getItem("qboa-console-height"));
+    const maximum = Math.floor(window.innerHeight * 0.6);
+    if (Number.isFinite(savedHeight) && savedHeight >= 110 && savedHeight <= maximum) {
+      output.style.height = `${savedHeight}px`;
+    }
+  } catch (_) {
+    // A preferência é opcional; o painel continua redimensionável sem persistência.
+  }
+  const saveHeight = () => {
+    try {
+      const height = Math.round(output.getBoundingClientRect().height);
+      if (height >= 110) localStorage.setItem("qboa-console-height", String(height));
+    } catch (_) {
+      // Não interrompe o registro de atividades se o armazenamento estiver indisponível.
+    }
+  };
+  window.addEventListener("pointerup", saveHeight);
+  window.addEventListener("touchend", saveHeight);
 }
 
 function renderConsole() {
@@ -810,6 +855,8 @@ function renderConsole() {
     if (index < lines.length - 1) out.appendChild(document.createTextNode("\n"));
   });
   out.scrollTop = out.scrollHeight;
+  const copyButton = document.getElementById("copy-console-btn");
+  if (copyButton) copyButton.disabled = !consoleBuffer.trim();
 }
 
 function stopActivity() {
@@ -1045,6 +1092,10 @@ async function prepareBrowserCleanupIfNeeded() {
 }
 
 async function executeTask(item, cardEl) {
+  if (!eventListenersReady) {
+    appendConsole("Não foi possível iniciar a operação porque o acompanhamento em tempo real não está disponível.");
+    return false;
+  }
   if (operationIsBusy(item?.name)) return false;
   launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
   if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
@@ -1061,10 +1112,12 @@ async function executeTask(item, cardEl) {
 
   try {
     const result = await Qboa.runTask(item.id, shutdownOnComplete);
-    const output = result.output || "(sem saída)";
-    activeExecutionId = result.execution_id || activeExecutionId;
-    launchPending = false; currentOperationStage = "Mãos à obra! Aguardando o andamento da tarefa…"; syncExecutionControls();
-    appendConsole(output);
+    if (activeTaskId === item.id) {
+      activeExecutionId = result.execution_id || activeExecutionId;
+      launchPending = false;
+      currentOperationStage = "Mãos à obra! Aguardando o andamento da tarefa…";
+      syncExecutionControls();
+    }
     return true;
   } catch (err) {
     stopActivity();
@@ -3190,15 +3243,24 @@ async function registerEvents() {
     console.error("Falha ao registrar eventos de diagnóstico:", error);
   })));
 
-  // Não bloqueia o vínculo dos controles da interface esperando o listener Tauri.
-  // Se listen() demorar ou falhar, os botões de confirmação continuam funcionais.
-  void listen("qboa-event", (event) => {
-    const payload = event.payload;
+  // O listener principal precisa estar pronto antes de liberar qualquer operação.
+  await listen("qboa-event", (event) => {
+    const payload = event.payload || {};
+    const isStartingThisLaunch = payload.event === "task-started" && launchPending && activeTaskId === payload.task_id;
+    if (payload.event === "task-started") {
+      if (!isStartingThisLaunch && (payload.execution_id !== activeExecutionId || payload.task_id !== activeTaskId)) return;
+    } else if (!payload.execution_id) {
+      if (payload.event === "task-error" && payload.message) appendConsole(`Falha ao iniciar ${taskDisplayName(payload.task_id)}: ${payload.message}`);
+      return;
+    } else if (payload.execution_id !== activeExecutionId || payload.task_id !== activeTaskId) {
+      return;
+    }
     if (payload.event === "task-started") {
       executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
       currentOperationName = taskDisplayName(payload.task_id);
       currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
+      appendConsole(`Tarefa iniciada: ${taskDisplayName(payload.task_id)}.`);
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
     if (payload.event === "restore-point-confirmation-required") {
@@ -3209,15 +3271,6 @@ async function registerEvents() {
         );
         try {
           await Qboa.respondRestorePointFailure(payload.execution_id, proceed);
-          if (!proceed) {
-            stopActivity();
-            document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
-            if (activeExecutionId === payload.execution_id) {
-              activeExecutionId = null;
-              if (activeTaskId === payload.task_id) activeTaskId = null;
-            }
-            syncExecutionControls();
-          }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
         }
@@ -3234,9 +3287,6 @@ async function registerEvents() {
         );
         try {
           await Qboa.respondResetBaseConfirmation(payload.execution_id, proceed);
-          if (!proceed) {
-            appendConsole("Autorização negada. A limpeza pesada será cancelada antes do /ResetBase.");
-          }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação do /ResetBase: ${String(error)}`);
         }
@@ -3248,7 +3298,8 @@ async function registerEvents() {
       currentOperationStage = payload.message;
       updateOperationProgress(currentOperationName, currentOperationStage, payload.progress);
     } else if (payload.event === "task-output" && payload.message) {
-      executionOutput.push(payload.message); appendConsole(payload.message);
+      executionOutput.push(payload.message);
+      if (!/^\s*\[[=\s>.-]*\d+(?:[.,]\d+)?%[=\s>.-]*\]\s*$/.test(payload.message)) appendConsole(payload.message);
     } else if (payload.event === "task-completed") {
       stopActivity();
       appendConsole(taskSuccessMessage(taskDisplayName(payload.task_id)));
@@ -3276,20 +3327,37 @@ async function registerEvents() {
       syncExecutionControls();
       refreshHistory();
     }
+  }).then(() => {
+    eventListenersReady = true;
   }).catch((error) => {
-    console.error("Não foi possível registrar os eventos do Qboa:", error);
-    appendConsole(`Aviso: eventos em tempo real indisponíveis: ${String(error)}`);
+    eventListenersReady = false;
+    console.error("Não foi possível registrar os eventos do QBoa:", error);
+    appendConsole(`Não foi possível preparar o acompanhamento das tarefas: ${String(error)}. As operações foram bloqueadas por segurança.`);
   });
 }
 
 (async function init() {
+  restoreConsoleHeight();
   await loadStructure();
   syncExecutionControls();
   renderTabs();
   renderSectionSummary();
-  renderCards();
   await registerEvents();
+  renderCards();
+  if (!eventListenersReady) {
+    writeStatus("Acompanhamento de tarefas indisponível. Nenhuma limpeza será iniciada enquanto os eventos não estiverem prontos.");
+  }
   await refreshHistory();
+  document.getElementById("copy-console-btn")?.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const status = document.getElementById("console-copy-status");
+    try {
+      await navigator.clipboard.writeText(consoleBuffer);
+      status.textContent = "Registro copiado.";
+    } catch (error) {
+      status.textContent = "Não foi possível copiar o registro. Verifique a permissão da área de transferência.";
+    }
+  });
   await loadDiagnosticHistory(true);
 
   document.getElementById("restore-point-btn").addEventListener("click", async () => {

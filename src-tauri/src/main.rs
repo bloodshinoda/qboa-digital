@@ -295,13 +295,94 @@ fn local_timestamp() -> String {
 }
 
 fn humanize_execution_log(message: &str) -> String {
-    if let Some(details) = message.strip_prefix("task-executor-failed error=") {
-        return format!("Executor de tarefas falhou: {details}");
+    let (key, details) = message.split_once(' ').unwrap_or((message, ""));
+    let label = match key {
+        "task-started" => "Tarefa iniciada",
+        "snapshot-started" => "Captura de segurança iniciada",
+        "snapshot-failed" => "Falha na captura de segurança",
+        "restore-point-phase-started" => "Criação do ponto de restauração iniciada",
+        "restore-point-phase-completed" => "Ponto de restauração criado",
+        "restore-point-phase-failed" => "Falha ao criar o ponto de restauração",
+        "task-cancelled-by-user-after-restore-point-failure" => {
+            "Tarefa cancelada após falha no ponto de restauração"
+        }
+        "user-approved-proceeding-without-restore-point" => {
+            "Usuário autorizou continuar sem ponto de restauração"
+        }
+        "task-executor-completed" => "Execução concluída",
+        "task-executor-failed" => "Falha no executor da tarefa",
+        "registry-operation-failed" => "Falha na operação do Registro",
+        "restore-point" => "Operação de ponto de restauração",
+        "started" => "Comando iniciado",
+        "finished" => "Comando finalizado",
+        "failed" => "Falha no comando",
+        "journal" => "Persistência do histórico de alterações",
+        "confirmation-timeout" => "Tempo limite da confirmação atingido",
+        _ => return message.to_string(),
+    };
+    let details = details
+        .replace("task_id=", "tarefa=")
+        .replace("pid=", "processo=")
+        .replace("command=", "comando=")
+        .replace("args=", "argumentos=")
+        .replace("status=", "resultado=")
+        .replace("output_bytes=", "bytes_de_saida=")
+        .replace("output=", "saída=")
+        .replace("persist_error=", "erro_de_persistência=")
+        .replace("error=", "detalhe=")
+        .replace("reason=", "motivo=")
+        .replace("operation=", "operação=");
+    if key == "restore-point" {
+        return if details.starts_with("started") {
+            format!(
+                "Criação do ponto de restauração iniciada: {}",
+                details.trim_start_matches("started").trim()
+            )
+        } else if details.starts_with("completed") {
+            "Ponto de restauração criado com sucesso.".to_string()
+        } else if details.starts_with("failed") {
+            format!(
+                "Falha ao criar o ponto de restauração: {}",
+                details.trim_start_matches("failed").trim()
+            )
+        } else {
+            format!("Ponto de restauração: {details}")
+        };
     }
-    if let Some(details) = message.strip_prefix("registry-operation-failed error=") {
-        return format!("Falha na operação de Registro: {details}");
+    if key == "journal" && details.starts_with("persist failed") {
+        return format!(
+            "Falha ao salvar o histórico de alterações: {}",
+            details.trim_start_matches("persist failed").trim()
+        );
     }
-    message.to_string()
+    if key == "journal" && details.starts_with("update failed after task error:") {
+        return format!(
+            "Falha ao atualizar o histórico após um erro na tarefa: {}",
+            details
+                .trim_start_matches("update failed after task error:")
+                .trim()
+        );
+    }
+    if details.is_empty() {
+        label.to_string()
+    } else {
+        format!("{label}: {details}")
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ConfirmationWait {
+    Answered(bool),
+    TimedOut,
+    Disconnected,
+}
+
+fn receive_confirmation(receiver: &mpsc::Receiver<bool>, timeout: Duration) -> ConfirmationWait {
+    match receiver.recv_timeout(timeout) {
+        Ok(response) => ConfirmationWait::Answered(response),
+        Err(mpsc::RecvTimeoutError::Timeout) => ConfirmationWait::TimedOut,
+        Err(mpsc::RecvTimeoutError::Disconnected) => ConfirmationWait::Disconnected,
+    }
 }
 
 fn write_execution_log(execution_id: &str, message: &str) {
@@ -899,7 +980,14 @@ fn clean_final_cleanup_output(output: &str) -> String {
         .lines()
         .filter(|line| {
             let line = line.trim();
-            !line.contains("QBOA_METRICS")
+            let is_progress_bar = line.starts_with('[')
+                && line.ends_with(']')
+                && line.contains('%')
+                && line.chars().all(|character| {
+                    character.is_ascii_digit() || "[]=%>.- , ".contains(character)
+                });
+            !is_progress_bar
+                && !line.contains("QBOA_METRICS")
                 && !line.starts_with("Limpeza padrão:")
                 && !line.starts_with("Limpeza leve:")
                 && !line.starts_with("Limpeza média:")
@@ -1261,7 +1349,17 @@ fn start_task(
                         None,
                         &task_risk_for_spawn,
                     );
-                    let proceed = receiver.recv().unwrap_or(false);
+                    let proceed = match receive_confirmation(&receiver, Duration::from_secs(300)) {
+                        ConfirmationWait::Answered(response) => response,
+                        ConfirmationWait::TimedOut => {
+                            write_execution_log(
+                                &execution_id_for_spawn,
+                                "confirmation-timeout tipo=ponto-de-restauracao; decisão=cancelar",
+                            );
+                            false
+                        }
+                        ConfirmationWait::Disconnected => false,
+                    };
                     restore_point_responses()
                         .lock()
                         .unwrap()
@@ -1468,7 +1566,17 @@ fn start_task(
                 None,
                 &task_risk_for_spawn,
             );
-            let proceed = receiver.recv().unwrap_or(false);
+            let proceed = match receive_confirmation(&receiver, Duration::from_secs(300)) {
+                ConfirmationWait::Answered(response) => response,
+                ConfirmationWait::TimedOut => {
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        "confirmation-timeout tipo=reset-base; decisão=cancelar",
+                    );
+                    false
+                }
+                ConfirmationWait::Disconnected => false,
+            };
             reset_base_responses()
                 .lock()
                 .unwrap()
@@ -1856,22 +1964,39 @@ async fn prepare_browser_cleanup(close_running: bool) -> Result<String, String> 
     }
 }
 
+fn validate_execution_task(
+    safety: &SafetyManager,
+    task_id: &str,
+    execution_id: &str,
+) -> Result<(), String> {
+    let execution = safety
+        .execution_state
+        .get(execution_id)
+        .ok_or_else(|| "A execução informada não existe mais.".to_string())?;
+    if execution.task_id != task_id {
+        return Err("A execução informada não pertence à tarefa solicitada.".to_string());
+    }
+    if execution.status != "running" && execution.status != "cancelling" {
+        return Err("A tarefa não está mais em execução.".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<String, String> {
     let mut safety = safety_state().lock().unwrap();
     let execution_id = execution_id
         .or_else(|| safety.execution_for_task(&task_id))
         .ok_or_else(|| {
-            format!("Execution ID obrigatório quando há mais de uma execução: {task_id}")
+            format!("Identificador da execução obrigatório ou ambíguo para a tarefa: {task_id}")
         })?;
+    validate_execution_task(&safety, &task_id, &execution_id)?;
     if safety.cancel_execution(&execution_id) {
         Ok(format!(
-            "Tarefa marcada como cancelando: {task_id} ({execution_id})"
+            "Tarefa marcada para cancelamento: {task_id} ({execution_id})"
         ))
     } else {
-        Err(format!(
-            "Tarefa não encontrada para cancelamento: {task_id}"
-        ))
+        Err(format!("A tarefa não está mais em execução: {task_id}"))
     }
 }
 
@@ -2485,6 +2610,63 @@ mod tests {
     fn unknown_tasks_are_rejected() {
         let registry = TaskRegistry::try_new().unwrap();
         assert!(registry.resolve("task_inexistente").is_none());
+    }
+
+    #[test]
+    fn confirmation_timeout_fails_closed() {
+        let (_sender, receiver) = mpsc::channel();
+        assert_eq!(
+            receive_confirmation(&receiver, Duration::from_millis(1)),
+            ConfirmationWait::TimedOut
+        );
+    }
+
+    #[test]
+    fn disconnected_confirmation_fails_closed() {
+        let (sender, receiver) = mpsc::channel();
+        drop(sender);
+        assert_eq!(
+            receive_confirmation(&receiver, Duration::from_secs(1)),
+            ConfirmationWait::Disconnected
+        );
+    }
+
+    #[test]
+    fn explicit_confirmation_response_is_respected() {
+        let (sender, receiver) = mpsc::channel();
+        sender.send(true).unwrap();
+        assert_eq!(
+            receive_confirmation(&receiver, Duration::from_secs(1)),
+            ConfirmationWait::Answered(true)
+        );
+    }
+
+    #[test]
+    fn execution_log_humanizer_translates_internal_events() {
+        assert_eq!(
+            humanize_execution_log("task-started task_id=limpeza_leve"),
+            "Tarefa iniciada: tarefa=limpeza_leve"
+        );
+        assert_eq!(
+            humanize_execution_log("started pid=123 command=dism args=[/Online]"),
+            "Comando iniciado: processo=123 comando=dism argumentos=[/Online]"
+        );
+    }
+
+    #[test]
+    fn cancellation_rejects_execution_belonging_to_another_task() {
+        let mut safety = SafetyManager::new();
+        let execution = safety.try_register_execution("task-a").unwrap();
+        assert!(validate_execution_task(&safety, "task-b", &execution.execution_id).is_err());
+        assert!(validate_execution_task(&safety, "task-a", &execution.execution_id).is_ok());
+    }
+
+    #[test]
+    fn cancellation_rejects_finished_execution() {
+        let mut safety = SafetyManager::new();
+        let execution = safety.try_register_execution("task-a").unwrap();
+        safety.finish_execution(&execution.execution_id, "completed");
+        assert!(validate_execution_task(&safety, "task-a", &execution.execution_id).is_err());
     }
 }
 

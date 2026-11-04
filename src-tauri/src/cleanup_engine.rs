@@ -10,6 +10,7 @@ struct Metrics {
     files: u64,
     bytes: u64,
     failed: u64,
+    skipped_in_use: u64,
 }
 
 #[cfg(windows)]
@@ -111,6 +112,18 @@ mod platform {
         Ok(())
     }
 
+    fn format_cleanup_io_error(error: std::io::Error) -> String {
+        match error.raw_os_error() {
+            Some(32) => format!("{error} [win32=32]"),
+            Some(code) => format!("{error} [win32={code}]"),
+            None => error.to_string(),
+        }
+    }
+
+    fn is_file_in_use_error(error: &str) -> bool {
+        error.contains("[win32=32]")
+    }
+
     fn remove_entry(
         path: &Path,
         metrics: &mut Metrics,
@@ -121,11 +134,11 @@ mod platform {
         clear_readonly_recursive(path, check)?;
         let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
         if meta.is_dir() && !meta.file_type().is_symlink() {
-            fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+            fs::remove_dir_all(path).map_err(format_cleanup_io_error)?;
         } else if meta.file_type().is_symlink() && path.is_dir() {
-            fs::remove_dir(path).map_err(|e| e.to_string())?;
+            fs::remove_dir(path).map_err(format_cleanup_io_error)?;
         } else {
-            fs::remove_file(path).map_err(|e| e.to_string())?;
+            fs::remove_file(path).map_err(format_cleanup_io_error)?;
         }
         metrics.entries += 1;
         metrics.files += files;
@@ -211,6 +224,15 @@ mod platform {
                             Err(error) if error == "Limpeza cancelada pelo usuário." => {
                                 return Err(error)
                             }
+                            Err(error) if is_file_in_use_error(&error) => {
+                                metrics.skipped_in_use += 1;
+                                let message = format!(
+                                    "Ignorado porque está em uso por outro processo: {}",
+                                    path.display()
+                                );
+                                on_output(&message);
+                                output.push(message);
+                            }
                             Err(error) => {
                                 metrics.failed += 1;
                                 let message = format!(
@@ -232,9 +254,17 @@ mod platform {
             }
         }
         output.push(format!(
-            "{label}: {} item(ns)/pasta(s) removido(s), {} falha(s).",
+            "{label}: itens/pastas removidos: {}; falhas: {}.",
             metrics.entries, metrics.failed
         ));
+        if metrics.skipped_in_use > 0 {
+            let message = format!(
+                "Itens ignorados por estarem em uso por outros processos: {}.",
+                metrics.skipped_in_use
+            );
+            on_output(&message);
+            output.push(message);
+        }
         Ok((metrics, output.join("\n")))
     }
 
@@ -840,11 +870,15 @@ mod platform {
                         return;
                     }
                 }
-                if fs::remove_file(path).is_ok() {
-                    metrics.files += 1;
-                    metrics.bytes = metrics.bytes.saturating_add(size);
-                } else {
-                    metrics.failed += 1;
+                match fs::remove_file(path) {
+                    Ok(()) => {
+                        metrics.files += 1;
+                        metrics.bytes = metrics.bytes.saturating_add(size);
+                    }
+                    Err(error) if error.raw_os_error() == Some(32) => {
+                        metrics.skipped_in_use += 1;
+                    }
+                    Err(_) => metrics.failed += 1,
                 }
             }
         }
@@ -963,13 +997,19 @@ mod platform {
                 output.push("Nenhum perfil compatível de navegador foi encontrado.".into());
             }
         }
-        output.push(format!("Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s).", metrics.files, metrics.failed));
+        output.push(format!(
+            "Histórico dos navegadores: perfis processados: {profiles}; arquivos removidos: {}; falhas: {}; arquivos ignorados por estarem em uso: {}.",
+            metrics.files, metrics.failed, metrics.skipped_in_use
+        ));
         output.push(format!(
             "QBOA_METRICS files={} bytes={} registry=0",
             metrics.files, metrics.bytes
         ));
         let result = output.join("\n");
-        on_output(&format!("Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s).", metrics.files, metrics.failed));
+        on_output(&format!(
+            "Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s), {} arquivo(s) ignorado(s) por estarem em uso.",
+            metrics.files, metrics.failed, metrics.skipped_in_use
+        ));
         on_output(&format!(
             "QBOA_METRICS files={} bytes={} registry=0",
             metrics.files, metrics.bytes
