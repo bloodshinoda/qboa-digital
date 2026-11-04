@@ -538,6 +538,7 @@ button {
 }
 
 .console {
+  position: relative;
   background: #111;
   border-top: 3px solid transparent;
   border-image: var(--rainbow) 1;
@@ -562,6 +563,17 @@ button {
 }
 
 .console-title::-webkit-details-marker { display: none; }
+.console-actions {
+  position: absolute;
+  top: 6px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  z-index: 1;
+}
+.console-actions span { font-size: .72rem; opacity: .75; }
+.console-actions button { min-height: 28px; padding: 4px 10px; font-size: .76rem; }
 .console-title::before { content: "＋"; display: inline-block; margin-right: 10px; opacity: .8; }
 .console[open] .console-title::before { content: "−"; }
 
