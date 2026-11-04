@@ -1007,8 +1007,8 @@ fn execute_task(
                     is_cancelled,
                 )?
             } else {
-                on_output("[Etapa 8/9] /ResetBase pulado por escolha do usuário; a limpeza pesada continuará com SFC.");
-                "DISM /ResetBase pulado pelo usuário; atualizações permanecem desinstaláveis.".to_string()
+                on_output("[Etapa 8/9] Usuário não autorizou o /ResetBase; cancelando a limpeza pesada antes da operação irreversível.");
+                return Err("Limpeza pesada cancelada: o DISM /ResetBase exige autorização explícita.".to_string());
             };
             on_output("[Etapa 9/9] Verificando arquivos protegidos com SFC...");
             let part_7 =
