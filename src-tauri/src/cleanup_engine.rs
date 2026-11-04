@@ -397,6 +397,285 @@ mod platform {
         Ok(result)
     }
 
+    fn collect_adobe_cache_dirs(
+        root: &Path,
+        names: &[&str],
+        found: &mut Vec<PathBuf>,
+        depth: usize,
+        check: &dyn Fn() -> bool,
+    ) -> Result<(), String> {
+        cancelled(check)?;
+        if depth > 8 {
+            return Ok(());
+        }
+        let root_meta = match fs::symlink_metadata(root) {
+            Ok(meta) => meta,
+            Err(_) => return Ok(()),
+        };
+        if root_meta.file_type().is_symlink() || !root_meta.is_dir() {
+            return Ok(());
+        }
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(_) => return Ok(()),
+        };
+        for entry in entries.flatten() {
+            cancelled(check)?;
+            let path = entry.path();
+            let meta = match fs::symlink_metadata(&path) {
+                Ok(meta) => meta,
+                Err(_) => continue,
+            };
+            if meta.file_type().is_symlink() || !meta.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            if names
+                .iter()
+                .any(|candidate| name == candidate.to_ascii_lowercase())
+            {
+                found.push(path.clone());
+                // Um diretório de cache conhecido é uma unidade de descarte; não varrer seu conteúdo.
+                continue;
+            }
+            collect_adobe_cache_dirs(&path, names, found, depth + 1, check)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn cleanup_adobe_caches(
+        on_output: &mut dyn FnMut(&str),
+        check: &dyn Fn() -> bool,
+    ) -> Result<String, String> {
+        let local = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let roaming = std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+
+        // Premiere Pro, After Effects e Media Encoder compartilham os caches em Adobe\Common.
+        // Audition também mantém arquivos de pico regeneráveis em sua própria árvore AppData.
+        let scan_roots = [
+            (
+                local.join("Adobe/Common"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                roaming.join("Adobe/Common"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                local.join("Adobe/Premiere Pro"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                roaming.join("Adobe/Premiere Pro"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                local.join("Adobe/After Effects"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                roaming.join("Adobe/After Effects"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                local.join("Adobe/Media Encoder"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                roaming.join("Adobe/Media Encoder"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                local.join("Adobe/Audition"),
+                vec!["Media Cache", "Media Cache Files", "Peak Files"],
+            ),
+            (
+                roaming.join("Adobe/Audition"),
+                vec!["Media Cache", "Media Cache Files", "Peak Files"],
+            ),
+        ];
+
+        let mut metrics = Metrics::default();
+        let mut output = Vec::new();
+        let mut dirs = Vec::new();
+        for (root, names) in &scan_roots {
+            if root.is_dir() {
+                collect_adobe_cache_dirs(root, names, &mut dirs, 0, check)?;
+            }
+        }
+        dirs.sort();
+        dirs.dedup();
+        dirs.sort_by_key(|path| std::cmp::Reverse(path.to_string_lossy().len()));
+
+        for dir in dirs {
+            cancelled(check)?;
+            if !dir.exists() {
+                continue;
+            }
+            let message = format!("Limpando cache Adobe regenerável: {}", dir.display());
+            on_output(&message);
+            output.push(message);
+            match remove_entry(&dir, &mut metrics, check) {
+                Ok(()) => {}
+                Err(error) if error == "Limpeza cancelada pelo usuário." => return Err(error),
+                Err(error) => {
+                    metrics.failed += 1;
+                    let message = format!("Cache Adobe ignorado: {} — {error}", dir.display());
+                    on_output(&message);
+                    output.push(message);
+                }
+            }
+        }
+
+        let summary = format!(
+            "Caches Adobe conhecidos: {} entrada(s) removida(s), {} falha(s).",
+            metrics.entries, metrics.failed
+        );
+        let metrics_line = format!(
+            "QBOA_METRICS files={} bytes={} registry=0",
+            metrics.files, metrics.bytes
+        );
+        on_output(&summary);
+        on_output(&metrics_line);
+        output.push(summary);
+        output.push(metrics_line);
+        Ok(output.join("\n"))
+    }
+
+    fn tree_last_modified(
+        path: &Path,
+        newest: &mut std::time::SystemTime,
+        depth: usize,
+        check: &dyn Fn() -> bool,
+    ) -> Result<(), String> {
+        cancelled(check)?;
+        if depth > 64 {
+            return Err("A árvore de resíduos excede a profundidade de segurança.".to_string());
+        }
+        let meta = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+        if meta.file_type().is_symlink() {
+            return Ok(());
+        }
+        if let Ok(modified) = meta.modified() {
+            if modified > *newest {
+                *newest = modified;
+            }
+        } else {
+            return Err("Não foi possível verificar a data de modificação do resíduo.".to_string());
+        }
+        if meta.is_dir() {
+            for entry in fs::read_dir(path).map_err(|error| error.to_string())? {
+                cancelled(check)?;
+                let entry = entry.map_err(|error| error.to_string())?;
+                tree_last_modified(&entry.path(), newest, depth + 1, check)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn registry_query_is_pending(args: &[&str]) -> bool {
+        match Command::new("reg")
+            .args(args)
+            .creation_flags(0x08000000)
+            .output()
+        {
+            Ok(result) if result.status.success() => true,
+            Ok(result) => {
+                let details = format!(
+                    "{} {}",
+                    String::from_utf8_lossy(&result.stdout),
+                    String::from_utf8_lossy(&result.stderr)
+                )
+                .to_ascii_lowercase();
+                details.contains("access is denied")
+                    || details.contains("acesso negado")
+                    || details.contains("unable to complete")
+            }
+            Err(_) => true,
+        }
+    }
+
+    fn upgrade_residue_is_safe(path: &Path, check: &dyn Fn() -> bool) -> bool {
+        let windir = std::env::var_os("WINDIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+
+        // Sem estado de instalação legível e explicitamente concluído, não apagar.
+        let state_path = windir.join("Setup/State/State.ini");
+        let state = match fs::read_to_string(state_path) {
+            Ok(state) => state,
+            Err(_) => return false,
+        };
+        let image_state = state.lines().find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            key.trim()
+                .eq_ignore_ascii_case("ImageState")
+                .then(|| value.trim().trim_matches('"').to_string())
+        });
+        if !image_state
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("IMAGE_STATE_COMPLETE"))
+        {
+            return false;
+        }
+
+        if windir.join("WinSxS/pending.xml").exists() {
+            return false;
+        }
+
+        // Indicadores de reinicialização/servicing pendente: qualquer incerteza preserva a pasta.
+        if registry_query_is_pending(&[
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        ]) || registry_query_is_pending(&[
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+        ]) || registry_query_is_pending(&[
+            "query",
+            r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager",
+            "/v",
+            "PendingFileRenameOperations",
+        ]) {
+            return false;
+        }
+
+        let tasklist = match Command::new("tasklist")
+            .args(["/FO", "CSV", "/NH"])
+            .creation_flags(0x08000000)
+            .output()
+        {
+            Ok(output) if output.status.success() => output,
+            _ => return false,
+        };
+        let processes = String::from_utf8_lossy(&tasklist.stdout).to_ascii_lowercase();
+        if [
+            "setuphost.exe",
+            "setupplatform.exe",
+            "mousocoreworker.exe",
+            "tiworker.exe",
+            "trustedinstaller.exe",
+        ]
+        .iter()
+        .any(|process| processes.contains(process))
+        {
+            return false;
+        }
+
+        // Considera a data mais recente de toda a árvore, não apenas a raiz.
+        let mut newest = std::time::UNIX_EPOCH;
+        if tree_last_modified(path, &mut newest, 0, check).is_err() {
+            return false;
+        }
+        std::time::SystemTime::now()
+            .duration_since(newest)
+            .map(|age| age.as_secs() >= 30 * 24 * 60 * 60)
+            .unwrap_or(false)
+    }
+
     pub(super) fn cleanup_heavy_temp(
         on_output: &mut dyn FnMut(&str),
         check: &dyn Fn() -> bool,
@@ -407,12 +686,31 @@ mod platform {
         let windir = std::env::var_os("WINDIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-        let roots = [
+        let mut roots = vec![
             temp,
             windir.join("Temp"),
             windir.join("Minidump"),
             windir.join("LiveKernelReports"),
+            windir.join("Prefetch"),
         ];
+        for name in ["$Windows.~BT", "$Windows.~WS"] {
+            let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+            let candidate = PathBuf::from(format!("{}\\{}", drive.trim_end_matches('\\'), name));
+            if candidate.exists() {
+                if upgrade_residue_is_safe(&candidate, check) {
+                    on_output(&format!(
+                        "Resíduo de atualização antigo identificado: {}",
+                        candidate.display()
+                    ));
+                    roots.push(candidate);
+                } else {
+                    on_output(&format!(
+                        "Resíduo de atualização preservado por segurança: {}",
+                        candidate.display()
+                    ));
+                }
+            }
+        }
         let (metrics, result) = clean_roots(&roots, "Limpeza pesada", check, true, on_output)?;
         let mut output = vec![result];
         let _ = clear_recycle_bin();
@@ -748,6 +1046,12 @@ mod platform {
     ) -> Result<String, String> {
         Err("A limpeza nativa está disponível somente no Windows.".into())
     }
+    pub(super) fn cleanup_adobe_caches(
+        _: &mut dyn FnMut(&str),
+        _: &dyn Fn() -> bool,
+    ) -> Result<String, String> {
+        Err("A limpeza nativa está disponível somente no Windows.".into())
+    }
     pub(super) fn cleanup_windows_update(
         _: &mut dyn FnMut(&str),
         _: &dyn Fn() -> bool,
@@ -775,6 +1079,12 @@ pub fn cleanup_heavy_temp(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
     platform::cleanup_heavy_temp(on_output, is_cancelled)
+}
+pub fn cleanup_adobe_caches(
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    platform::cleanup_adobe_caches(on_output, is_cancelled)
 }
 pub fn cleanup_windows_update(
     on_output: &mut dyn FnMut(&str),

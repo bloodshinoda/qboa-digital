@@ -103,6 +103,14 @@ fn restore_point_responses() -> &'static Mutex<std::collections::HashMap<String,
     RESTORE_POINT_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
+static RESET_BASE_RESPONSES: std::sync::OnceLock<
+    Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>,
+> = std::sync::OnceLock::new();
+
+fn reset_base_responses() -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>> {
+    RESET_BASE_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
 fn safety_state() -> &'static Arc<Mutex<SafetyManager>> {
     SAFETY_STATE.get_or_init(|| Arc::new(Mutex::new(SafetyManager::new())))
 }
@@ -472,9 +480,9 @@ fn report_system_compatibility(on_output: &mut dyn FnMut(&str)) -> bool {
         }
         Err(error) => {
             on_output(&format!(
-                "[Compatibilidade] Não foi possível classificar o ambiente; mantendo o fluxo padrão. Detalhe: {error}"
+                "[Compatibilidade] Não foi possível classificar o ambiente; tratando como restritivo e preservando a reversibilidade. Detalhe: {error}"
             ));
-            false
+            true
         }
     }
 }
@@ -909,6 +917,7 @@ fn execute_task(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
     apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
+    confirm_reset_base: &mut dyn FnMut(&str) -> bool,
 ) -> Result<String, String> {
     if is_cancelled() {
         return Err("Tudo bem, a tarefa foi interrompida a seu pedido.".to_string());
@@ -922,11 +931,7 @@ fn execute_task(
             apply_registry,
         ),
         "limpeza_media" => {
-            let conservative_repair = report_system_compatibility(on_output);
-            if conservative_repair {
-                on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa manterá o DISM padrão, sem inventar uma origem de reparo.");
-            }
-            on_output("[Etapa 1/4] Limpando temporários, caches e lixeira com o motor nativo...");
+            on_output("[Etapa 1/4] Executando a limpeza segura de temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -934,33 +939,25 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output("[Etapa 2/4] Processando o cache temporário do Windows Update...");
-            let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
+            on_output("[Etapa 2/4] Limpando somente o cache de downloads do Windows Update...");
+            let part_2 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output(
-                "[Etapa 3/4] Removendo atalhos quebrados e associações inválidas confirmadas...",
+                "[Etapa 3/4] Limpando caches regeneráveis conhecidos dos aplicativos Adobe...",
             );
+            let part_3 = cleanup_engine::cleanup_adobe_caches(on_output, is_cancelled)?;
+            on_output("[Etapa 4/4] Removendo somente atalhos quebrados e associações inválidas confirmadas...");
             let findings = apply_cleanup_findings("complete", on_output);
-            on_output(
-                "[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
-            );
-            let part_4 = run_system_command(
-                "dism",
-                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
-                execution_id,
-                on_output,
-                is_cancelled,
-            )?;
             Ok(format!(
-                "{part_1}\n{part_3}\n{}\n{part_4}",
+                "{part_1}\n{part_2}\n{part_3}\n{}",
                 findings_summary(&findings)
             ))
         }
         "limpeza_pesada" => {
             let conservative_repair = report_system_compatibility(on_output);
             if conservative_repair {
-                on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa preservará a base de componentes e não executará /ResetBase, pois isso impede a desinstalação de atualizações instaladas.");
+                on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O DISM /ResetBase será omitido para preservar a possibilidade de reverter atualizações.");
             }
-            on_output("[Etapa 1/8] Limpando temporários, caches e lixeira...");
+            on_output("[Etapa 1/9] Limpando temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -968,15 +965,17 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
+            on_output("[Etapa 2/9] Limpando caches Adobe regeneráveis conhecidos...");
+            let part_adobe = cleanup_engine::cleanup_adobe_caches(on_output, is_cancelled)?;
             on_output(
-                "[Etapa 2/8] Limpando diretórios temporários avançados e relatórios de falha...",
+                "[Etapa 3/9] Limpando Prefetch, temporários avançados e relatórios de falha...",
             );
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 3/8] Processando o cache temporário do Windows Update...");
+            on_output("[Etapa 4/9] Processando o cache de downloads do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 4/8] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
+            on_output("[Etapa 5/9] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
             let findings = apply_cleanup_findings("deep", on_output);
-            on_output("[Etapa 5/8] Verificando a integridade da imagem do Windows...");
+            on_output("[Etapa 6/9] Verificando a integridade da imagem do Windows...");
             let part_4 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/ScanHealth"],
@@ -984,11 +983,21 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
+            on_output("[Etapa 7/9] Reparando a imagem do Windows com DISM RestoreHealth...");
+            let part_6 = run_system_command(
+                "dism",
+                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
+                execution_id,
+                on_output,
+                is_cancelled,
+            )?;
             let part_5 = if conservative_repair {
-                on_output("[Etapa 6/8] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
-                "DISM /ResetBase ignorado por política conservadora.".to_string()
-            } else {
-                on_output("[Etapa 6/8] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
+                on_output("[Etapa 8/9] /ResetBase omitido: o ambiente foi classificado como modificado/restritivo.");
+                "DISM /ResetBase omitido por compatibilidade; as atualizações continuam reversíveis.".to_string()
+            } else if confirm_reset_base(
+                "A próxima etapa executará DISM /StartComponentCleanup /ResetBase. Depois dela, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada será cancelada antes desta operação. Deseja executar o /ResetBase?"
+            ) {
+                on_output("[Etapa 8/9] Executando DISM StartComponentCleanup /ResetBase após confirmação explícita...");
                 run_system_command(
                     "dism",
                     &[
@@ -1001,20 +1010,15 @@ fn execute_task(
                     on_output,
                     is_cancelled,
                 )?
+            } else {
+                on_output("[Etapa 8/9] Usuário não autorizou o /ResetBase; cancelando a limpeza pesada antes da operação irreversível.");
+                return Err("Limpeza pesada cancelada: o DISM /ResetBase exige autorização explícita.".to_string());
             };
-            on_output("[Etapa 7/8] Reparando a imagem do Windows com DISM RestoreHealth...");
-            let part_6 = run_system_command(
-                "dism",
-                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
-                execution_id,
-                on_output,
-                is_cancelled,
-            )?;
-            on_output("[Etapa 8/8] Verificando arquivos protegidos com SFC...");
+            on_output("[Etapa 9/9] Verificando arquivos protegidos com SFC...");
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
-                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}",
+                "{part_1}\n{part_adobe}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}",
                 findings_summary(&findings)
             ))
         }
@@ -1083,6 +1087,23 @@ async fn respond_restore_point_failure(execution_id: String, proceed: bool) -> R
     sender
         .send(proceed)
         .map_err(|_| "Não foi possível enviar a resposta para a tarefa.".to_string())
+}
+
+#[tauri::command]
+async fn respond_reset_base_confirmation(
+    execution_id: String,
+    proceed: bool,
+) -> Result<(), String> {
+    let sender = reset_base_responses()
+        .lock()
+        .unwrap()
+        .remove(&execution_id)
+        .ok_or_else(|| {
+            "A confirmação do DISM /ResetBase expirou ou não está mais pendente.".to_string()
+        })?;
+    sender
+        .send(proceed)
+        .map_err(|_| "Não foi possível enviar a resposta da confirmação do /ResetBase.".to_string())
 }
 
 #[tauri::command]
@@ -1431,6 +1452,30 @@ fn start_task(
             }
         };
 
+        let mut confirm_reset_base = |message: &str| {
+            let (sender, receiver) = mpsc::channel();
+            reset_base_responses()
+                .lock()
+                .unwrap()
+                .insert(execution_id_for_spawn.clone(), sender);
+            emit_event(
+                &app_for_spawn,
+                "reset-base-confirmation-required",
+                &task_id_for_spawn,
+                &execution_id_for_spawn,
+                message,
+                false,
+                None,
+                &task_risk_for_spawn,
+            );
+            let proceed = receiver.recv().unwrap_or(false);
+            reset_base_responses()
+                .lock()
+                .unwrap()
+                .remove(&execution_id_for_spawn);
+            proceed
+        };
+
         let execution_started = Instant::now();
         let execution = execute_task(
             &task_for_spawn,
@@ -1438,7 +1483,9 @@ fn start_task(
             &mut on_output,
             &is_cancelled,
             &mut apply_registry,
+            &mut confirm_reset_base,
         );
+        drop(confirm_reset_base);
         drop(apply_registry);
         drop(on_output);
         match execution {
@@ -2465,6 +2512,7 @@ fn main() {
             get_tasks,
             run_task,
             respond_restore_point_failure,
+            respond_reset_base_confirmation,
             get_running_browsers,
             prepare_browser_cleanup,
             cancel_task,
