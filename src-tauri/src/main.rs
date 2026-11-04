@@ -295,13 +295,32 @@ fn local_timestamp() -> String {
 }
 
 fn humanize_execution_log(message: &str) -> String {
-    if let Some(details) = message.strip_prefix("task-executor-failed error=") {
-        return format!("Executor de tarefas falhou: {details}");
+    let (key, details) = message.split_once(' ').unwrap_or((message, ""));
+    let label = match key {
+        "task-started" => "Tarefa iniciada",
+        "snapshot-started" => "Captura de segurança iniciada",
+        "snapshot-failed" => "Falha na captura de segurança",
+        "restore-point-phase-started" => "Criação do ponto de restauração iniciada",
+        "restore-point-phase-completed" => "Ponto de restauração criado",
+        "restore-point-phase-failed" => "Falha ao criar o ponto de restauração",
+        "task-cancelled-by-user-after-restore-point-failure" => "Tarefa cancelada após falha no ponto de restauração",
+        "user-approved-proceeding-without-restore-point" => "Usuário autorizou continuar sem ponto de restauração",
+        "task-executor-completed" => "Execução concluída",
+        "task-executor-failed" => "Falha no executor da tarefa",
+        "registry-operation-failed" => "Falha na operação do Registro",
+        "restore-point" => "Operação de ponto de restauração",
+        "started" => "Comando iniciado",
+        "finished" => "Comando finalizado",
+        "failed" => "Falha no comando",
+        "journal" => "Persistência do histórico de alterações",
+        "confirmation-timeout" => "Tempo limite da confirmação atingido",
+        _ => return message.to_string(),
+    };
+    if details.is_empty() {
+        label.to_string()
+    } else {
+        format!("{label}: {details}")
     }
-    if let Some(details) = message.strip_prefix("registry-operation-failed error=") {
-        return format!("Falha na operação de Registro: {details}");
-    }
-    message.to_string()
 }
 
 fn write_execution_log(execution_id: &str, message: &str) {
@@ -1261,7 +1280,14 @@ fn start_task(
                         None,
                         &task_risk_for_spawn,
                     );
-                    let proceed = receiver.recv().unwrap_or(false);
+                    let proceed = match receiver.recv_timeout(Duration::from_secs(300)) {
+                        Ok(response) => response,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            write_execution_log(&execution_id_for_spawn, "confirmation-timeout tipo=ponto-de-restauracao; decisão=cancelar");
+                            false
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => false,
+                    };
                     restore_point_responses()
                         .lock()
                         .unwrap()
@@ -1468,7 +1494,14 @@ fn start_task(
                 None,
                 &task_risk_for_spawn,
             );
-            let proceed = receiver.recv().unwrap_or(false);
+            let proceed = match receiver.recv_timeout(Duration::from_secs(300)) {
+                Ok(response) => response,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    write_execution_log(&execution_id_for_spawn, "confirmation-timeout tipo=reset-base; decisão=cancelar");
+                    false
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => false,
+            };
             reset_base_responses()
                 .lock()
                 .unwrap()
@@ -1862,16 +1895,19 @@ async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<St
     let execution_id = execution_id
         .or_else(|| safety.execution_for_task(&task_id))
         .ok_or_else(|| {
-            format!("Execution ID obrigatório quando há mais de uma execução: {task_id}")
+            format!("Identificador da execução obrigatório ou ambíguo para a tarefa: {task_id}")
         })?;
+    let execution = safety
+        .execution_state
+        .get(&execution_id)
+        .ok_or_else(|| "A execução informada não existe mais.".to_string())?;
+    if execution.task_id != task_id {
+        return Err("A execução informada não pertence à tarefa solicitada.".to_string());
+    }
     if safety.cancel_execution(&execution_id) {
-        Ok(format!(
-            "Tarefa marcada como cancelando: {task_id} ({execution_id})"
-        ))
+        Ok(format!("Tarefa marcada para cancelamento: {task_id} ({execution_id})"))
     } else {
-        Err(format!(
-            "Tarefa não encontrada para cancelamento: {task_id}"
-        ))
+        Err(format!("A tarefa não está mais em execução: {task_id}"))
     }
 }
 
