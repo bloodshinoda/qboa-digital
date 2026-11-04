@@ -970,11 +970,19 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
+            on_output("[Etapa 7/9] Reparando a imagem do Windows com DISM RestoreHealth...");
+            let part_6 = run_system_command(
+                "dism",
+                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
+                execution_id,
+                on_output,
+                is_cancelled,
+            )?;
             let part_5 = if conservative_repair {
-                on_output("[Etapa 7/9] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
+                on_output("[Etapa 8/9] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
                 "DISM /ResetBase ignorado por política conservadora.".to_string()
             } else {
-                on_output("[Etapa 7/9] DISM StartComponentCleanup /ResetBase: operação irreversível para desinstalação das atualizações atuais.");
+                on_output("[Etapa 8/9] DISM StartComponentCleanup /ResetBase: operação irreversível para desinstalação das atualizações atuais.");
                 run_system_command(
                     "dism",
                     &[
@@ -988,14 +996,6 @@ fn execute_task(
                     is_cancelled,
                 )?
             };
-            on_output("[Etapa 8/9] Reparando a imagem do Windows com DISM RestoreHealth...");
-            let part_6 = run_system_command(
-                "dism",
-                &["/Online", "/Cleanup-Image", "/RestoreHealth"],
-                execution_id,
-                on_output,
-                is_cancelled,
-            )?;
             on_output("[Etapa 9/9] Verificando arquivos protegidos com SFC...");
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
