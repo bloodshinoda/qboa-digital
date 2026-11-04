@@ -93,7 +93,7 @@ mod platform {
         if result >= 0 { Ok(()) } else { Err(format!("SHEmptyRecycleBinW retornou HRESULT 0x{:08X}", result as u32)) }
     }
 
-    fn clean_roots(roots: &[PathBuf], label: &str, check: &dyn Fn() -> bool, ignore_root_errors: bool) -> Result<(Metrics, String), String> {
+    fn clean_roots(roots: &[PathBuf], label: &str, check: &dyn Fn() -> bool, ignore_root_errors: bool, on_output: &mut dyn FnMut(&str)) -> Result<(Metrics, String), String> {
         let mut metrics = Metrics::default();
         let mut output = Vec::new();
         for root in roots {
@@ -104,13 +104,17 @@ mod platform {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) if ignore_root_errors => {
                     metrics.failed += 1;
-                    output.push(format!("Não foi possível acessar {}: {error}", root.display()));
+                    let message = format!("Não foi possível acessar {}: {error}", root.display());
+                    on_output(&message);
+                    output.push(message);
                     continue;
                 }
                 Err(error) => return Err(format!("Não foi possível acessar {}: {error}", root.display())),
             };
             let _ = root_meta;
-            output.push(format!("Limpando temporários: {}", root.display()));
+            let progress = format!("Limpando temporários: {}", root.display());
+            on_output(&progress);
+            output.push(progress);
             let entries = match fs::read_dir(root) {
                 Ok(entries) => entries,
                 Err(error) if ignore_root_errors => {
@@ -130,11 +134,13 @@ mod platform {
                             Err(error) if error == "Limpeza cancelada pelo usuário." => return Err(error),
                             Err(error) => {
                                 metrics.failed += 1;
-                                output.push(format!("Não foi possível remover: {} — {error}", path.display()));
+                                let message = format!("Não foi possível remover: {} — {error}", path.display());
+                                on_output(&message);
+                                output.push(message);
                             }
                         }
                     }
-                    Err(error) => { metrics.failed += 1; output.push(format!("Falha ao enumerar item: {error}")); }
+                    Err(error) => { metrics.failed += 1; let message = format!("Falha ao enumerar item: {error}"); on_output(&message); output.push(message); }
                 }
             }
         }
@@ -156,7 +162,7 @@ mod platform {
             local.join("Chromium/User Data"),
             local.join("CocCoc/Browser/User Data"),
             local.join("Arc/User Data"),
-            local.join("Microsoft/Internet Explorer"),
+            roaming.join("Mozilla/Firefox/Profiles"),
         ].into_iter().filter(|p| p.exists()).collect()
     }
 
@@ -180,20 +186,22 @@ mod platform {
         Ok(())
     }
 
-    fn clean_browser_caches(metrics: &mut Metrics, output: &mut Vec<String>, check: &dyn Fn() -> bool) -> Result<(), String> {
+    fn clean_browser_caches(metrics: &mut Metrics, output: &mut Vec<String>, check: &dyn Fn() -> bool, on_output: &mut dyn FnMut(&str)) -> Result<(), String> {
         let names = ["Cache", "Cache2", "Code Cache", "GPUCache", "StartupCache", "shader-cache", "CacheStorage"];
         for root in browser_roots() {
             cancelled(check)?;
-            output.push(format!("Procurando caches do navegador: {}", root.display()));
+            let progress = format!("Procurando caches do navegador: {}", root.display());
+            on_output(&progress);
+            output.push(progress);
             let mut dirs = Vec::new();
             collect_named_dirs(&root, &names, &mut dirs, 0, check)?;
-            dirs.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+            dirs.sort_by_key(|p| std::cmp::Reverse(p.to_string_lossy().len()));
             for dir in dirs {
                 if !dir.exists() { continue; }
                 match remove_entry(&dir, metrics, check) {
                     Ok(()) => {}
                     Err(error) if error == "Limpeza cancelada pelo usuário." => return Err(error),
-                    Err(error) => { metrics.failed += 1; output.push(format!("Não foi possível remover cache: {} — {error}", dir.display())); }
+                    Err(error) => { metrics.failed += 1; let message = format!("Não foi possível remover cache: {} — {error}", dir.display()); on_output(&message); output.push(message); }
                 }
             }
         }
@@ -208,10 +216,10 @@ mod platform {
         let temp = std::env::var_os("TEMP").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
         let windir = std::env::var_os("WINDIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
         let roots = [temp, windir.join("Temp")];
-        let (mut metrics, initial) = clean_roots(&roots, "Limpeza padrão", check, true)?;
+        let (mut metrics, initial) = clean_roots(&roots, "Limpeza padrão", check, true, on_output)?;
         let mut output = vec![initial];
         if clean_browser_cache {
-            clean_browser_caches(&mut metrics, &mut output, check)?;
+            clean_browser_caches(&mut metrics, &mut output, check, on_output)?;
         } else {
             output.push("Caches dos navegadores ignorados conforme sua escolha de manter os navegadores abertos.".into());
         }
@@ -222,7 +230,8 @@ mod platform {
         output.push(format!("Limpeza padrão: {} item(ns)/pasta(s) removido(s), {} falha(s).", metrics.entries, metrics.failed));
         output.push(format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
         let result = output.join("\n");
-        for line in result.lines() { on_output(line); }
+        on_output(&format!("Limpeza padrão: {} item(ns)/pasta(s) removido(s), {} falha(s).", metrics.entries, metrics.failed));
+        on_output(&format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
         Ok(result)
     }
 
@@ -230,12 +239,13 @@ mod platform {
         let temp = std::env::var_os("TEMP").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
         let windir = std::env::var_os("WINDIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
         let roots = [temp, windir.join("Temp"), windir.join("Minidump"), windir.join("LiveKernelReports")];
-        let (metrics, result) = clean_roots(&roots, "Limpeza pesada", check, true)?;
+        let (metrics, result) = clean_roots(&roots, "Limpeza pesada", check, true, on_output)?;
         let mut output = vec![result];
         let _ = clear_recycle_bin();
         output.push(format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
         let result = output.join("\n");
-        for line in result.lines() { on_output(line); }
+        on_output(&format!("Limpeza pesada: {} item(ns)/pasta(s) removido(s), {} falha(s).", metrics.entries, metrics.failed));
+        on_output(&format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
         Ok(result)
     }
 
@@ -247,9 +257,10 @@ mod platform {
             for line in result.lines() { on_output(line); }
             return Ok(result);
         }
-        let (metrics, output) = clean_roots(&[root], "Windows Update", check, false)?;
+        let (metrics, output) = clean_roots(&[root], "Windows Update", check, false, on_output)?;
         let result = format!("{output}\nQBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes);
-        for line in result.lines() { on_output(line); }
+        on_output(&format!("Windows Update: {} item(ns) removido(s), {} falha(s).", metrics.entries, metrics.failed));
+        on_output(&format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
         if metrics.failed > 0 { Err(result) } else { Ok(result) }
     }
 
@@ -298,6 +309,7 @@ mod platform {
             output.push("Histórico dos navegadores preservado conforme sua escolha de manter os navegadores abertos.".into());
         } else {
             output.push("[Etapa 1/1] Localizando perfis e limpando históricos...".into());
+            on_output("[Etapa 1/1] Localizando perfis e limpando históricos...");
             let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
             let roaming = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_default();
             let roots = [
@@ -313,7 +325,9 @@ mod platform {
                 collect_files_named(root, "History", &mut histories, 0, check)?;
                 for history in histories {
                     cancelled(check)?;
-                    output.push(format!("Limpando histórico Chromium: {}", history.parent().unwrap_or(root).display()));
+                    let progress = format!("Limpando histórico Chromium: {}", history.parent().unwrap_or(root).display());
+                    on_output(&progress);
+                    output.push(progress);
                     add_file(&history, &mut metrics);
                     for suffix in ["-journal", "-wal", "-shm"] {
                         add_file(&PathBuf::from(format!("{}{}", history.display(), suffix)), &mut metrics);
@@ -342,9 +356,11 @@ mod platform {
                             metrics.bytes = metrics.bytes.saturating_add(before.saturating_sub(after));
                             for suffix in ["-journal", "-wal", "-shm"] { add_file(&PathBuf::from(format!("{}{}", database.display(), suffix)), &mut metrics); }
                             profiles += 1;
-                            output.push(format!("Histórico Firefox limpo; favoritos preservados: {}", database.parent().unwrap_or(root).display()));
+                            let message = format!("Histórico Firefox limpo; favoritos preservados: {}", database.parent().unwrap_or(root).display());
+                            on_output(&message);
+                            output.push(message);
                         }
-                        Err(error) => { metrics.failed += 1; output.push(format!("Não foi possível limpar o histórico Firefox em {}: {error}", database.parent().unwrap_or(root).display())); }
+                        Err(error) => { metrics.failed += 1; let message = format!("Não foi possível limpar o histórico Firefox em {}: {error}", database.parent().unwrap_or(root).display()); on_output(&message); output.push(message); }
                     }
                 }
             }
@@ -353,7 +369,8 @@ mod platform {
         output.push(format!("Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s).", metrics.files, metrics.failed));
         output.push(format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
         let result = output.join("\n");
-        for line in result.lines() { on_output(line); }
+        on_output(&format!("Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s).", metrics.files, metrics.failed));
+        on_output(&format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
         Ok(result)
     }
 
