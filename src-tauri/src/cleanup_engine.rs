@@ -442,7 +442,7 @@ mod platform {
     }
 
     fn upgrade_residue_is_safe(path: &Path) -> bool {
-        let windir = std::env::var_os("WINDIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\\Windows"));
+        let windir = std::env::var_os("WINDIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
         if windir.join("WinSxS/pending.xml").exists() { return false; }
         let setup_state = windir.join("Setup/State/State.ini");
         if let Ok(state) = fs::read_to_string(setup_state) {
@@ -484,7 +484,8 @@ mod platform {
             windir.join("Prefetch"),
         ];
         for name in ["$Windows.~BT", "$Windows.~WS"] {
-            let candidate = PathBuf::from(std::env::var_os("SystemDrive").unwrap_or_else(|| "C:".into())).join(name);
+            let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+            let candidate = PathBuf::from(format!("{}\\{}", drive.trim_end_matches('\\'), name));
             if candidate.exists() {
                 if upgrade_residue_is_safe(&candidate) {
                     on_output(&format!("Resíduo de atualização antigo identificado: {}", candidate.display()));
