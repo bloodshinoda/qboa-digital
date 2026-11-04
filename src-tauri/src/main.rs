@@ -59,6 +59,29 @@ struct EventPayload {
 
 static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
 
+// DISM é a etapa mais demorada: recebe 55% do progresso em limpeza média
+// (5 etapas) e 65% em limpeza pesada (6+ etapas). O avanço do DISM é
+// limitado a 94% de seu peso até o processo encerrar, contemplando a pausa
+// frequente após exibir 100%.
+fn cleanup_progress_percent(current: u32, total: u32, is_dism: bool, dism_percent: f64) -> u32 {
+    if total == 0 || current == 0 || current > total {
+        return 0;
+    }
+
+    let dism_weight = if total >= 6 { 0.65 } else { 0.55 };
+    let other_weight = (1.0 - dism_weight) / (total - 1).max(1) as f64;
+
+    let progress = if is_dism {
+        let stage_progress = dism_percent.clamp(0.0, 100.0) / 100.0 * 0.94;
+        (current - 1) as f64 * other_weight + stage_progress * dism_weight
+    } else {
+        let completed_before = if current > 1 { current - 1 } else { 0 };
+        completed_before as f64 * other_weight
+    };
+
+    (progress.clamp(0.0, 1.0) * 100.0).floor() as u32
+}
+
 #[cfg(target_os = "windows")]
 static STORAGE_SCRIPT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -469,7 +492,7 @@ fn cleanup_standard(
         is_cancelled,
     )?;
     let registry_keys_removed = apply_registry(task_id)?;
-    let summary = "Limpeza padrão concluída: temporários, caches, MRUs e lixeira.";
+    let summary = "Faxina básica concluída: temporários, caches, histórico recente e lixeira.";
     let registry_metrics = format!("QBOA_METRICS files=0 bytes=0 registry={registry_keys_removed}");
     on_output(summary);
     on_output(&registry_metrics);
@@ -557,26 +580,136 @@ fn disable_telemetry_components(
 ) -> Result<String, String> {
     run_powershell(
         r#"
-$ErrorActionPreference = 'SilentlyContinue';
+$ErrorActionPreference = 'Stop'
+$failures = New-Object System.Collections.Generic.List[string]
+$changed = 0
+$skipped = 0
+
 foreach ($serviceName in @('DiagTrack', 'dmwappushservice')) {
-  $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-  if ($service) { Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue; Set-Service -Name $serviceName -StartupType Disabled -ErrorAction SilentlyContinue }
+    try {
+        $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if (-not $service) { $skipped++; continue }
+        if ($service.Status -ne 'Stopped') {
+            Stop-Service -Name $serviceName -Force -ErrorAction Stop
+        }
+        Set-Service -Name $serviceName -StartupType Disabled -ErrorAction Stop
+        $verified = Get-CimInstance Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
+        if (-not $verified -or $verified.StartMode -ne 'Disabled' -or $verified.State -ne 'Stopped') {
+            throw 'O Windows não confirmou o serviço parado e desativado.'
+        }
+        $changed++
+        Write-Output "$($serviceName): parado e desativado."
+    } catch {
+        $failures.Add("Serviço $($serviceName): $($_.Exception.Message)")
+    }
 }
-$tasks = @(
-  '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser',
-  '\Microsoft\Windows\Application Experience\ProgramDataUpdater',
-  '\Microsoft\Windows\Autochk\Proxy',
-  '\Microsoft\Windows\Customer Experience Improvement Program\Consolidator',
-  '\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip',
-    '\Microsoft\Windows\Customer Experience Improvement Program\KernelCeipTask',
-  '\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector',
-  '\Microsoft\Windows\Feedback\Siuf\DmClient',
-  '\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload'
+
+$scheduledTasks = @(
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Application Experience\'; TaskName = 'Microsoft Compatibility Appraiser' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Application Experience\'; TaskName = 'ProgramDataUpdater' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Autochk\'; TaskName = 'Proxy' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Customer Experience Improvement Program\'; TaskName = 'Consolidator' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Customer Experience Improvement Program\'; TaskName = 'UsbCeip' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Customer Experience Improvement Program\'; TaskName = 'KernelCeipTask' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\DiskDiagnostic\'; TaskName = 'Microsoft-Windows-DiskDiagnosticDataCollector' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Feedback\Siuf\'; TaskName = 'DmClient' },
+    [pscustomobject]@{ TaskPath = '\Microsoft\Windows\Feedback\Siuf\'; TaskName = 'DmClientOnScenarioDownload' }
 )
-foreach ($task in $tasks) { Disable-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue | Out-Null }
- $feature = Get-WindowsOptionalFeature -Online -FeatureName 'Recall' -ErrorAction SilentlyContinue;
-if ($feature -and $feature.State -eq 'Enabled') { Disable-WindowsOptionalFeature -Online -FeatureName 'Recall' -NoRestart -ErrorAction SilentlyContinue | Out-Null }
-Write-Output 'Telemetria e diagnósticos ajustados.';
+foreach ($entry in $scheduledTasks) {
+    $taskPath = $entry.TaskPath
+    $taskName = $entry.TaskName
+    try {
+        $scheduled = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue
+        if (-not $scheduled) { $skipped++; continue }
+        if ($scheduled.State -ne 'Disabled') {
+            Disable-ScheduledTask -InputObject $scheduled -ErrorAction Stop | Out-Null
+        }
+        $verified = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction Stop
+        if ($verified.State -ne 'Disabled') {
+            throw 'O Windows não confirmou a tarefa como desativada.'
+        }
+        $changed++
+        Write-Output "$($taskPath)$($taskName): desativada."
+    } catch {
+        $failures.Add("Tarefa agendada $($taskPath)$($taskName): $($_.Exception.Message)")
+    }
+}
+
+Write-Output ("Telemetria: {0} componente(s) confirmado(s), {1} não encontrado(s), {2} falha(s)." -f $changed, $skipped, $failures.Count)
+foreach ($failure in $failures) { Write-Output $failure }
+if ($failures.Count -gt 0) { exit 2 }
+Write-Output 'As configurações de telemetria disponíveis foram aplicadas e verificadas.'
+"#,
+        execution_id,
+        on_output,
+        is_cancelled,
+    )
+}
+
+fn disable_advanced_privacy(
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    run_powershell(
+        r#"
+$ErrorActionPreference = 'Stop'
+$failures = New-Object System.Collections.Generic.List[string]
+$changed = 0
+$skipped = 0
+$policies = @(
+    @{ Hive = 'LocalMachine'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsAI'; Name = 'DisableAIDataAnalysis'; Value = 1 },
+    @{ Hive = 'CurrentUser'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsAI'; Name = 'DisableAIDataAnalysis'; Value = 1 },
+    @{ Hive = 'LocalMachine'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsAI'; Name = 'AllowRecallEnablement'; Value = 0 },
+    @{ Hive = 'CurrentUser'; Path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'; Name = 'TurnOffWindowsCopilot'; Value = 1 }
+)
+foreach ($policy in $policies) {
+    try {
+        $hive = [System.Enum]::Parse([Microsoft.Win32.RegistryHive], [string]$policy.Hive)
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Default)
+        $key = $base.CreateSubKey($policy.Path)
+        if (-not $key) { throw 'Não foi possível abrir/criar a chave de política.' }
+        $key.SetValue($policy.Name, [int]$policy.Value, [Microsoft.Win32.RegistryValueKind]::DWord)
+        $key.Dispose()
+        $verifyKey = $base.OpenSubKey($policy.Path)
+        $actual = $verifyKey.GetValue($policy.Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $verifyKey.Dispose()
+        if ($null -eq $actual -or [int]$actual -ne [int]$policy.Value) {
+            throw 'A leitura de confirmação não corresponde ao valor solicitado.'
+        }
+        $changed++
+        Write-Output "$($policy.Hive)\$($policy.Path)\$($policy.Name): aplicado e verificado."
+        $base.Dispose()
+    } catch {
+        $failures.Add("$($policy.Hive)\$($policy.Path)\$($policy.Name): $($_.Exception.Message)")
+    }
+}
+
+try {
+    $feature = Get-WindowsOptionalFeature -Online -FeatureName 'Recall' -ErrorAction SilentlyContinue
+    if (-not $feature) {
+        $skipped++
+        Write-Output 'Recall: recurso não disponível nesta edição/versão do Windows.'
+    } elseif ($feature.State -eq 'Enabled') {
+        Disable-WindowsOptionalFeature -Online -FeatureName 'Recall' -NoRestart -ErrorAction Stop | Out-Null
+        $verifiedFeature = Get-WindowsOptionalFeature -Online -FeatureName 'Recall' -ErrorAction Stop
+        if ($verifiedFeature.State -eq 'Enabled') {
+            throw 'O Windows ainda informa que o recurso Recall está habilitado.'
+        }
+        $changed++
+        Write-Output "Recall: desativado (estado final: $($verifiedFeature.State))."
+    } else {
+        $skipped++
+        Write-Output "Recall: já estava desativado (estado: $($feature.State))."
+    }
+} catch {
+    $failures.Add("Recurso Recall: $($_.Exception.Message)")
+}
+
+Write-Output ("Privacidade avançada: {0} configuração(ões) aplicadas, {1} item(ns) não aplicável(is), {2} falha(s)." -f $changed, $skipped, $failures.Count)
+foreach ($failure in $failures) { Write-Output $failure }
+if ($failures.Count -gt 0) { exit 2 }
+Write-Output 'As políticas de privacidade avançada foram aplicadas e verificadas. Algumas podem exigir sair da sessão ou reiniciar o Windows.'
 "#,
         execution_id,
         on_output,
@@ -595,6 +728,69 @@ fn disable_diagnostic_tasks(
         on_output,
         is_cancelled,
     )
+}
+
+#[cfg(target_os = "windows")]
+fn run_cleanmgr_silently(
+    execution_id: &str,
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    // cleanmgr é Win32 GUI; -WindowStyle Hidden não oculta de forma confiável
+    // a janela principal. Ocultamos as janelas vinculadas ao PID do processo
+    // durante toda a execução, inclusive as que surgem após a inicialização.
+    let script = r#"
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class QboaWindowHider {
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr extra);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
+    delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr extra);
+    public static void Hide(uint targetPid) {
+        EnumWindows((hwnd, extra) => {
+            uint pid;
+            GetWindowThreadProcessId(hwnd, out pid);
+            if (pid == targetPid) ShowWindow(hwnd, 0);
+            return true;
+        }, IntPtr.Zero);
+    }
+}
+'@
+$exe = Join-Path $env:SystemRoot 'System32\cleanmgr.exe'
+$p = Start-Process -FilePath $exe -ArgumentList @('/verylowdisk','/d',$env:SystemDrive) -PassThru
+while (-not $p.HasExited) {
+    [QboaWindowHider]::Hide([uint32]$p.Id)
+    Start-Sleep -Milliseconds 200
+    $p.Refresh()
+}
+exit $p.ExitCode
+"#;
+    on_output("Chamando a Limpeza de Disco do Windows em modo silencioso...");
+    run_command(
+        "powershell",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            script,
+        ],
+        execution_id,
+        on_output,
+        is_cancelled,
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn run_cleanmgr_silently(
+    _execution_id: &str,
+    _on_output: &mut dyn FnMut(&str),
+    _is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    Err("CleanMGR só está disponível no Windows.".to_string())
 }
 
 fn run_system_command(
@@ -634,14 +830,22 @@ fn apply_registry_task(
 ) -> Result<ChangeRecord, String> {
     let catalog = TaskRegistry::try_new()?;
     let mut backend = registry_executor::PowerShellRegistryBackend;
-    registry_executor::execute_registry_task(
+    // A cópia permite que cancel_task atualize o sinal de cancelamento enquanto
+    // o executor do Registro aguarda o PowerShell. O journal é persistido pelo
+    // executor e o estado em memória recebe o resultado ao final.
+    let mut safety = safety_state().lock().unwrap().clone();
+    let result = registry_executor::execute_registry_task(
         task_id,
         &catalog,
         execution_id,
         snapshot_location,
-        &mut safety_state().lock().unwrap(),
+        &mut safety,
         &mut backend,
-    )
+    );
+    if result.is_ok() {
+        safety_state().lock().unwrap().changes = safety.changes.clone();
+    }
+    result
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -827,6 +1031,9 @@ fn execute_task(
     is_cancelled: &dyn Fn() -> bool,
     apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
 ) -> Result<String, String> {
+    if is_cancelled() {
+        return Err("Tudo bem, a tarefa foi interrompida a seu pedido.".to_string());
+    }
     match task.id.as_str() {
         "limpeza_leve" => cleanup_standard(
             &task.id,
@@ -849,13 +1056,7 @@ fn execute_task(
                 apply_registry,
             )?;
             on_output("[Etapa 2/5] Executando a Limpeza de Disco do Windows (cleanmgr)...");
-            let part_2 = run_system_command(
-                "cleanmgr",
-                &["/verylowdisk"],
-                execution_id,
-                on_output,
-                is_cancelled,
-            )?;
+            let part_2 = run_cleanmgr_silently(execution_id, on_output, is_cancelled)?;
             on_output("[Etapa 3/5] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output(
@@ -942,10 +1143,22 @@ fn execute_task(
         }
         "desengordurar_telemetria" => {
             apply_registry(&task.id)?;
+            if is_cancelled() {
+                return Err("Tarefa cancelada pelo usuário.".to_string());
+            }
             disable_telemetry_components(execution_id, on_output, is_cancelled)
+        }
+        "desengordurar_telemetria_avancada" => {
+            disable_advanced_privacy(execution_id, on_output, is_cancelled)
         }
         "desengordurar_tarefas" => disable_diagnostic_tasks(execution_id, on_output, is_cancelled),
         "limpeza_windows_update" => cleanup_windows_update(execution_id, on_output, is_cancelled),
+        "limpeza_historico_navegadores" => run_powershell(
+            include_str!("../scripts/cleanup_browser_history.ps1"),
+            execution_id,
+            on_output,
+            is_cancelled,
+        ),
         "diagnostico_dism_scan" => run_system_command(
             "dism",
             &["/Online", "/Cleanup-Image", "/ScanHealth"],
@@ -1079,11 +1292,8 @@ fn start_task(
             || task_for_spawn.executor == task_registry::ExecutorType::Registry
         {
             write_execution_log(&execution_id_for_spawn, "snapshot-started");
-            match safety_state()
-                .lock()
-                .unwrap()
-                .capture_snapshot(&task_for_spawn.id)
-            {
+            let snapshot_manager = safety_state().lock().unwrap().clone();
+            match snapshot_manager.capture_snapshot(&task_for_spawn.id) {
                 Ok(location) => Some(location),
                 Err(error) => {
                     write_execution_log(
@@ -1113,13 +1323,11 @@ fn start_task(
 
         if task_for_spawn.creates_restore_point || task_for_spawn.risk.requires_restore_point() {
             write_execution_log(&execution_id_for_spawn, "restore-point-phase-started");
-            match safety_state()
-                .lock()
-                .unwrap()
-                .create_restore_point(&format!(
-                    "Qboa Digital — Antes da tarefa: {}",
-                    task_for_spawn.name
-                )) {
+            let mut restore_point_manager = safety_state().lock().unwrap().clone();
+            match restore_point_manager.create_restore_point(&format!(
+                "Qboa Digital — Antes da tarefa: {}",
+                task_for_spawn.name
+            )) {
                 Ok(point) => {
                     write_execution_log(&execution_id_for_spawn, "restore-point-phase-completed");
                     emit_event(
@@ -1150,7 +1358,7 @@ fn start_task(
                         &task_id_for_spawn,
                         &execution_id_for_spawn,
                         &format!(
-                            "Não foi possível criar um ponto de restauração: {err}\nDeseja prosseguir sem ponto de restauração?"
+                            "Não consegui criar um ponto de restauração: {err}\nQuer continuar mesmo assim?"
                         ),
                         false,
                         None,
@@ -1175,7 +1383,7 @@ fn start_task(
                             "task-cancelled",
                             &task_id_for_spawn,
                             &execution_id_for_spawn,
-                            "Tarefa cancelada. O ponto de restauração não foi criado.",
+                            "Tudo bem, cancelei. O ponto de restauração não foi criado.",
                             false,
                             None,
                             &task_risk_for_spawn,
@@ -1208,7 +1416,7 @@ fn start_task(
             "task-progress",
             &task_id_for_spawn,
             &execution_id_for_spawn,
-            "Preparando execução e monitorando riscos.",
+            "Preparando tudo com cuidado e verificando possíveis riscos.",
             true,
             Some("30%"),
             &task_risk_for_spawn,
@@ -1219,9 +1427,84 @@ fn start_task(
         let execution_id_for_output = execution_id_for_spawn.clone();
         let task_risk_for_output = task_risk_for_spawn.clone();
         let mut streamed_output = String::new();
+        let mut cleanup_step: Option<(u32, u32)> = None;
+        let mut dism_percent = 0u32;
+        let mut dism_active = false;
+        let mut dism_stage_label = String::new();
         let mut on_output = |line: &str| {
             streamed_output.push_str(line);
             streamed_output.push('\n');
+
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("[Etapa ") {
+                if let Some((position, description)) = rest.split_once("] ") {
+                    if let Some((current, total)) = position.split_once('/') {
+                        if let (Ok(current), Ok(total)) =
+                            (current.parse::<u32>(), total.parse::<u32>())
+                        {
+                            if total > 0 && current > 0 && current <= total {
+                                cleanup_step = Some((current, total));
+                                dism_percent = 0;
+                                dism_active = description.to_ascii_lowercase().contains("dism")
+                                    || description.to_ascii_lowercase().contains("imagem")
+                                    || description
+                                        .to_ascii_lowercase()
+                                        .contains("componentes substituídos");
+                                dism_stage_label = description.trim_end_matches("...").to_string();
+                                let percent =
+                                    cleanup_progress_percent(current, total, dism_active, 0.0);
+                                let friendly = description.trim_end_matches("...");
+                                emit_event(
+                                    &app_for_output,
+                                    "task-progress",
+                                    &task_id_for_output,
+                                    &execution_id_for_output,
+                                    &format!("Passo {current}/{total} · {friendly}"),
+                                    true,
+                                    Some(&format!("{percent}%")),
+                                    &task_risk_for_output,
+                                );
+                            }
+                        }
+                    }
+                }
+            } else if dism_active {
+                if let Some(percent_pos) = trimmed.find('%') {
+                    let prefix = &trimmed[..percent_pos];
+                    let number: String = prefix
+                        .chars()
+                        .rev()
+                        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect();
+                    if let Ok(value) = number.replace(',', ".").parse::<f64>() {
+                        let value = value.clamp(0.0, 100.0);
+                        let rounded = value.round() as u32;
+                        if rounded >= dism_percent {
+                            dism_percent = rounded;
+                            if let Some((current, total)) = cleanup_step {
+                                let overall = cleanup_progress_percent(current, total, true, value);
+                                emit_event(
+                                    &app_for_output,
+                                    "task-progress",
+                                    &task_id_for_output,
+                                    &execution_id_for_output,
+                                    &format!(
+                                        "Passo {current}/{total} · {} ({rounded}%)",
+                                        dism_stage_label.trim_end_matches('.')
+                                    ),
+                                    true,
+                                    Some(&format!("{overall}%")),
+                                    &task_risk_for_output,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
             emit_event(
                 &app_for_output,
                 "task-output",
@@ -1373,7 +1656,7 @@ fn start_task(
                     "task-completed",
                     &task_id_for_spawn,
                     &execution_id_for_spawn,
-                    &format!("Tarefa concluída: {}", task_name),
+                    &format!("Prontinho! Tarefa concluída: {}", task_name),
                     true,
                     Some("100%"),
                     &task_risk_for_spawn,
@@ -1415,7 +1698,7 @@ fn start_task(
                     format!("{:.1} s", elapsed.as_secs_f64())
                 };
                 let summary = format!(
-                    "Resumo parcial da execução — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo até a interrupção/falha: {elapsed_label}.",
+                    "A tarefa parou antes do fim — {files_removed} arquivos removidos, {registry_entries_removed} chaves/entradas de Registro excluídas, {:.3} GB liberados (estimativa pelos arquivos removidos), tempo até a interrupção/falha: {elapsed_label}.", 
                     bytes_freed as f64 / 1_000_000_000.0
                 );
                 emit_event(
@@ -1437,6 +1720,38 @@ fn start_task(
                     .unwrap()
                     .is_cancelled(&execution_id_for_spawn);
                 if cancelled && !err.starts_with("Cancelamento não confirmado") {
+                    let mut cancellation_message = err.clone();
+                    let rollback_result = if let Some(change) = registry_change.take() {
+                        Some(safety_state().lock().unwrap().rollback_task(&change.id))
+                    } else if task_for_spawn.reversible && task_for_spawn.rollback_on_failure {
+                        let recorded = safety_state().lock().unwrap().record_change(
+                            &execution_id_for_spawn,
+                            &task_id_for_spawn,
+                            &task_name,
+                            true,
+                            snapshot_location.as_deref(),
+                            "cancelled_pending_rollback",
+                        );
+                        Some(match recorded {
+                            Ok(change) => safety_state().lock().unwrap().rollback_task(&change.id),
+                            Err(record_error) => safety_state()
+                                .lock()
+                                .unwrap()
+                                .rollback_unrecorded_change(&record_error.change),
+                        })
+                    } else {
+                        None
+                    };
+                    if let Some(result) = rollback_result {
+                        match result {
+                            Ok(message) => cancellation_message.push_str(&format!(
+                                "\nAs alterações parciais foram revertidas: {message}"
+                            )),
+                            Err(rollback_error) => cancellation_message.push_str(&format!(
+                                "\nAtenção: não foi possível confirmar a reversão de todas as alterações: {rollback_error}"
+                            )),
+                        }
+                    }
                     safety_state()
                         .lock()
                         .unwrap()
@@ -1446,7 +1761,7 @@ fn start_task(
                         "task-cancelled",
                         &task_id_for_spawn,
                         &execution_id_for_spawn,
-                        &err,
+                        &cancellation_message,
                         false,
                         None,
                         &task_risk_for_spawn,
@@ -2250,9 +2565,27 @@ mod tests {
     }
 }
 
+#[tauri::command]
+fn finish_startup(app: AppHandle) -> Result<(), String> {
+    let main_window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "A janela principal do QBoa não foi encontrada.".to_string())?;
+    if let Some(splash) = app.get_webview_window("splashscreen") {
+        let _ = splash.close();
+    }
+    main_window
+        .show()
+        .map_err(|error| format!("Não foi possível exibir a janela principal: {error}"))?;
+    main_window
+        .set_focus()
+        .map_err(|error| format!("Não foi possível ativar a janela principal: {error}"))?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            finish_startup,
             get_tasks,
             run_task,
             respond_restore_point_failure,

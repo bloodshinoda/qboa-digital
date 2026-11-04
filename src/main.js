@@ -3,19 +3,16 @@ const { listen } = window.__TAURI__.event;
 
 let structure = null;
 let activeSection = "limpeza";
-let activeLevel = "normal";
 let pendingTask = null;
 let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
 let launchPending = false;
-let presetSequenceRunning = false;
-let presetExpectedCount = 0;
-let presetTerminalCount = 0;
 let currentOperationName = "";
 let currentOperationStage = "";
 let consoleBuffer = "";
 let executionOutput = [];
+let executionStartedAt = null;
 let executionToastTimer = null;
 let activityLabel = "";
 let activityDots = "";
@@ -59,10 +56,6 @@ const Qboa = {
 
   async respondRestorePointFailure(executionId, proceed) {
     return invoke("respond_restore_point_failure", { executionId, proceed });
-  },
-
-  async runPreset(presetId) {
-    return invoke("run_preset", { presetId });
   },
 
   async getSessionHistory() {
@@ -196,6 +189,11 @@ const Qboa = {
 
   async cancelTask(taskId) {
     return invoke("cancel_task", { taskId, executionId: activeExecutionId });
+  },
+
+  async finishStartup() {
+    await new Promise((resolve) => window.setTimeout(resolve, 700));
+    return invoke("finish_startup");
   }
 };
 
@@ -215,78 +213,59 @@ function renderTabs() {
   const tabsEl = document.getElementById("tabs");
   tabsEl.innerHTML = "";
 
-  // Diagnóstico possui cards e fluxo próprios; não renderizar também a aba antiga definida no JSON.
-  structure.sections.filter((section) => section.id !== "diagnostico").forEach((section) => {
+  const tabs = [
+    {
+      id: "limpeza",
+      label: "🧹 Limpeza",
+      summary: () => renderSectionSummary()
+    },
+    {
+      id: "diagnostico",
+      label: "🩺 Diagnóstico",
+      summary: () => { document.getElementById("section-summary").textContent = "Testes de hardware e saúde do sistema"; }
+    },
+    {
+      id: "servicos",
+      label: "🛠️ Serviços",
+      summary: () => { document.getElementById("section-summary").textContent = "Gerenciamento dos serviços do Windows"; }
+    },
+    {
+      id: "capacidades",
+      label: "🧩 Capacidades",
+      summary: () => { document.getElementById("section-summary").textContent = "Inventário de hardware, firmware e recursos do Windows"; }
+    },
+    {
+      id: "sobre",
+      label: "ℹ️ Sobre",
+      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.1"; }
+    }
+  ];
+
+  tabs.forEach((tab) => {
     const btn = document.createElement("button");
-    btn.className = "tab" + (section.id === activeSection ? " active" : "");
-    btn.textContent = `${section.icon} ${section.title}`;
-    btn.addEventListener("click", () => {
-      activeSection = section.id;
+    btn.className = "tab" + (tab.id === activeSection ? " active" : "");
+    btn.textContent = tab.label;
+    btn.addEventListener("click", async () => {
+      activeSection = tab.id;
       renderTabs();
-      renderSectionSummary();
+      tab.summary();
       renderCards();
+      if (tab.id === "servicos" && !serviceProfileState) await loadServiceProfileState();
+      if (tab.id === "capacidades") void loadCapabilityInventory();
     });
     tabsEl.appendChild(btn);
   });
-
-  const serviceTab = document.createElement("button");
-  serviceTab.className = "tab" + (activeSection === "servicos" ? " active" : "");
-  serviceTab.textContent = "🛠️ Serviços";
-  serviceTab.addEventListener("click", async () => {
-    activeSection = "servicos";
-    renderTabs();
-    document.getElementById("section-summary").textContent = "Alterar perfil de serviços do Windows";
-    renderCards();
-    if (!serviceProfileState) await loadServiceProfileState();
-  });
-  tabsEl.appendChild(serviceTab);
-
-  const capabilityTab = document.createElement("button");
-  capabilityTab.className = "tab" + (activeSection === "capacidades" ? " active" : "");
-  capabilityTab.textContent = "🧩 Capacidades";
-  capabilityTab.addEventListener("click", () => {
-    activeSection = "capacidades";
-    renderTabs();
-    document.getElementById("section-summary").textContent = "Inventário de hardware, firmware e recursos do Windows";
-    renderCards();
-    void loadCapabilityInventory();
-  });
-  tabsEl.appendChild(capabilityTab);
-
-  const diagnosticTab = document.createElement("button");
-  diagnosticTab.className = "tab" + (activeSection === "diagnostico" ? " active" : "");
-  diagnosticTab.textContent = "🩺 Diagnóstico";
-  diagnosticTab.addEventListener("click", () => {
-    activeSection = "diagnostico";
-    renderTabs();
-    document.getElementById("section-summary").textContent = "Testes de hardware e saúde do sistema";
-    renderCards();
-  });
-  tabsEl.appendChild(diagnosticTab);
-
-  const contributionTab = document.createElement("button");
-  contributionTab.className = "tab" + (activeSection === "sobre" ? " active" : "");
-  contributionTab.textContent = "ℹ️ Sobre";
-  contributionTab.addEventListener("click", () => {
-    activeSection = "sobre";
-    renderTabs();
-    document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.0";
-    renderCards();
-  });
-  tabsEl.appendChild(contributionTab);
 }
 
 function syncExecutionControls() {
-  const running = Boolean(activeTaskId || launchPending || presetSequenceRunning);
-  const presetButton = document.getElementById("preset-run-btn");
+  const running = Boolean(activeTaskId || launchPending);
   const cancelButton = document.getElementById("cancel-task-btn");
 
   cancelButton.hidden = !activeTaskId;
   cancelButton.disabled = !activeTaskId;
-  presetButton.disabled = running || activeSection === "servicos";
   const progress = document.getElementById("operation-progress");
   if (progress) progress.hidden = !running;
-  if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a operação…", null);
+  if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
 }
 
 function renderCards() {
@@ -299,7 +278,6 @@ function renderCards() {
   capabilityPanel.hidden = activeSection !== "capacidades";
   dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
   dashboard.classList.toggle("contribution-view", activeSection === "sobre");
-  document.querySelector(".levels").hidden = activeSection !== "limpeza";
   syncExecutionControls();
   cardsEl.innerHTML = "";
   if (activeSection === "servicos" || activeSection === "capacidades") { if (activeSection === "servicos" && !windowsServices.length) void loadWindowsServices(); return; }
@@ -335,10 +313,10 @@ function renderCards() {
       <article class="contribution-panel about-panel">
         <div class="contribution-copy">
           <span class="eyebrow">Sobre o aplicativo</span>
-          <h2>QBoa Digital <span class="about-version">3.2.0</span></h2>
+          <h2>QBoa Digital <span class="about-version">3.2.1</span></h2>
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
-            <p><strong>Versão:</strong> 3.2.0</p>
+            <p><strong>Versão:</strong> 3.2.1</p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
           </div>
@@ -765,17 +743,17 @@ function humanizeLogMessage(message) {
     "task-started": "Tarefa iniciada",
     "task-output": "Etapa",
     "task-progress": "Progresso",
-    "task-completed": "Tarefa concluída",
-    "task-cancelled": "Tarefa cancelada",
-    "task-error": "Falha na tarefa",
+    "task-completed": "Tudo certo por aqui!",
+    "task-cancelled": "Tudo bem, parei por aqui.",
+    "task-error": "Opa! A tarefa encontrou um problema.",
     "restore-point-created": "Ponto de restauração criado",
-    "restore-point-confirmation-required": "Confirmação necessária para continuar",
-    "snapshot-started": "Preparando cópia de segurança",
+    "restore-point-confirmation-required": "Só preciso confirmar uma coisinha",
+    "snapshot-started": "Preparando um ponto de segurança",
     "restore-point-phase-started": "Criando ponto de restauração",
     "restore-point-phase-completed": "Ponto de restauração criado",
-    "restore-point-phase-failed": "Não foi possível criar o ponto de restauração",
+    "restore-point-phase-failed": "Não consegui criar o ponto de restauração",
     "registry-operation-failed": "Falha ao limpar o histórico do Registro",
-    "task-executor-failed": "A tarefa não pôde ser concluída"
+    "task-executor-failed": "Não consegui terminar esta tarefa"
   };
   return String(message ?? "")
     .replace(/\[(task-started|task-output|task-progress|task-completed|task-cancelled|task-error|snapshot-started|restore-point-phase-started|restore-point-phase-completed|restore-point-phase-failed|registry-operation-failed|task-executor-failed)\]/gi,
@@ -852,7 +830,7 @@ function startActivity(taskName) {
 }
 
 function isCleanupTask(taskId) {
-  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update"].includes(taskId);
+  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update", "limpeza_historico_navegadores"].includes(taskId);
 }
 
 function showExecutionToast(status, title, message) {
@@ -866,15 +844,56 @@ function showExecutionToast(status, title, message) {
   executionToastTimer = window.setTimeout(() => { toast.hidden = true; executionToastTimer = null; }, 6500);
 }
 
+function formatCleanupBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / (1024 ** index);
+  return `${value.toLocaleString("pt-BR", { maximumFractionDigits: index >= 2 ? 2 : 1 })} ${units[index]}`;
+}
+
+function collectCleanupSummary() {
+  const summary = { files: 0, bytes: 0, registry: 0, failures: 0 };
+  executionOutput.forEach((raw) => {
+    const line = String(raw ?? "");
+    const metrics = line.match(/QBOA_METRICS\s+files=(\d+)\s+bytes=(\d+)\s+registry=(\d+)/i);
+    if (metrics) {
+      summary.files += Number(metrics[1]) || 0;
+      summary.bytes += Number(metrics[2]) || 0;
+      summary.registry += Number(metrics[3]) || 0;
+    }
+    const failureMatches = [...line.matchAll(/(\d+)\s+falha(?:s|\(s\))?/gi)];
+    failureMatches.forEach((match) => { summary.failures += Number(match[1]) || 0; });
+  });
+  return summary;
+}
+
+function formatCleanupDuration() {
+  if (!executionStartedAt) return "Não informado";
+  const seconds = Math.max(0, Math.round((Date.now() - executionStartedAt) / 1000));
+  if (seconds < 60) return `${seconds} s`;
+  return `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+}
+
 function showCleanupResult(taskId, status, detail = "") {
   const successful = status === "success"; const cancelled = status === "cancelled";
-  const title = successful ? "Limpeza concluída com sucesso" : cancelled ? "Limpeza cancelada" : "A limpeza terminou com falha";
+  const title = successful ? "Faxina concluída!" : cancelled ? "Tudo bem, parei por aqui." : "A faxina não terminou como esperado";
   const modal = document.getElementById("execution-summary-modal");
+  const summary = collectCleanupSummary();
   document.getElementById("execution-summary-title").textContent = title;
   document.getElementById("execution-summary-task").textContent = taskDisplayName(taskId);
-  document.getElementById("execution-summary-status").textContent = successful ? "Todas as etapas reportadas pela tarefa foram concluídas." : cancelled ? "A execução foi cancelada antes de terminar." : (detail || "O QBoa informou uma falha durante a execução.");
-  const lines = executionOutput.map((line) => String(line).trim()).filter(Boolean);
-  document.getElementById("execution-summary-output").textContent = lines.length ? lines.join("\n") : (detail || "A tarefa não forneceu detalhes adicionais.");
+  document.getElementById("execution-summary-status").textContent = successful
+    ? (summary.failures ? "A faxina terminou, mas alguns itens deram trabalho e não puderam ser tratados." : "Prontinho! A faxina foi concluída.")
+    : cancelled ? "A faxina foi interrompida antes de terminar."
+      : "Opa! Encontrei um problema e não consegui concluir a faxina.";
+  document.getElementById("execution-summary-files").textContent = summary.files.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-registry").textContent = summary.registry.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-space").textContent = formatCleanupBytes(summary.bytes);
+  document.getElementById("execution-summary-failures").textContent = summary.failures.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-duration").textContent = formatCleanupDuration();
+  const statusIcon = document.getElementById("execution-summary-icon");
+  statusIcon.textContent = successful ? "✓" : cancelled ? "Ⅱ" : "!";
+  statusIcon.className = `execution-summary-icon ${successful ? "success" : cancelled ? "warning" : "error"}`;
   modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
   showExecutionToast(successful ? "success" : cancelled ? "warning" : "error", title, taskDisplayName(taskId));
 }
@@ -927,7 +946,7 @@ function closeRunningOperationPopup() {
   modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
 }
 function operationIsBusy(requestedName = "") {
-  if (!(activeTaskId || launchPending || presetSequenceRunning)) return false;
+  if (!(activeTaskId || launchPending)) return false;
   showRunningOperationPopup(requestedName); return true;
 }
 
@@ -955,11 +974,12 @@ function closeRiskModal() {
   pendingTask = null;
 }
 
-function askConfirmation(message, title = "Confirmar operação") {
+function askConfirmation(message, title = "Vamos nessa?", confirmLabel = "Continuar", cancelLabel = "Cancelar") {
   const modal = document.getElementById("confirmation-modal");
   const titleElement = document.getElementById("confirmation-title");
   const messageElement = document.getElementById("confirmation-message");
   const confirmButton = document.getElementById("confirmation-confirm");
+  const cancelButton = document.getElementById("confirmation-cancel");
 
   if (pendingConfirmationResolver) {
     pendingConfirmationResolver(false);
@@ -968,6 +988,8 @@ function askConfirmation(message, title = "Confirmar operação") {
 
   titleElement.textContent = title;
   messageElement.textContent = message;
+  confirmButton.textContent = confirmLabel;
+  cancelButton.textContent = cancelLabel;
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
   confirmButton.focus();
@@ -997,14 +1019,16 @@ async function prepareBrowserCleanupIfNeeded() {
         chrome: "Google Chrome", msedge: "Microsoft Edge", brave: "Brave", vivaldi: "Vivaldi", opera: "Opera", firefox: "Mozilla Firefox"
       }[name.toLowerCase()] || name)).join(", ");
       const closeRunning = await askConfirmation(
-        `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os caches. Salve seu trabalho antes de continuar. Se recusar, a limpeza dos caches será ignorada.`,
-        "Fechar navegadores abertos?"
+        `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os dados selecionados. Salve seu trabalho antes de continuar. Se recusar, os dados dos navegadores serão preservados.`,
+        "Fechar navegadores abertos?",
+        "Fechar Navegadores",
+        "Não Fechar"
       );
       await Qboa.prepareBrowserCleanup(closeRunning);
       browserCleanupDecision = closeRunning;
       appendConsole(closeRunning
-        ? "Navegadores autorizados para fechamento; a limpeza dos caches será executada."
-        : "Você optou por manter os navegadores abertos; seus caches serão ignorados.");
+        ? "Navegadores autorizados para fechamento; a limpeza selecionada poderá continuar."
+        : "Você optou por manter os navegadores abertos; os dados deles serão preservados.");
     } else {
       await Qboa.prepareBrowserCleanup(true);
       browserCleanupDecision = true;
@@ -1019,14 +1043,14 @@ async function prepareBrowserCleanupIfNeeded() {
 async function executeTask(item, cardEl) {
   if (operationIsBusy(item?.name)) return false;
   launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
-  if (["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id)) {
+  if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
     await prepareBrowserCleanupIfNeeded();
   }
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
   currentOperationName = item.name; currentOperationStage = "Solicitando início ao mecanismo…";
   updateOperationProgress(currentOperationName, currentOperationStage, null);
-  writeStatus(`> Rodando "${item.name}" (nível: ${activeLevel})...`);
+  writeStatus(`> Bora cuidar de "${item.name}"...`);
   startActivity(item.name);
   closeRiskModal();
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
@@ -1035,11 +1059,12 @@ async function executeTask(item, cardEl) {
     const result = await Qboa.runTask(item.id, shutdownOnComplete);
     const output = result.output || "(sem saída)";
     activeExecutionId = result.execution_id || activeExecutionId;
-    launchPending = false; currentOperationStage = "Operação em execução; aguardando atualizações reais do mecanismo."; syncExecutionControls();
+    launchPending = false; currentOperationStage = "Mãos à obra! Aguardando o andamento da tarefa…"; syncExecutionControls();
     appendConsole(output);
     return true;
   } catch (err) {
     stopActivity();
+    if (isCleanupTask(item.id)) browserCleanupDecision = null;
     appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
     activeTaskId = null; activeExecutionId = null; launchPending = false; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
@@ -1057,14 +1082,6 @@ async function runTask(item, cardEl) {
   await executeTask(item, cardEl);
 }
 
-function presetDisplayName(level) {
-  return {
-    express: "Rápido",
-    normal: "Equilibrado",
-    turbo: "Completo"
-  }[level] || "Personalizado";
-}
-
 function rollbackStatusLabel(status) {
   return {
     Pending: "Pendente",
@@ -1077,53 +1094,6 @@ function rollbackStatusLabel(status) {
     Unknown: "Desconhecido",
     Irreversible: "Irreversível"
   }[status] || status;
-}
-
-function bindLevels() {
-  document.querySelectorAll(".level").forEach((btn) => {
-    if (btn.dataset.level === activeLevel) btn.classList.add("active");
-    btn.addEventListener("click", () => {
-      activeLevel = btn.dataset.level;
-      document.querySelectorAll(".level").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      if (activeLevel === "express" || activeLevel === "normal" || activeLevel === "turbo") {
-        renderCards();
-      }
-    });
-  });
-
-  document.getElementById("preset-run-btn").addEventListener("click", async () => {
-    if (operationIsBusy(`Perfil ${presetDisplayName(activeLevel)}`)) return;
-    launchPending = true; presetSequenceRunning = true; presetExpectedCount = 0; presetTerminalCount = 0;
-    currentOperationName = `Perfil ${presetDisplayName(activeLevel)}`; currentOperationStage = "Preparando a sequência de tarefas…"; syncExecutionControls();
-
-    const presetTasks = structure.sections.flatMap((section) =>
-      section.items.filter((item) => item.preset && item.preset.includes(activeLevel))
-    );
-    if (!presetTasks.length) {
-      appendConsole(`Nenhuma tarefa disponível para o perfil ${presetDisplayName(activeLevel)}.`);
-      return;
-    }
-
-    if (activeLevel === "turbo" && !(await askConfirmation("O preset Turbo executará alterações avançadas no Windows. Deseja continuar?", "Executar preset Turbo?"))) {
-      return;
-    }
-
-    try {
-      if (presetTasks.some((item) => ["limpeza_leve", "limpeza_media", "limpeza_pesada"].includes(item.id))) {
-        await prepareBrowserCleanupIfNeeded();
-      }
-      const ids = await Qboa.runPreset(activeLevel);
-      launchPending = false; presetExpectedCount = ids.length;
-      currentOperationName = `Perfil ${presetDisplayName(activeLevel)}`;
-      currentOperationStage = `Executando sequência: ${presetTerminalCount} de ${presetExpectedCount} tarefas concluídas.`;
-      if (presetTerminalCount >= presetExpectedCount) { presetSequenceRunning = false; currentOperationName = ""; currentOperationStage = ""; }
-      syncExecutionControls(); appendConsole(`Perfil ${presetDisplayName(activeLevel)} iniciado: ${ids.length} tarefas em sequência.`);
-    } catch (error) {
-      appendConsole(String(error)); launchPending = false; presetSequenceRunning = false; presetExpectedCount = 0; presetTerminalCount = 0; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
-    }
-  });
-
 }
 
 async function refreshHistory() {
@@ -2711,7 +2681,7 @@ async function cancelCompleteDiagnostic() {
 
 async function runCompleteDiagnostic() {
   if (completeDiagnosticRunning) return;
-  if (activeTaskId || launchPending || presetSequenceRunning) {
+  if (activeTaskId || launchPending) {
     document.getElementById("diagnostic-status").textContent = "Conclua a limpeza ou manutenção em andamento antes de iniciar o diagnóstico completo.";
     return;
   }
@@ -3221,8 +3191,8 @@ async function registerEvents() {
   void listen("qboa-event", (event) => {
     const payload = event.payload;
     if (payload.event === "task-started") {
-      executionOutput = []; activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
-      currentOperationName = presetSequenceRunning ? `Perfil ${presetDisplayName(activeLevel)} · ${taskDisplayName(payload.task_id)}` : taskDisplayName(payload.task_id);
+      executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
+      currentOperationName = taskDisplayName(payload.task_id);
       currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
@@ -3253,9 +3223,11 @@ async function registerEvents() {
     }
 
 
-    if (payload.event === "task-output" && payload.message) {
-      executionOutput.push(payload.message); currentOperationStage = payload.message;
-      updateOperationProgress(currentOperationName, currentOperationStage, payload.progress || payload.message); appendConsole(payload.message);
+    if (payload.event === "task-progress" && payload.message) {
+      currentOperationStage = payload.message;
+      updateOperationProgress(currentOperationName, currentOperationStage, payload.progress);
+    } else if (payload.event === "task-output" && payload.message) {
+      executionOutput.push(payload.message); appendConsole(payload.message);
     } else if (payload.event === "task-completed") {
       stopActivity();
       appendConsole(taskSuccessMessage(taskDisplayName(payload.task_id)));
@@ -3270,16 +3242,16 @@ async function registerEvents() {
     }
 
     if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
-      if (presetSequenceRunning) { presetTerminalCount += 1; currentOperationStage = `Sequência: ${presetTerminalCount}${presetExpectedCount ? ` de ${presetExpectedCount}` : ""} tarefa(s) finalizada(s).`; }
       if (isCleanupTask(payload.task_id)) {
         const resultStatus = payload.event === "task-completed" ? "success" : payload.event === "task-cancelled" ? "cancelled" : "error";
         showCleanupResult(payload.task_id, resultStatus, payload.message || "");
+        browserCleanupDecision = null;
       }
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
-      if (presetSequenceRunning && presetExpectedCount > 0 && presetTerminalCount >= presetExpectedCount) { presetSequenceRunning = false; currentOperationName = ""; currentOperationStage = ""; }
-      else if (!presetSequenceRunning) { currentOperationName = ""; currentOperationStage = ""; }
+      currentOperationName = "";
+      currentOperationStage = "";
       syncExecutionControls();
       refreshHistory();
     }
@@ -3295,7 +3267,6 @@ async function registerEvents() {
   renderTabs();
   renderSectionSummary();
   renderCards();
-  bindLevels();
   await registerEvents();
   await refreshHistory();
   await loadDiagnosticHistory(true);
@@ -3561,4 +3532,11 @@ async function registerEvents() {
       appendConsole(String(error));
     }
   });
+
+  try {
+    await Qboa.finishStartup();
+  } catch (error) {
+    console.error("Não foi possível finalizar a abertura do QBoa:", error);
+    appendConsole(`A janela principal não pôde ser exibida automaticamente: ${String(error)}`);
+  }
 })();

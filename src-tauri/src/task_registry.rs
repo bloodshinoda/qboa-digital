@@ -217,6 +217,22 @@ impl TaskRegistry {
                 presets: vec!["normal".to_string(), "turbo".to_string()],
             },
             LegacyTask {
+                id: "limpeza_historico_navegadores".to_string(),
+                name: "Histórico dos navegadores".to_string(),
+                description: "Remove o histórico de navegação dos perfis encontrados, preservando favoritos, senhas e arquivos baixados.".to_string(),
+                category: TaskCategory::Cleanup,
+                risk: TaskRisk::Moderate,
+                requires_admin: false,
+                estimated_duration: 5,
+                reversible: false,
+                creates_restore_point: false,
+                rollback_strategy: "None".to_string(),
+                rollback_on_failure: false,
+                dependencies: vec![],
+                executor: ExecutorType::PowerShell,
+                presets: vec![],
+            },
+            LegacyTask {
                 id: "limpeza_pesada".to_string(),
                 name: "Limpeza pesada".to_string(),
                 description: "Executa limpeza profunda, corrige atalhos e associações inválidas e remove entradas órfãs confirmadas."
@@ -622,7 +638,8 @@ fn task_impact(id: &str) -> Vec<ExpectedImpact> {
             ImpactArea::Space,
             "Pode liberar espaço removendo arquivos temporários definidos pela tarefa.",
         ),
-        "desengordurar_telemetria"
+        "limpeza_historico_navegadores"
+        | "desengordurar_telemetria"
         | "desengordurar_tarefas"
         | "desengordurar_telemetria_avancada" => (
             ImpactArea::Privacy,
@@ -671,6 +688,9 @@ fn task_verification(id: &str) -> &'static str {
         "diagnostico_informacoes" => {
             "O backend verifica o código de saída de systeminfo e apresenta a saída."
         }
+        "limpeza_historico_navegadores" => {
+            "O backend verifica o resultado da limpeza dos bancos de histórico dos perfis Chromium e Firefox encontrados; favoritos e credenciais são preservados."
+        }
         _ => {
             "O backend verifica o código de saída do executor e apresenta sua saída; não verifica individualmente cada alteração."
         }
@@ -692,7 +712,11 @@ mod tests {
     fn registry_resolves_known_tasks() {
         let registry = TaskRegistry::try_new().unwrap();
         assert!(registry.resolve("limpeza_leve").is_some());
+        assert!(registry.resolve("limpeza_historico_navegadores").is_some());
         assert!(registry.resolve("desengordurar_telemetria").is_some());
+        assert!(registry
+            .resolve("desengordurar_telemetria_avancada")
+            .is_some());
         assert!(registry.resolve("diagnostico_sfc").is_some());
     }
 
@@ -739,7 +763,7 @@ mod tests {
     fn current_catalog_loads_with_complete_metadata() {
         let registry = TaskRegistry::try_new().unwrap();
         let tasks = registry.list();
-        assert_eq!(tasks.len(), 11);
+        assert_eq!(tasks.len(), 12);
         for task in tasks {
             assert!(!task.impact.is_empty());
             assert!(!task.verification.is_empty());
@@ -754,6 +778,7 @@ mod tests {
         let expected = [
             ("limpeza_leve", ExecutorType::Registry),
             ("limpeza_media", ExecutorType::Registry),
+            ("limpeza_historico_navegadores", ExecutorType::PowerShell),
             ("limpeza_pesada", ExecutorType::Registry),
             ("desengordurar_telemetria", ExecutorType::Registry),
             ("desengordurar_tarefas", ExecutorType::PowerShell),

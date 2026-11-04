@@ -80,6 +80,14 @@
           "preset": [
             "turbo"
           ]
+        },
+        {
+          "id": "limpeza_historico_navegadores",
+          "name": "Histórico dos navegadores",
+          "desc": "Remove o histórico de navegação dos perfis encontrados, sem apagar favoritos, senhas ou arquivos baixados.",
+          "risk": "moderate",
+          "reversible": false,
+          "preset": []
         }
       ]
     },

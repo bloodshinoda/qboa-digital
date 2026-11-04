@@ -420,42 +420,6 @@ fn registry_mutations(task_id: &str) -> Option<Vec<RegistryMutation>> {
             "DisableTelemetryOptInChangeNotification",
             1,
         ),
-        (
-            "LocalMachine",
-            r"SOFTWARE\Policies\Microsoft\Windows\DataCollection",
-            "DisableEnterpriseAuthProxy",
-            1,
-        ),
-        (
-            "LocalMachine",
-            r"SOFTWARE\Policies\Microsoft\Windows\WindowsAI",
-            "DisableAIDataAnalysis",
-            1,
-        ),
-        (
-            "LocalMachine",
-            r"SOFTWARE\Policies\Microsoft\Windows\WindowsAI",
-            "TurnOffWindowsCopilot",
-            1,
-        ),
-        (
-            "CurrentUser",
-            r"SOFTWARE\Policies\Microsoft\Windows\WindowsAI",
-            "DisableAIDataAnalysis",
-            1,
-        ),
-        (
-            "LocalMachine",
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-            "EnableRecallOnDevice",
-            0,
-        ),
-        (
-            "CurrentUser",
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-            "EnableRecallOnDevice",
-            0,
-        ),
     ];
     Some(
         values
@@ -789,6 +753,19 @@ mod tests {
             restore_registry_snapshot(&snapshot, &mut **registry.borrow_mut())?;
             Ok("Rollback de Registro aplicado e validado.".to_string())
         })
+    }
+
+    #[test]
+    fn telemetry_registry_mutations_are_limited_to_basic_telemetry() {
+        let mutations = registry_mutations("desengordurar_telemetria").unwrap();
+        assert_eq!(mutations.len(), 6);
+        assert!(mutations.iter().all(|mutation| {
+            !mutation.key.path.contains("WindowsAI")
+                && !mutation.key.path.contains("WindowsCopilot")
+                && !mutation.key.value_name.contains("Recall")
+                && mutation.key.value_name != "TurnOffWindowsCopilot"
+        }));
+        assert!(registry_mutations("desengordurar_telemetria_avancada").is_none());
     }
 
     #[test]

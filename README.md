@@ -2,13 +2,15 @@
 
 ![Qboa Digital](src-tauri/icons/logo.png)
 
-Versão atual: `3.2.0` (versão do pacote: `3.2.0`)
+Versão atual: `3.2.1` (versão do pacote: `3.2.1`)
 
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
 
-## QBoa Digital 3.2.0
+## QBoa Digital 3.2.1
 
-A versão 3.2.0 amplia o diagnóstico de hardware do Windows com testes de RAM, CPU e GPU, diagnóstico completo integrado e histórico local de laudos persistentes. As operações de diagnóstico são independentes das rotinas de limpeza e manutenção.
+A versão 3.2.1 aprimora a execução e o acompanhamento das rotinas de limpeza e manutenção do Windows, com progresso por etapas, integração do percentual reportado pelo DISM, resumo final e melhorias no fluxo de inicialização. Também adiciona limpeza de histórico de navegadores e corrige operações de telemetria e privacidade avançada.
+
+> O QBoa Digital mantém diagnóstico separado de limpeza e manutenção.
 
 ## Screenshots
 
@@ -34,13 +36,22 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
   <p><strong>Serviços do Windows</strong></p>
 </div>
 
-## Downloads — versão 3.2.0
+## Downloads — versão 3.2.1
 
-- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.0/qboa-digital-3.2.0-x64-installer.exe)** — instalação tradicional.
-- **[Versão portátil Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.0/qboa-digital-3.2.0-x64-portable.exe)** — executável portátil distribuído como arquivo individual.
-- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.2.0).
+- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.1/qboa-digital-3.2.1-x64-installer.exe)** — instalação tradicional.
+- **[Versão portátil Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.1/qboa-digital-3.2.1-x64-portable.exe)** — executável portátil distribuído como arquivo individual.
+- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.2.1).
 
-### Destaques desta versão
+### Destaques da versão 3.2.1
+
+- Progresso por etapas nas limpezas média e pesada, incluindo percentual real quando informado pelo DISM.
+- Resumo final da execução e separação entre eventos de progresso e saída técnica.
+- Limpeza de histórico de navegadores compatíveis, preservando favoritos, senhas e arquivos baixados.
+- Confirmação para fechar navegadores antes da limpeza, respeitando a decisão de preservar os dados em uso.
+- Correções nas rotinas de telemetria e privacidade avançada, com reporte de falhas por componente.
+- Ajustes na execução silenciosa da Limpeza de Disco do Windows e no fluxo de inicialização com splash screen.
+
+### Destaques da versão 3.2.0
 
 - Laudos de diagnóstico em JSON versionado, persistidos localmente e preservados entre sessões.
 - Histórico de laudos com recuperação de execuções interrompidas e preservação de resultados parciais.
@@ -228,7 +239,7 @@ A matriz de validação manual está em [docs/p0-windows-validation.md](docs/p0-
 
 ## Sobre e autoria
 
-**QBoa Digital 3.2.0** é um utilitário independente para limpeza, manutenção, privacidade e diagnóstico do Windows.
+**QBoa Digital 3.2.1** é um utilitário independente para limpeza, manutenção, privacidade e diagnóstico do Windows.
 
 - **Autor e desenvolvedor:** Vilson de Oliveira Junior
 - **Tecnologias:** Tauri, Rust, JavaScript, HTML e CSS
