@@ -70,7 +70,6 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
 - Aba **Sobre** com versão, autoria, link do projeto e QR Code Pix para apoiar o desenvolvimento.
 - Diagnóstico informativo de armazenamento, tratando dados parciais ou inconsistentes sem transformar ausência de dados em valores falsos.
 - Leitura opcional de temperatura da CPU quando um provedor compatível, como LibreHardwareMonitor ou OpenHardwareMonitor, está ativo.
-- Presets Express, Normal e Turbo; tarefas avançadas podem exigir confirmação.
 - Proteções por ponto de restauração quando disponível, snapshots e rollback de alterações reversíveis.
 
 O diagnóstico de armazenamento informa capacidade e espaço livre e oferece medições de desempenho; não substitui SMART nem verificação de integridade do sistema de arquivos. Os testes de CPU e GPU dependem de telemetria térmica compatível e aplicam limites conservadores de segurança. O teste de GPU exige Direct3D 11 Feature Level 11_0 e sensor térmico compatível; não cobre rasterização, VRAM ou todos os recursos gráficos. Os resultados não certificam integralmente os componentes.
@@ -80,7 +79,7 @@ O diagnóstico de armazenamento informa capacidade e espaço livre e oferece med
 QBoa Digital é um utilitário de manutenção do Windows desenvolvido com Tauri, Rust, HTML, CSS e JavaScript. A aplicação separa a interface, a orquestração das tarefas, os mecanismos nativos e as operações que dependem de recursos do próprio Windows:
 
 - interface frontend e seleção de tarefas;
-- registro central de tarefas, metadados de risco e resolução de presets;
+- registro central de tarefas, metadados de risco e associação das tarefas aos modos de limpeza;
 - orquestração e acompanhamento das execuções no backend Rust;
 - mecanismo nativo de limpeza em Rust para temporários, caches e resíduos conhecidos;
 - integração controlada com APIs do Windows e ferramentas de manutenção, como DISM e SFC, quando a operação exige esses recursos;
@@ -100,7 +99,7 @@ O backend disponibiliza um registro central de tarefas com metadados como:
 - reversibilidade
 - necessidade de ponto de restauração
 - estratégia de rollback
-- participação em presets
+- associação aos modos de limpeza
 
 As tarefas são resolvidas pelo ID da tarefa, sem permitir comandos arbitrários vindos do frontend. O backend mantém a lista de tarefas e executores; `src/data/qboa-structure.json` fornece os metadados usados pela interface.
 
@@ -175,23 +174,17 @@ Uma camada própria de rollback para alterações reversíveis, como ajustes no 
 
 No Windows, o rollback granular restaura o estado capturado das políticas de telemetria, serviços associados e tarefas agendadas processadas pelo Qboa. A operação só é marcada como concluída após validação. Limpeza de arquivos, verificações e reparos do sistema são operações sem reversão granular; nesses casos, o ponto de restauração é a proteção disponível.
 
-## Presets
+## Modos de limpeza
 
-O aplicativo oferece três modos de preset:
+A limpeza é organizada em três modos, que definem o conjunto e o nível de intervenção das operações executadas:
 
-- Express
-- Normal
-- Turbo
+- **Leve:** remove temporários e caches comuns, priorizando operações de baixo risco.
+- **Média:** amplia a limpeza para itens adicionais, como downloads temporários do Windows Update e caches conhecidos de aplicativos Adobe.
+- **Pesada:** reúne resíduos avançados e operações de manutenção mais agressivas, incluindo verificações e reparos com DISM e SFC quando selecionados.
 
-Express é intencionalmente limitado a operações de baixo risco. Normal adiciona manutenção de rotina. Turbo inclui tarefas mais avançadas e proteção reforçada.
+Os modos são exclusivos da área de limpeza. Diagnósticos, gerenciamento de serviços, privacidade e demais ferramentas são áreas independentes e não fazem parte de uma sequência automática de limpeza.
 
-As sequências atuais são:
-
-- **Express:** limpeza leve e informações do sistema
-- **Normal:** telemetria, limpeza média e informações do sistema
-- **Turbo:** telemetria e limpeza pesada, incluindo Windows Update, DISM Scan, limpeza de componentes, DISM Restore e SFC
-
-As tarefas de um preset são executadas sequencialmente pelo backend. Tarefas moderadas e avançadas exigem confirmação na interface.
+As operações moderadas ou avançadas podem exigir confirmação na interface. A limpeza pesada aplica verificações de segurança antes de remover resíduos de instalações anteriores do Windows; o DISM `/ResetBase` permanece opcional e depende de compatibilidade e confirmação explícita.
 
 ## Segurança
 
