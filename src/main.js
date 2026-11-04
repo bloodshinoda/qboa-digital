@@ -875,7 +875,7 @@ function setTaskbarProgress(progressValue) {
   if (!currentWindow?.setProgressBar) return;
 
   const source = String(progressValue ?? "");
-  const match = source.match(/(\\d{1,3}(?:[.,]\\d+)?)\\s*%/);
+  const match = source.match(/(\d{1,3}(?:[.,]\d+)?)\s*%/);
   const state = match
     ? { status: "normal", progress: Math.max(0, Math.min(100, Math.round(Number(match[1].replace(",", "."))))) }
     : { status: "indeterminate" };
