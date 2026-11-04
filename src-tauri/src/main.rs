@@ -3,6 +3,7 @@
 mod capability_inventory;
 mod cleanup_engine;
 mod cleanup_findings;
+mod cleanup_progress;
 mod complete_diagnostic;
 mod cpu_diagnostic;
 mod diagnostics;
@@ -59,29 +60,6 @@ struct EventPayload {
 }
 
 static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
-
-// DISM é a etapa mais demorada: recebe 55% do progresso em limpeza média
-// (5 etapas) e 65% em limpeza pesada (6+ etapas). O avanço do DISM é
-// limitado a 94% de seu peso até o processo encerrar, contemplando a pausa
-// frequente após exibir 100%.
-fn cleanup_progress_percent(current: u32, total: u32, is_dism: bool, dism_percent: f64) -> u32 {
-    if total == 0 || current == 0 || current > total {
-        return 0;
-    }
-
-    let dism_weight = if total >= 6 { 0.65 } else { 0.55 };
-    let other_weight = (1.0 - dism_weight) / (total - 1).max(1) as f64;
-
-    let progress = if is_dism {
-        let stage_progress = dism_percent.clamp(0.0, 100.0) / 100.0 * 0.94;
-        (current - 1) as f64 * other_weight + stage_progress * dism_weight
-    } else {
-        let completed_before = if current > 1 { current - 1 } else { 0 };
-        completed_before as f64 * other_weight
-    };
-
-    (progress.clamp(0.0, 1.0) * 100.0).floor() as u32
-}
 
 #[cfg(target_os = "windows")]
 static STORAGE_SCRIPT_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1447,7 +1425,7 @@ fn start_task(
                                         .contains("componentes substituídos");
                                 dism_stage_label = description.trim_end_matches("...").to_string();
                                 let percent =
-                                    cleanup_progress_percent(current, total, dism_active, 0.0);
+                                    cleanup_progress::cleanup_progress_percent(current, total, dism_active, 0.0);
                                 let friendly = description.trim_end_matches("...");
                                 emit_event(
                                     &app_for_output,
@@ -1480,7 +1458,7 @@ fn start_task(
                         if rounded >= dism_percent {
                             dism_percent = rounded;
                             if let Some((current, total)) = cleanup_step {
-                                let overall = cleanup_progress_percent(current, total, true, value);
+                                let overall = cleanup_progress::cleanup_progress_percent(current, total, true, value);
                                 emit_event(
                                     &app_for_output,
                                     "task-progress",
