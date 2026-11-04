@@ -18,6 +18,9 @@ let executionToastTimer = null;
 let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
+let currentOperationProgress = null;
+let lastProgressFlavorKey = "";
+const progressFlavorLastIndex = new Map();
 let serviceProfileState = null;
 let currentServiceProfilePreview = null;
 let editedServiceProfileChanges = [];
@@ -242,7 +245,7 @@ function renderTabs() {
     {
       id: "sobre",
       label: "ℹ️ Sobre",
-      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.1"; }
+      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.2"; }
     }
   ];
 
@@ -271,6 +274,7 @@ function syncExecutionControls() {
   const progress = document.getElementById("operation-progress");
   if (progress) progress.hidden = !running;
   if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
+  else clearTaskbarProgress();
 }
 
 function renderCards() {
@@ -318,10 +322,10 @@ function renderCards() {
       <article class="contribution-panel about-panel">
         <div class="contribution-copy">
           <span class="eyebrow">Sobre o aplicativo</span>
-          <h2>QBoa Digital <span class="about-version">3.2.1</span></h2>
+          <h2>QBoa Digital <span class="about-version">3.2.2</span></h2>
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
-            <p><strong>Versão:</strong> 3.2.1</p>
+            <p><strong>Versão:</strong> 3.2.2</p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
           </div>
@@ -809,28 +813,23 @@ function writeStatus(text) {
 
 function restoreConsoleHeight() {
   const output = document.getElementById("console-output");
-  if (!output) return;
-  try {
-    const savedHeight = Number(localStorage.getItem("qboa-console-height"));
-    const maximum = Math.floor(window.innerHeight * 0.6);
-    if (Number.isFinite(savedHeight) && savedHeight >= 110 && savedHeight <= maximum) {
-      output.style.height = `${savedHeight}px`;
-    }
-  } catch (_) {
-    // A preferência é opcional; o painel continua redimensionável sem persistência.
-  }
-  const saveHeight = () => {
-    try {
-      const height = Math.round(output.getBoundingClientRect().height);
-      if (height >= 110) localStorage.setItem("qboa-console-height", String(height));
-    } catch (_) {
-      // Não interrompe o registro de atividades se o armazenamento estiver indisponível.
-    }
-  };
-  window.addEventListener("pointerup", saveHeight);
-  window.addEventListener("touchend", saveHeight);
+  const handle = document.getElementById("console-resize-handle");
+  if (!output || !handle) return;
+  const minimum = 110;
+  const maximum = () => Math.max(minimum, Math.floor(window.innerHeight * 0.6));
+  const saveHeight = () => { try { localStorage.setItem("qboa-console-height", String(Math.round(output.getBoundingClientRect().height))); } catch (_) { /* Preferência opcional. */ } };
+  const applyHeight = (height) => { const next = Math.max(minimum, Math.min(maximum(), Math.round(height))); output.style.height = next + "px"; handle.setAttribute("aria-valuenow", String(next)); handle.setAttribute("aria-valuemax", String(maximum())); };
+  try { const savedHeight = Number(localStorage.getItem("qboa-console-height")); if (Number.isFinite(savedHeight) && savedHeight >= minimum) applyHeight(savedHeight); } catch (_) { /* Painel continua redimensionável sem persistência. */ }
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return; event.preventDefault();
+    const startY = event.clientY; const startHeight = output.getBoundingClientRect().height; handle.setPointerCapture(event.pointerId);
+    const onMove = (moveEvent) => { if (moveEvent.pointerId === event.pointerId) applyHeight(startHeight + startY - moveEvent.clientY); };
+    const onEnd = (endEvent) => { if (endEvent.pointerId !== event.pointerId) return; handle.removeEventListener("pointermove", onMove); handle.removeEventListener("pointerup", onEnd); handle.removeEventListener("pointercancel", onEnd); saveHeight(); };
+    handle.addEventListener("pointermove", onMove); handle.addEventListener("pointerup", onEnd); handle.addEventListener("pointercancel", onEnd);
+  });
+  handle.addEventListener("keydown", (event) => { const current = output.getBoundingClientRect().height; if (event.key === "ArrowDown") { event.preventDefault(); applyHeight(current + 16); saveHeight(); } else if (event.key === "ArrowUp") { event.preventDefault(); applyHeight(current - 16); saveHeight(); } else if (event.key === "Home") { event.preventDefault(); applyHeight(minimum); saveHeight(); } else if (event.key === "End") { event.preventDefault(); applyHeight(maximum()); saveHeight(); } });
+  window.addEventListener("resize", () => applyHeight(output.getBoundingClientRect().height));
 }
-
 function renderConsole() {
   const out = document.getElementById("console-output");
   const content = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
@@ -965,6 +964,63 @@ function taskDisplayName(taskId) {
   return task?.name || taskId;
 }
 
+const PROGRESS_FLAVOR_BANK = {
+  preparation: ["Preparando o terreno para a faxina.", "Reunindo os utensílios da limpeza digital.", "Conferindo se a vassoura está em condições de uso.", "Calculando o tamanho da bagunça.", "Organizando a equipe de desocupação de arquivos."],
+  temporary: ["Desalojando arquivos que já perderam a validade.", "Removendo os entulhos da vida digital.", "Convencendo caches antigos a seguirem em frente.", "Passando a vassoura nos cantos esquecidos.", "Separando o lixo eletrônico do patrimônio histórico."],
+  browser: ["Lavando os bastidores da navegação.", "Eliminando as pegadas digitais acumuladas.", "Desentupindo os corredores da internet.", "Dando banho nos caches mais encardidos.", "Removendo lembranças que ninguém pediu para guardar."],
+  dism: ["Examinando as estruturas do Windows.", "Procurando rachaduras na arquitetura do sistema.", "Consultando os engenheiros da Microsoft.", "Reorganizando os tijolos digitais.", "Aplicando massa corrida nos componentes do Windows."],
+  resetbase: ["Removendo as últimas camadas de sujeira.", "Fazendo uma faxina sem direito a arrependimento.", "Desmontando o acúmulo histórico do Windows.", "Eliminando os vestígios das atualizações antigas.", "Passando QBoa nos componentes mais encardidos."],
+  sfc: ["Conferindo se todas as peças estão no lugar.", "Procurando componentes fora de conformidade.", "Verificando a certidão de nascimento dos arquivos.", "Investigando possíveis desvios de conduta.", "Conferindo se o Windows ainda tem salvação."],
+  blocked: ["Respeitando a privacidade dos arquivos ocupados.", "Alguns arquivos não quiseram sair de casa.", "Encontramos resistência. A negociação continua.", "Deixando os arquivos teimosos para a próxima.", "Não vamos arrombar a porta. Temos educação."],
+  diagnostic: ["Interrogando os componentes do equipamento.", "Medindo a temperatura das ideias.", "Procurando sinais de vida nos circuitos.", "Conferindo a saúde dos órgãos digitais.", "Verificando se o hardware está contando a verdade."],
+  finish: ["Recolhendo os materiais de limpeza.", "Conferindo se não esquecemos a vassoura.", "Finalizando os últimos detalhes da faxina.", "Guardando os produtos de limpeza.", "Registrando o antes e depois da operação."],
+  qboa: ["Aplicando uma dose generosa de QBoa digital.", "Desinfetando os caches com QBoa.", "Alvejando os vestígios da bagunça com QBoa.", "QBoa aplicado. Agora é deixar agir.", "Passando QBoa nos cantos mais encardidos do Windows."],
+  tithe: ["Calculando o dízimo dos componentes.", "Separando 10% da sujeira para a igreja do Windows.", "Recolhendo a contribuição obrigatória do sistema.", "O dízimo foi pago. Podemos prosseguir.", "A bênção foi concedida. Prosseguindo com a faxina."]
+};
+function progressFlavorCategory(taskId, stage) {
+  const text = String(stage || "").toLowerCase();
+  if (/resetbase|startcomponentcleanup/.test(text)) return "resetbase";
+  if (/\bsfc\b|scannow|integridade/.test(text)) return "sfc";
+  if (/\bdism\b|restorehealth|scanhealth|component store/.test(text)) return "dism";
+  if (/bloquead|em uso|erro 32|ocupad/.test(text)) return "blocked";
+  if (/navegador|browser|hist[oó]rico/.test(text) || taskId === "limpeza_historico_navegadores") return "browser";
+  if (/diagn[oó]stic|teste de|mem[oó]ria|processador|\bgpu\b|armazenamento/.test(text) || String(taskId || "").includes("diagnostic")) return "diagnostic";
+  if (/conclu|finaliz|encerr|resumo/.test(text)) return "finish";
+  if (/tempor|cache|arquivo|pasta|limp|remov|exclu/.test(text) || isCleanupTask(taskId)) return "temporary";
+  return "preparation";
+}
+function chooseProgressFlavor(taskId, stage) {
+  let category = progressFlavorCategory(taskId, stage);
+  if (taskId === "limpeza_pesada" && /resetbase|startcomponentcleanup/i.test(String(stage || "")) && Math.random() < 0.09) category = "tithe";
+  else if (String(taskId || "").startsWith("limpeza_") && Math.random() < 0.035) category = "qboa";
+  const options = PROGRESS_FLAVOR_BANK[category] || PROGRESS_FLAVOR_BANK.preparation;
+  const previous = progressFlavorLastIndex.get(category);
+  let index = Math.floor(Math.random() * options.length);
+  if (options.length > 1 && index === previous) index = (index + 1 + Math.floor(Math.random() * (options.length - 1))) % options.length;
+  progressFlavorLastIndex.set(category, index);
+  return options[index];
+}
+function renderProgressFlavor(taskId, stage) {
+  const flavor = document.getElementById("operation-progress-flavor");
+  if (!flavor) return;
+  const key = String(taskId || "preparacao") + "|" + String(stage || "preparacao");
+  if (key === lastProgressFlavorKey) return;
+  lastProgressFlavorKey = key;
+  flavor.textContent = chooseProgressFlavor(taskId, stage);
+  flavor.classList.remove("is-changing");
+  window.requestAnimationFrame(() => flavor.classList.add("is-changing"));
+}
+function setTaskbarProgress(progress) {
+  const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+  if (!currentWindow?.setProgressBar) return;
+  const state = Number.isFinite(progress) ? { status: "normal", progress: Math.max(0, Math.min(100, Math.round(progress))) } : { status: "indeterminate" };
+  void currentWindow.setProgressBar(state).catch((error) => console.debug("Indicador da barra de tarefas indisponível:", error));
+}
+function clearTaskbarProgress() {
+  const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+  if (!currentWindow?.setProgressBar) return;
+  void currentWindow.setProgressBar({ status: "none" }).catch((error) => console.debug("Não foi possível limpar o indicador da barra de tarefas:", error));
+}
 function updateOperationProgress(taskName, stage, progressValue) {
   const task = document.getElementById("operation-progress-task");
   const stageEl = document.getElementById("operation-progress-stage");
@@ -973,15 +1029,22 @@ function updateOperationProgress(taskName, stage, progressValue) {
   if (!task || !stageEl || !bar || !percentEl) return;
   if (taskName) task.textContent = taskName;
   if (stage) stageEl.textContent = stage;
+  renderProgressFlavor(activeTaskId, stage || currentOperationStage);
   const source = String(progressValue ?? stage ?? "");
   const match = source.match(/(?:^|\s)(\d{1,3}(?:[.,]\d+)?)\s*%/);
   if (match) {
-    const percent = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
-    bar.classList.add("determinate"); bar.style.width = `${percent}%`;
-    percentEl.textContent = `${Math.round(percent)}%`;
+    currentOperationProgress = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
+    bar.classList.add("determinate"); bar.style.width = currentOperationProgress + "%";
+    percentEl.textContent = Math.round(currentOperationProgress) + "%";
+    setTaskbarProgress(currentOperationProgress);
+  } else if (currentOperationProgress !== null) {
+    bar.classList.add("determinate"); bar.style.width = currentOperationProgress + "%";
+    percentEl.textContent = Math.round(currentOperationProgress) + "%";
+    setTaskbarProgress(currentOperationProgress);
   } else {
     bar.classList.remove("determinate"); bar.style.width = "";
     percentEl.textContent = "Em andamento";
+    setTaskbarProgress(null);
   }
 }
 function showRunningOperationPopup(requestedName = "") {
@@ -1097,7 +1160,7 @@ async function executeTask(item, cardEl) {
     return false;
   }
   if (operationIsBusy(item?.name)) return false;
-  launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
+  launchPending = true; currentOperationProgress = null; lastProgressFlavorKey = ""; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
   if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
     await prepareBrowserCleanupIfNeeded();
   }
@@ -3256,7 +3319,7 @@ async function registerEvents() {
       return;
     }
     if (payload.event === "task-started") {
-      executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
+      executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false; currentOperationProgress = null; lastProgressFlavorKey = "";
       currentOperationName = taskDisplayName(payload.task_id);
       currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
@@ -3324,6 +3387,8 @@ async function registerEvents() {
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
       currentOperationName = "";
       currentOperationStage = "";
+      currentOperationProgress = null;
+      lastProgressFlavorKey = "";
       syncExecutionControls();
       refreshHistory();
     }
