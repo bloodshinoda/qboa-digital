@@ -620,6 +620,31 @@ impl SafetyManager {
     }
 }
 
+fn humanize_safety_log(message: &str) -> String {
+    if let Some(details) = message.strip_prefix("journal load failed") {
+        return format!("Falha ao carregar o histórico de alterações{details}");
+    }
+    if let Some(details) = message.strip_prefix("journal invalid") {
+        return format!("Histórico de alterações inválido{details}");
+    }
+    if let Some(details) = message.strip_prefix("journal persist failed") {
+        return format!("Falha ao salvar o histórico de alterações{details}");
+    }
+    if let Some(details) = message.strip_prefix("restore-point started") {
+        return format!("Criação do ponto de restauração iniciada{details}");
+    }
+    if message == "restore-point completed" {
+        return "Ponto de restauração criado com sucesso.".to_string();
+    }
+    if let Some(details) = message.strip_prefix("restore-point failed") {
+        return format!("Falha ao criar o ponto de restauração{details}");
+    }
+    if let Some(details) = message.strip_prefix("journal replacement succeeded but backup cleanup failed") {
+        return format!("Histórico atualizado, mas não foi possível remover o backup antigo{details}");
+    }
+    message.to_string()
+}
+
 fn write_safety_log(message: &str) {
     let root = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -633,7 +658,7 @@ fn write_safety_log(message: &str) {
         .open(root.join("execution.log"))
     {
         use std::io::Write;
-        let _ = writeln!(file, "[safety] {message}");
+        let _ = writeln!(file, "[segurança] {}", humanize_safety_log(message));
     }
 }
 
