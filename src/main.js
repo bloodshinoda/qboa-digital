@@ -3354,8 +3354,7 @@ async function registerEvents() {
   await registerEvents();
   renderCards();
   if (!eventListenersReady) {
-    writeStatus("Acompanhamento de tarefas indisponível. Feche e abra o QBoa; nenhuma limpeza será iniciada enquanto os eventos não estiverem prontos.");
-    return;
+    writeStatus("Acompanhamento de tarefas indisponível. Nenhuma limpeza será iniciada enquanto os eventos não estiverem prontos.");
   }
   await refreshHistory();
   document.getElementById("copy-console-btn")?.addEventListener("click", async (event) => {
