@@ -2,6 +2,7 @@
 
 mod capability_inventory;
 mod cleanup_findings;
+mod cleanup_engine;
 mod complete_diagnostic;
 mod cpu_diagnostic;
 mod diagnostics;
@@ -480,16 +481,15 @@ fn report_system_compatibility(on_output: &mut dyn FnMut(&str)) -> bool {
 
 fn cleanup_standard(
     task_id: &str,
-    execution_id: &str,
+    _execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
     apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
 ) -> Result<String, String> {
-    let output = run_powershell(
-        include_str!("../scripts/cleanup_standard.ps1"),
-        execution_id,
+    let output = cleanup_engine::cleanup_standard(
         on_output,
         is_cancelled,
+        BROWSER_CLEANUP_ENABLED.load(Ordering::Relaxed),
     )?;
     let registry_keys_removed = apply_registry(task_id)?;
     let summary = "Faxina básica concluída: temporários, caches, histórico recente e lixeira.";
@@ -500,77 +500,19 @@ fn cleanup_standard(
 }
 
 fn cleanup_heavy_temp(
-    execution_id: &str,
+    _execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
-    run_powershell(
-        r#"
-$paths = @("$env:TEMP", "$env:WINDIR\Temp", "$env:WINDIR\Minidump", "$env:WINDIR\LiveKernelReports");
-$removed = 0; $removedFiles = 0; [long]$freedBytes = 0; $failed = 0;
-foreach ($p in $paths) {
-  if (Test-Path -LiteralPath $p) {
-    foreach ($item in @(Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue)) {
-      try {
-        if ($item.PSIsContainer) { $files = @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue) }
-        else { $files = @($item) }
-        $size = ($files | Measure-Object -Property Length -Sum).Sum
-        Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
-        $removedFiles += $files.Count
-        if ($size) { $freedBytes += [long]$size }
-        $removed++
-      } catch { $failed++ ; Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message) }
-    }
-  }
-}
-try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
-Write-Output ("Limpeza pesada: {0} item(ns)/pasta(s) removido(s), {1} falha(s)." -f $removed, $failed)
-Write-Output ("QBOA_METRICS files={0} bytes={1} registry=0" -f $removedFiles, $freedBytes)
-"#,
-        execution_id,
-        on_output,
-        is_cancelled,
-    )
+    cleanup_engine::cleanup_heavy_temp(on_output, is_cancelled)
 }
 
 fn cleanup_windows_update(
-    execution_id: &str,
+    _execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
-    run_powershell(
-        r#"
-$ErrorActionPreference = 'Stop';
-$path = Join-Path $env:WINDIR 'SoftwareDistribution\Download';
-if (-not (Test-Path -LiteralPath $path)) {
-  Write-Output 'Cache de download do Windows Update não existe; nada a limpar.';
-  Write-Output 'QBOA_METRICS files=0 bytes=0 registry=0';
-  exit 0;
-}
-$items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop);
-$removed = 0; $removedFiles = 0; [long]$freedBytes = 0; $failed = 0;
-foreach ($item in $items) {
-  try {
-    $tree = @($item) + @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue);
-    $files = @($tree | Where-Object { -not $_.PSIsContainer });
-    $size = ($files | Measure-Object -Property Length -Sum).Sum;
-    Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
-    $removedFiles += $files.Count;
-    if ($size) { $freedBytes += [long]$size; }
-    $removed++;
-  } catch {
-    $failed++;
-    Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message);
-  }
-}
-Write-Output ("Windows Update: {0} item(ns) removido(s), {1} falha(s)." -f $removed, $failed);
-Write-Output ("QBOA_METRICS files={0} bytes={1} registry=0" -f $removedFiles, $freedBytes);
-if ($failed -gt 0) { exit 2 }
-"#,
-        execution_id,
-        on_output,
-        is_cancelled,
-    )
+    cleanup_engine::cleanup_windows_update(on_output, is_cancelled)
 }
 
 fn disable_telemetry_components(
@@ -728,68 +670,6 @@ fn disable_diagnostic_tasks(
         on_output,
         is_cancelled,
     )
-}
-
-#[cfg(target_os = "windows")]
-fn run_cleanmgr_silently(
-    execution_id: &str,
-    on_output: &mut dyn FnMut(&str),
-    is_cancelled: &dyn Fn() -> bool,
-) -> Result<String, String> {
-    // Não ocultamos repetidamente todas as janelas do cleanmgr: isso também
-    // pode esconder diálogos modais e deixar o processo aguardando para sempre.
-    // O watchdog limita a espera e encerra a árvore se o utilitário não concluir.
-    const CLEANMGR_TIMEOUT_SECONDS: u64 = 600;
-    let script = format!(
-        r#"
-$exe = Join-Path $env:SystemRoot 'System32\cleanmgr.exe'
-$p = Start-Process -FilePath $exe -ArgumentList @('/verylowdisk','/d',$env:SystemDrive) -WindowStyle Hidden -PassThru
-$watch = [Diagnostics.Stopwatch]::StartNew()
-while (-not $p.HasExited -and $watch.Elapsed.TotalSeconds -lt {timeout}) {{
-    Start-Sleep -Seconds 1
-    $p.Refresh()
-}}
-if ($p.HasExited) {{
-    exit $p.ExitCode
-}}
-Write-Output 'QBOA_CLEANMGR_TIMEOUT'
-$kill = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\taskkill.exe') -ArgumentList @('/PID',[string]$p.Id,'/T','/F') -WindowStyle Hidden -Wait -PassThru
-if ($kill.ExitCode -ne 0) {{
-    throw 'O cleanmgr excedeu o limite de espera e não foi possível encerrar sua árvore de processos.'
-}}
-"#,
-        timeout = CLEANMGR_TIMEOUT_SECONDS
-    );
-    on_output("Chamando a Limpeza de Disco do Windows em modo silencioso (limite de espera: 10 minutos)...");
-    let output = run_command(
-        "powershell",
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            &script,
-        ],
-        execution_id,
-        on_output,
-        is_cancelled,
-    )?;
-    if output.contains("QBOA_CLEANMGR_TIMEOUT") {
-        let warning = "A Limpeza de Disco do Windows não concluiu em 10 minutos e foi encerrada com segurança; as demais etapas continuarão.";
-        on_output(warning);
-        Ok(format!("{output}{warning}\n"))
-    } else {
-        Ok(output)
-    }
-}
-#[cfg(not(target_os = "windows"))]
-fn run_cleanmgr_silently(
-    _execution_id: &str,
-    _on_output: &mut dyn FnMut(&str),
-    _is_cancelled: &dyn Fn() -> bool,
-) -> Result<String, String> {
-    Err("CleanMGR só está disponível no Windows.".to_string())
 }
 
 fn run_system_command(
@@ -997,8 +877,7 @@ fn format_cleanup_summary(
 ) -> String {
     let registry_label = if registry == 1 {
         "chave/entrada de Registro excluída"
-    } else {
-        "chaves/entradas de Registro excluídas"
+    } else {        "chaves/entradas de Registro excluídas"
     };
     format!(
         "\n\n=================\nRESUMO DA EXECUÇÃO\n=================\n\n- {files} arquivos removidos\n- {registry} {registry_label}\n- {:.1} MB liberados (estimativa)\n- Tempo de execução: {elapsed_label}\n\n- Total de erros durante execução: {failures}",
@@ -1046,7 +925,7 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa manterá o DISM padrão, sem inventar uma origem de reparo.");
             }
-            on_output("[Etapa 1/5] Limpando temporários, caches e lixeira...");
+            on_output("[Etapa 1/4] Limpando temporários, caches e lixeira com o motor nativo...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -1054,16 +933,14 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output("[Etapa 2/5] Executando a Limpeza de Disco do Windows (cleanmgr)...");
-            let part_2 = run_cleanmgr_silently(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 3/5] Processando o cache temporário do Windows Update...");
+            on_output("[Etapa 2/4] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output(
-                "[Etapa 4/5] Removendo atalhos quebrados e associações inválidas confirmadas...",
+                "[Etapa 3/4] Removendo atalhos quebrados e associações inválidas confirmadas...",
             );
             let findings = apply_cleanup_findings("complete", on_output);
             on_output(
-                "[Etapa 5/5] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
+                "[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
             );
             let part_4 = run_system_command(
                 "dism",
@@ -1073,7 +950,7 @@ fn execute_task(
                 is_cancelled,
             )?;
             Ok(format!(
-                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}",
+                "{part_1}\n{part_3}\n{}\n{part_4}",
                 findings_summary(&findings)
             ))
         }
@@ -1082,7 +959,7 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa preservará a base de componentes e não executará /ResetBase, pois isso impede a desinstalação de atualizações instaladas.");
             }
-            on_output("[Etapa 1/8] Limpando temporários, caches e lixeira...");
+            on_output("[Etapa 1/7] Limpando temporários, caches e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -1091,14 +968,14 @@ fn execute_task(
                 apply_registry,
             )?;
             on_output(
-                "[Etapa 2/8] Limpando diretórios temporários avançados e relatórios de falha...",
+                "[Etapa 2/7] Limpando diretórios temporários avançados e relatórios de falha...",
             );
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 3/8] Processando o cache temporário do Windows Update...");
+            on_output("[Etapa 3/7] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 4/8] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
+            on_output("[Etapa 4/7] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
             let findings = apply_cleanup_findings("deep", on_output);
-            on_output("[Etapa 5/8] Verificando a integridade da imagem do Windows...");
+            on_output("[Etapa 5/7] Verificando a integridade da imagem do Windows...");
             let part_4 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/ScanHealth"],
@@ -1107,10 +984,10 @@ fn execute_task(
                 is_cancelled,
             )?;
             let part_5 = if conservative_repair {
-                on_output("[Etapa 6/8] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
+                on_output("[Etapa 6/7] Pulando /ResetBase por segurança no ambiente modificado/restritivo.");
                 "DISM /ResetBase ignorado por política conservadora.".to_string()
             } else {
-                on_output("[Etapa 6/8] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
+                on_output("[Etapa 6/7] Limpando componentes substituídos e redefinindo a base (ResetBase). Atenção: atualizações instaladas deixarão de poder ser desinstaladas...");
                 run_system_command(
                     "dism",
                     &[
@@ -1124,7 +1001,7 @@ fn execute_task(
                     is_cancelled,
                 )?
             };
-            on_output("[Etapa 7/8] Reparando a imagem do Windows com DISM RestoreHealth...");
+            on_output("[Etapa 7/7] Reparando a imagem do Windows com DISM RestoreHealth...");
             let part_6 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/RestoreHealth"],
@@ -1132,7 +1009,7 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            on_output("[Etapa 8/8] Verificando arquivos protegidos com SFC...");
+            on_output("[Etapa 7/7] Verificando arquivos protegidos com SFC...");
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
@@ -1152,11 +1029,10 @@ fn execute_task(
         }
         "desengordurar_tarefas" => disable_diagnostic_tasks(execution_id, on_output, is_cancelled),
         "limpeza_windows_update" => cleanup_windows_update(execution_id, on_output, is_cancelled),
-        "limpeza_historico_navegadores" => run_powershell(
-            include_str!("../scripts/cleanup_browser_history.ps1"),
-            execution_id,
+        "limpeza_historico_navegadores" => cleanup_engine::cleanup_browser_history(
             on_output,
             is_cancelled,
+            BROWSER_CLEANUP_ENABLED.load(Ordering::Relaxed),
         ),
         "diagnostico_dism_scan" => run_system_command(
             "dism",
@@ -1497,8 +1373,7 @@ fn start_task(
                                     true,
                                     Some(&format!("{overall}%")),
                                     &task_risk_for_output,
-                                );
-                            }
+                                );                            }
                         }
                     }
                 }
@@ -1997,8 +1872,7 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
 async fn get_debloat_profile_tasks(
     profile: task_registry::TweakProfile,
     selected_ids: Vec<String>,
-) -> Result<Vec<String>, String> {
-    let registry = TaskRegistry::try_new()?;
+) -> Result<Vec<String>, String> {    let registry = TaskRegistry::try_new()?;
     tweak_profiles::resolve_task_ids(&registry, profile, &selected_ids)
 }
 
@@ -2497,8 +2371,7 @@ async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
     service_profiles::capture_initial_baseline(&mut backend, &system)?;
-    let profile = service_profiles::system_profile(&system)?;
-    Ok(ServiceProfileState {
+    let profile = service_profiles::system_profile(&system)?;    Ok(ServiceProfileState {
         system,
         profile,
         products: service_profiles::product_profiles(),
