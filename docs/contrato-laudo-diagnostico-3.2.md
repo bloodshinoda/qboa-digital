@@ -197,7 +197,7 @@ O identificador no exemplo é ilustrativo. A implementação deve gerar IDs úni
 
 A implementação inicial adiciona o módulo `diagnostics_store`, usa o diretório de dados do aplicativo Tauri, salva cada laudo em arquivo JSON independente e usa arquivo temporário com substituição final. O histórico ignora arquivos inválidos ou acima do limite de leitura sem impedir a recuperação dos demais.
 
-O executor atual ainda não oferece cancelamento controlado dos testes de coleta; portanto, `cancelled` permanece um estado contratual futuro e não deve ser apresentado como funcionalidade já disponível. Uma falha fatal antes da primeira coleta útil produz um laudo `failed`. Os checkpoints existentes cobrem a coleta base, não cada consulta CIM individual.
+O fluxo de diagnóstico completo coordena o cancelamento dos testes de RAM, CPU e GPU, aguarda o encerramento seguro da sessão em andamento e grava o laudo com estado `cancelled`, preservando os resultados já coletados. Na etapa de armazenamento, a interrupção ocorre entre unidades; medições concluídas permanecem no laudo. O cancelamento não promete interromper instantaneamente uma operação que esteja concluindo um bloco seguro. Uma falha fatal antes da primeira coleta útil produz um laudo `failed`. Os checkpoints existentes cobrem a coleta base, não cada consulta CIM individual.
 
 ## 11. Critérios de aceite da persistência
 
