@@ -397,6 +397,75 @@ mod platform {
         Ok(result)
     }
 
+
+    pub(super) fn cleanup_adobe_caches(
+        on_output: &mut dyn FnMut(&str),
+        check: &dyn Fn() -> bool,
+    ) -> Result<String, String> {
+        let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
+        let roaming = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_default();
+        let roots = [local.join("Adobe"), roaming.join("Adobe")];
+        let mut metrics = Metrics::default();
+        let mut output = Vec::new();
+        let names = ["Media Cache", "Media Cache Files", "Peak Files", "Common/Media Cache"];
+        for root in roots.iter().filter(|path| path.is_dir()) {
+            cancelled(check)?;
+            let mut dirs = Vec::new();
+            collect_named_dirs(root, &names, &mut dirs, 0, check)?;
+            // Restringe a busca à árvore Adobe e remove apenas diretórios de cache conhecidos.
+            dirs.sort_by_key(|path| std::cmp::Reverse(path.to_string_lossy().len()));
+            for dir in dirs {
+                cancelled(check)?;
+                if !dir.exists() { continue; }
+                let message = format!("Limpando cache Adobe: {}", dir.display());
+                on_output(&message);
+                output.push(message);
+                match remove_entry(&dir, &mut metrics, check) {
+                    Ok(()) => {}
+                    Err(error) if error == "Limpeza cancelada pelo usuário." => return Err(error),
+                    Err(error) => {
+                        metrics.failed += 1;
+                        let message = format!("Cache Adobe ignorado: {} — {error}", dir.display());
+                        on_output(&message);
+                        output.push(message);
+                    }
+                }
+            }
+        }
+        let summary = format!("Caches Adobe: {} entrada(s) removida(s), {} falha(s).", metrics.entries, metrics.failed);
+        let metrics_line = format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes);
+        on_output(&summary);
+        on_output(&metrics_line);
+        output.push(summary);
+        output.push(metrics_line);
+        Ok(output.join("\n"))
+    }
+
+    fn upgrade_residue_is_safe(path: &Path) -> bool {
+        let windir = std::env::var_os("WINDIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\\Windows"));
+        if windir.join("WinSxS/pending.xml").exists() { return false; }
+        let setup_state = windir.join("Setup/State/State.ini");
+        if let Ok(state) = fs::read_to_string(setup_state) {
+            let normalized = state.to_ascii_lowercase();
+            if normalized.contains("image_state") && !normalized.contains("image_state_complete") {
+                return false;
+            }
+        }
+        let age_ok = fs::metadata(path).and_then(|meta| meta.modified()).ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .map(|age| age.as_secs() >= 30 * 24 * 60 * 60)
+            .unwrap_or(false);
+        if !age_ok { return false; }
+        let output = Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq SetupHost.exe", "/FO", "CSV", "/NH"])
+            .creation_flags(0x08000000)
+            .output();
+        match output {
+            Ok(result) => !String::from_utf8_lossy(&result.stdout).to_ascii_lowercase().contains("setuphost.exe"),
+            Err(_) => false,
+        }
+    }
+
     pub(super) fn cleanup_heavy_temp(
         on_output: &mut dyn FnMut(&str),
         check: &dyn Fn() -> bool,
@@ -407,12 +476,24 @@ mod platform {
         let windir = std::env::var_os("WINDIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-        let roots = [
+        let mut roots = vec![
             temp,
             windir.join("Temp"),
             windir.join("Minidump"),
             windir.join("LiveKernelReports"),
+            windir.join("Prefetch"),
         ];
+        for name in ["$Windows.~BT", "$Windows.~WS"] {
+            let candidate = PathBuf::from(std::env::var_os("SystemDrive").unwrap_or_else(|| "C:".into())).join(name);
+            if candidate.exists() {
+                if upgrade_residue_is_safe(&candidate) {
+                    on_output(&format!("Resíduo de atualização antigo identificado: {}", candidate.display()));
+                    roots.push(candidate);
+                } else {
+                    on_output(&format!("Resíduo de atualização preservado por segurança: {}", candidate.display()));
+                }
+            }
+        }
         let (metrics, result) = clean_roots(&roots, "Limpeza pesada", check, true, on_output)?;
         let mut output = vec![result];
         let _ = clear_recycle_bin();
@@ -748,6 +829,12 @@ mod platform {
     ) -> Result<String, String> {
         Err("A limpeza nativa está disponível somente no Windows.".into())
     }
+    pub(super) fn cleanup_adobe_caches(
+        _: &mut dyn FnMut(&str),
+        _: &dyn Fn() -> bool,
+    ) -> Result<String, String> {
+        Err("A limpeza nativa está disponível somente no Windows.".into())
+    }
     pub(super) fn cleanup_windows_update(
         _: &mut dyn FnMut(&str),
         _: &dyn Fn() -> bool,
@@ -775,6 +862,12 @@ pub fn cleanup_heavy_temp(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
     platform::cleanup_heavy_temp(on_output, is_cancelled)
+}
+pub fn cleanup_adobe_caches(
+    on_output: &mut dyn FnMut(&str),
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    platform::cleanup_adobe_caches(on_output, is_cancelled)
 }
 pub fn cleanup_windows_update(
     on_output: &mut dyn FnMut(&str),
