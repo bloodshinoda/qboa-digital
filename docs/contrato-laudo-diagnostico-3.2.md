@@ -1,7 +1,7 @@
 # Contrato do laudo de diagnóstico — QBoa Digital 3.2
 
-**Status:** proposta inicial para revisão  
-**Baseline auditado:** `main` em `8fd31bbbebf3facd211c30024d68d922f8c89f21` (QBoa Digital 3.1.2)  
+**Status:** contrato implementado na linha 3.2; mantido como referência de compatibilidade  
+**Baseline inicial:** `main` em `8fd31bbbebf3facd211c30024d68d922f8c89f21` (QBoa Digital 3.1.2). A implementação foi integrada à linha 3.2 e permanece na versão 3.2.1.  
 **Escopo:** persistência local e ciclo de vida dos relatórios de diagnóstico. Este documento não autoriza mudanças na limpeza, nos perfis de serviços ou no executor de registro.
 
 ## 1. Objetivos e princípios
