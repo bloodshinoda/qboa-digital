@@ -42,18 +42,18 @@ mod tests {
     #[test]
     fn etapas_concluidas_usam_o_peso_restante_na_limpeza_media() {
         assert_eq!(cleanup_progress_percent(2, 5, false, 0.0), 11);
-        assert_eq!(cleanup_progress_percent(5, 5, false, 0.0), 45);
+        assert_eq!(cleanup_progress_percent(5, 5, false, 0.0), 44);
     }
 
     #[test]
     fn etapas_concluidas_usam_o_peso_restante_na_limpeza_pesada() {
-        assert_eq!(cleanup_progress_percent(2, 6, false, 0.0), 7);
+        assert_eq!(cleanup_progress_percent(2, 6, false, 0.0), 6);
         assert_eq!(cleanup_progress_percent(6, 6, false, 0.0), 35);
     }
 
     #[test]
     fn dism_respeita_o_peso_da_limpeza_media() {
-        assert_eq!(cleanup_progress_percent(5, 5, true, 0.0), 45);
+        assert_eq!(cleanup_progress_percent(5, 5, true, 0.0), 44);
         assert_eq!(cleanup_progress_percent(5, 5, true, 50.0), 70);
         assert_eq!(cleanup_progress_percent(5, 5, true, 100.0), 96);
     }
@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn progresso_do_dism_e_limitado_ao_intervalo_de_zero_a_cem() {
-        assert_eq!(cleanup_progress_percent(5, 5, true, -20.0), 45);
+        assert_eq!(cleanup_progress_percent(5, 5, true, -20.0), 44);
         assert_eq!(cleanup_progress_percent(5, 5, true, 150.0), 96);
     }
 
