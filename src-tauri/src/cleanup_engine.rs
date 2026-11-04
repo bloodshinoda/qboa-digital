@@ -10,6 +10,7 @@ struct Metrics {
     files: u64,
     bytes: u64,
     failed: u64,
+    skipped_in_use: u64,
 }
 
 #[cfg(windows)]
@@ -172,7 +173,6 @@ mod platform {
     ) -> Result<(Metrics, String), String> {
         let mut metrics = Metrics::default();
         let mut output = Vec::new();
-        let mut skipped_in_use = 0u64;
         for root in roots {
             cancelled(check)?;
             let root_meta = match fs::symlink_metadata(root) {
@@ -225,7 +225,7 @@ mod platform {
                                 return Err(error)
                             }
                             Err(error) if is_file_in_use_error(&error) => {
-                                skipped_in_use += 1;
+                                metrics.skipped_in_use += 1;
                                 let message = format!(
                                     "Ignorado porque está em uso por outro processo: {}",
                                     path.display()
@@ -257,9 +257,10 @@ mod platform {
             "{label}: {} item(ns)/pasta(s) removido(s), {} falha(s).",
             metrics.entries, metrics.failed
         ));
-        if skipped_in_use > 0 {
+        if metrics.skipped_in_use > 0 {
             let message = format!(
-                "{skipped_in_use} item(ns) ignorado(s) porque estavam em uso por outros processos."
+                "{} item(ns) ignorado(s) porque estavam em uso por outros processos.",
+                metrics.skipped_in_use
             );
             on_output(&message);
             output.push(message);
@@ -869,11 +870,15 @@ mod platform {
                         return;
                     }
                 }
-                if fs::remove_file(path).is_ok() {
-                    metrics.files += 1;
-                    metrics.bytes = metrics.bytes.saturating_add(size);
-                } else {
-                    metrics.failed += 1;
+                match fs::remove_file(path) {
+                    Ok(()) => {
+                        metrics.files += 1;
+                        metrics.bytes = metrics.bytes.saturating_add(size);
+                    }
+                    Err(error) if error.raw_os_error() == Some(32) => {
+                        metrics.skipped_in_use += 1;
+                    }
+                    Err(_) => metrics.failed += 1,
                 }
             }
         }
@@ -992,13 +997,19 @@ mod platform {
                 output.push("Nenhum perfil compatível de navegador foi encontrado.".into());
             }
         }
-        output.push(format!("Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s).", metrics.files, metrics.failed));
+        output.push(format!(
+            "Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s), {} arquivo(s) ignorado(s) por estarem em uso.",
+            metrics.files, metrics.failed, metrics.skipped_in_use
+        ));
         output.push(format!(
             "QBOA_METRICS files={} bytes={} registry=0",
             metrics.files, metrics.bytes
         ));
         let result = output.join("\n");
-        on_output(&format!("Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s).", metrics.files, metrics.failed));
+        on_output(&format!(
+            "Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s), {} arquivo(s) ignorado(s) por estarem em uso.",
+            metrics.files, metrics.failed, metrics.skipped_in_use
+        ));
         on_output(&format!(
             "QBOA_METRICS files={} bytes={} registry=0",
             metrics.files, metrics.bytes
