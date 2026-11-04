@@ -3227,7 +3227,7 @@ async function registerEvents() {
     if (payload.event === "reset-base-confirmation-required") {
       void (async () => {
         const proceed = await askConfirmation(
-          payload.message || "O DISM /ResetBase impede a desinstalação das atualizações já instaladas. Deseja executar mesmo assim?",
+          payload.message || "O DISM /ResetBase impede a desinstalação das atualizações já instaladas. Se não autorizar, a limpeza pesada será cancelada.",
           "Operação irreversível: DISM /ResetBase",
           "Sim, executar /ResetBase",
           "Cancelar limpeza pesada"
@@ -3235,7 +3235,7 @@ async function registerEvents() {
         try {
           await Qboa.respondResetBaseConfirmation(payload.execution_id, proceed);
           if (!proceed) {
-            appendConsole("O /ResetBase foi pulado por escolha do usuário. A limpeza pesada continuará com a verificação SFC.");
+            appendConsole("Autorização negada. A limpeza pesada será cancelada antes do /ResetBase.");
           }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação do /ResetBase: ${String(error)}`);
