@@ -1009,7 +1009,7 @@ fn execute_task(
                 on_output,
                 is_cancelled,
             )?;
-            on_output("[Etapa 7/8] Verificando arquivos protegidos com SFC...");
+            on_output("[Etapa 8/8] Verificando arquivos protegidos com SFC...");
             let part_7 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
