@@ -254,12 +254,12 @@ mod platform {
             }
         }
         output.push(format!(
-            "{label}: {} item(ns)/pasta(s) removido(s), {} falha(s).",
+            "{label}: itens/pastas removidos: {}; falhas: {}.",
             metrics.entries, metrics.failed
         ));
         if metrics.skipped_in_use > 0 {
             let message = format!(
-                "{} item(ns) ignorado(s) porque estavam em uso por outros processos.",
+                "Itens ignorados por estarem em uso por outros processos: {}.",
                 metrics.skipped_in_use
             );
             on_output(&message);
@@ -998,7 +998,7 @@ mod platform {
             }
         }
         output.push(format!(
-            "Histórico dos navegadores: {profiles} perfil(is) processado(s), {} arquivo(s) removido(s), {} falha(s), {} arquivo(s) ignorado(s) por estarem em uso.",
+            "Histórico dos navegadores: perfis processados: {profiles}; arquivos removidos: {}; falhas: {}; arquivos ignorados por estarem em uso: {}.",
             metrics.files, metrics.failed, metrics.skipped_in_use
         ));
         output.push(format!(
