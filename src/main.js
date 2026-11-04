@@ -58,6 +58,10 @@ const Qboa = {
     return invoke("respond_restore_point_failure", { executionId, proceed });
   },
 
+  async respondResetBaseConfirmation(executionId, proceed) {
+    return invoke("respond_reset_base_confirmation", { executionId, proceed });
+  },
+
   async getSessionHistory() {
     return invoke("get_session_history");
   },
@@ -3206,8 +3210,6 @@ async function registerEvents() {
         try {
           await Qboa.respondRestorePointFailure(payload.execution_id, proceed);
           if (!proceed) {
-            // Atualiza a interface imediatamente após a decisão; o evento terminal
-            // do backend continua sendo responsável pelo histórico e pelo registro final.
             stopActivity();
             document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
             if (activeExecutionId === payload.execution_id) {
@@ -3218,6 +3220,25 @@ async function registerEvents() {
           }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
+        }
+      })();
+    }
+
+    if (payload.event === "reset-base-confirmation-required") {
+      void (async () => {
+        const proceed = await askConfirmation(
+          payload.message || "O DISM /ResetBase impede a desinstalação das atualizações já instaladas. Deseja executar mesmo assim?",
+          "Operação irreversível: DISM /ResetBase",
+          "Sim, executar /ResetBase",
+          "Pular esta etapa"
+        );
+        try {
+          await Qboa.respondResetBaseConfirmation(payload.execution_id, proceed);
+          if (!proceed) {
+            appendConsole("O /ResetBase foi pulado por escolha do usuário. A limpeza pesada continuará com a verificação SFC.");
+          }
+        } catch (error) {
+          appendConsole(`Não foi possível responder à confirmação do /ResetBase: ${String(error)}`);
         }
       })();
     }
