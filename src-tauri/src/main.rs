@@ -328,10 +328,10 @@ fn humanize_execution_log(message: &str) -> String {
         .replace("status=", "resultado=")
         .replace("output_bytes=", "bytes_de_saida=")
         .replace("output=", "saída=")
+        .replace("persist_error=", "erro_de_persistência=")
         .replace("error=", "detalhe=")
         .replace("reason=", "motivo=")
-        .replace("operation=", "operação=")
-        .replace("persist_error=", "erro_de_persistência=");
+        .replace("operation=", "operação=");
     if key == "restore-point" {
         return if details.starts_with("started") {
             format!(
