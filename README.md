@@ -77,13 +77,17 @@ O diagnóstico de armazenamento informa capacidade e espaço livre e oferece med
 
 ## Arquitetura
 
-Qboa Digital é um utilitário de manutenção do Windows desenvolvido com Tauri, Rust, HTML, CSS e JavaScript puro. O aplicativo segue uma arquitetura pequena em camadas:
+QBoa Digital é um utilitário de manutenção do Windows desenvolvido com Tauri, Rust, HTML, CSS e JavaScript. A aplicação separa a interface, a orquestração das tarefas, os mecanismos nativos e as operações que dependem de recursos do próprio Windows:
 
-- interface frontend e seleção de tarefas
-- metadados do registro de tarefas e resolução de presets
-- mecanismo de tarefas e execução de comandos
-- gerenciador de segurança para snapshots, pontos de restauração e registro de alterações
-- integração com o Windows por meio de comandos nativos e PowerShell
+- interface frontend e seleção de tarefas;
+- registro central de tarefas, metadados de risco e resolução de presets;
+- orquestração e acompanhamento das execuções no backend Rust;
+- mecanismo nativo de limpeza em Rust para temporários, caches e resíduos conhecidos;
+- integração controlada com APIs do Windows e ferramentas de manutenção, como DISM e SFC, quando a operação exige esses recursos;
+- gerenciamento de serviços, políticas e tarefas agendadas;
+- armazenamento local dos laudos de diagnóstico, independente do journal de alterações reversíveis.
+
+A limpeza cotidiana não depende do Cleanmgr nem de scripts PowerShell para percorrer e remover os diretórios nativos cobertos pelo motor Rust. Ferramentas externas continuam sendo utilizadas apenas nas operações em que são necessárias.
 
 ## Mecanismo de tarefas
 
@@ -102,18 +106,41 @@ As tarefas são resolvidas pelo ID da tarefa, sem permitir comandos arbitrários
 
 ## Operações disponíveis
 
-O aplicativo atualmente oferece:
+O aplicativo organiza as operações em áreas distintas:
 
-- limpeza de temporários, caches de navegadores, arquivos recentes de aplicativos, histórico do Executar e caminhos recentes do Explorer
-- limpeza de arquivos temporários do Windows Update
-- limpeza de componentes do Windows com `DISM /StartComponentCleanup`
-- verificação e reparo da imagem do Windows com DISM
-- verificação de arquivos do sistema com `SFC /scannow`
-- ajuste de serviços, tarefas agendadas e políticas de telemetria
-- políticas de privacidade relacionadas a Recall e Copilot, quando disponíveis
-- consulta de informações do sistema
+### Limpeza
 
-Operações de limpeza removem apenas arquivos temporários e caches definidos pelo aplicativo. A limpeza padrão não remove pastas fixadas ou a estrutura de pastas recentes do Quick access/Explorer, nem histórico, formulários, preenchimento automático, cookies, armazenamento local ou sessões dos navegadores.
+O motor nativo em Rust oferece três níveis:
+
+- **Leve:** temporários e caches comuns com baixo risco.
+- **Intermediária:** inclui itens adicionais, como downloads temporários do Windows Update e caches conhecidos de aplicativos Adobe.
+- **Pesada:** reúne resíduos avançados e operações de manutenção mais agressivas, incluindo verificações/reparos com DISM e SFC quando selecionados.
+
+A limpeza pesada aplica verificações de segurança antes de remover resíduos de instalações anteriores do Windows. O DISM `/ResetBase` é opcional e só deve ser oferecido em ambiente compatível, com confirmação explícita; em sistemas modificados, restritivos ou de condição incerta, a operação é ignorada para preservar possibilidades de rollback.
+
+A limpeza de navegadores cobre os perfis e caminhos reconhecidos pelo aplicativo, incluindo histórico e caches compatíveis. Dados pessoais como favoritos, senhas e downloads não fazem parte da limpeza de histórico. Quando um navegador precisa ser fechado para liberar arquivos em uso, a interface solicita confirmação.
+
+A limpeza Adobe é seletiva: alcança apenas caches conhecidos em locais previstos, sem remover projetos, presets, plugins ou conteúdo de trabalho.
+
+### Serviços e privacidade
+
+- ajuste de serviços do Windows com referências por edição/perfil, prévia das mudanças e confirmação antes da aplicação;
+- ajustes de tarefas agendadas e políticas de telemetria;
+- políticas de privacidade relacionadas a Recall e Copilot, quando disponíveis;
+- consulta de informações e capacidades do Windows.
+
+Identificação de fornecedor ou divergência em relação à referência não significa, por si só, que um serviço deva ser desativado. Itens desconhecidos ou fora das condições de segurança são preservados.
+
+### Diagnósticos
+
+Os diagnósticos são independentes da limpeza e da manutenção:
+
+- armazenamento: informações, temperatura quando disponível, SMART e medições de desempenho;
+- memória RAM: inventário por módulo e teste próprio com perfis de duração;
+- processador: teste de carga controlada com monitoramento e limites de segurança;
+- GPU: teste de estabilidade por Direct3D 11 Compute Shader, dentro dos recursos suportados.
+
+Os laudos são persistidos localmente e podem ser consultados posteriormente. O diagnóstico completo avisa sobre a duração, solicita confirmação, apresenta progresso e consolida os resultados ao final. Os laudos registram evidências e estados observados; não emitem recomendações automáticas nem executam limpeza.
 
 ## Modelo de segurança
 
