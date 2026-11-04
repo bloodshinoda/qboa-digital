@@ -809,26 +809,91 @@ function writeStatus(text) {
 
 function restoreConsoleHeight() {
   const output = document.getElementById("console-output");
-  if (!output) return;
-  try {
-    const savedHeight = Number(localStorage.getItem("qboa-console-height"));
-    const maximum = Math.floor(window.innerHeight * 0.6);
-    if (Number.isFinite(savedHeight) && savedHeight >= 110 && savedHeight <= maximum) {
-      output.style.height = `${savedHeight}px`;
-    }
-  } catch (_) {
-    // A preferência é opcional; o painel continua redimensionável sem persistência.
-  }
+  const consolePanel = document.getElementById("console");
+  const handle = document.getElementById("console-resize-handle");
+  if (!output || !consolePanel || !handle) return;
+
+  const minimum = 110;
+  const getMaximum = () => Math.max(minimum, Math.floor(window.innerHeight * 0.6));
   const saveHeight = () => {
     try {
-      const height = Math.round(output.getBoundingClientRect().height);
-      if (height >= 110) localStorage.setItem("qboa-console-height", String(height));
+      localStorage.setItem("qboa-console-height", String(Math.round(output.getBoundingClientRect().height)));
     } catch (_) {
-      // Não interrompe o registro de atividades se o armazenamento estiver indisponível.
+      // A preferência é opcional; a alça continua funcionando sem persistência.
     }
   };
-  window.addEventListener("pointerup", saveHeight);
-  window.addEventListener("touchend", saveHeight);
+
+  try {
+    const savedHeight = Number(localStorage.getItem("qboa-console-height"));
+    if (Number.isFinite(savedHeight) && savedHeight >= minimum) {
+      output.style.height = `${Math.min(savedHeight, getMaximum())}px`;
+    }
+  } catch (_) {
+    // O painel continua redimensionável mesmo sem armazenamento local.
+  }
+
+  let dragStartY = 0;
+  let dragStartHeight = 0;
+  const resizeTo = (height) => {
+    const nextHeight = Math.max(minimum, Math.min(getMaximum(), height));
+    output.style.height = `${nextHeight}px`;
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    consolePanel.open = true;
+    dragStartY = event.clientY;
+    dragStartHeight = output.getBoundingClientRect().height;
+    handle.setPointerCapture(event.pointerId);
+    handle.classList.add("dragging");
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!handle.hasPointerCapture(event.pointerId)) return;
+    resizeTo(dragStartHeight + dragStartY - event.clientY);
+  });
+  const finishResize = (event) => {
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    handle.classList.remove("dragging");
+    saveHeight();
+  };
+  handle.addEventListener("pointerup", finishResize);
+  handle.addEventListener("pointercancel", finishResize);
+  handle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    consolePanel.open = true;
+    resizeTo(output.getBoundingClientRect().height + (event.key === "ArrowUp" ? 20 : -20));
+    saveHeight();
+  });
+  window.addEventListener("resize", () => resizeTo(output.getBoundingClientRect().height));
+}
+
+let lastTaskbarProgressState = "";
+function setTaskbarProgress(progressValue) {
+  const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+  if (!currentWindow?.setProgressBar) return;
+
+  const source = String(progressValue ?? "");
+  const match = source.match(/(\d{1,3}(?:[.,]\d+)?)\s*%/);
+  const state = match
+    ? { status: "normal", progress: Math.max(0, Math.min(100, Math.round(Number(match[1].replace(",", "."))))) }
+    : { status: "indeterminate" };
+  const key = JSON.stringify(state);
+  if (key === lastTaskbarProgressState) return;
+  lastTaskbarProgressState = key;
+  void currentWindow.setProgressBar(state).catch((error) => {
+    console.warn("Não foi possível atualizar o progresso na barra de tarefas:", error);
+  });
+}
+
+function clearTaskbarProgress() {
+  const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+  lastTaskbarProgressState = "";
+  if (!currentWindow?.setProgressBar) return;
+  void currentWindow.setProgressBar({ status: "none" }).catch((error) => {
+    console.warn("Não foi possível limpar o progresso da barra de tarefas:", error);
+  });
 }
 
 function renderConsole() {
@@ -974,6 +1039,7 @@ function updateOperationProgress(taskName, stage, progressValue) {
   if (taskName) task.textContent = taskName;
   if (stage) stageEl.textContent = stage;
   const source = String(progressValue ?? stage ?? "");
+  setTaskbarProgress(progressValue ?? stage);
   const match = source.match(/(?:^|\s)(\d{1,3}(?:[.,]\d+)?)\s*%/);
   if (match) {
     const percent = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
@@ -1121,6 +1187,7 @@ async function executeTask(item, cardEl) {
     return true;
   } catch (err) {
     stopActivity();
+    clearTaskbarProgress();
     if (isCleanupTask(item.id)) browserCleanupDecision = null;
     appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
@@ -3314,6 +3381,7 @@ async function registerEvents() {
     }
 
     if (["task-completed", "task-error", "task-cancelled"].includes(payload.event)) {
+      clearTaskbarProgress();
       if (isCleanupTask(payload.task_id)) {
         const resultStatus = payload.event === "task-completed" ? "success" : payload.event === "task-cancelled" ? "cancelled" : "error";
         showCleanupResult(payload.task_id, resultStatus, payload.message || "");

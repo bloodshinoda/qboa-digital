@@ -537,6 +537,36 @@ button {
   gap: 8px;
 }
 
+.console-resize-handle {
+  height: 9px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.console-resize-handle::after {
+  content: "";
+  width: 44px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.34);
+  transition: background .15s ease, width .15s ease;
+}
+.console-resize-handle:hover::after,
+.console-resize-handle:focus-visible::after,
+.console-resize-handle.dragging::after {
+  width: 64px;
+  background: rgba(255,255,255,.82);
+}
+.console-resize-handle:focus-visible {
+  outline: 2px solid var(--qboa-red);
+  outline-offset: -2px;
+}
+
 .console {
   position: relative;
   background: #111;
@@ -581,7 +611,6 @@ button {
   height: 170px;
   min-height: 110px;
   max-height: 60vh;
-  resize: vertical;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 8px;
