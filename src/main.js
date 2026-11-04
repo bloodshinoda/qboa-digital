@@ -788,7 +788,7 @@ function humanizeActivityMessage(message) {
 }
 
 function appendConsole(message) {
-  const line = humanizeActivityMessage(message).trim();
+  const line = humanizeActivityMessage(humanizeLogMessage(message)).trim();
   if (!line) return;
   const isDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(line);
   const lines = consoleBuffer.split("\n");
