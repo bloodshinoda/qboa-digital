@@ -823,7 +823,7 @@ function restoreConsoleHeight() {
   handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return; event.preventDefault();
     const startY = event.clientY; const startHeight = output.getBoundingClientRect().height; handle.setPointerCapture(event.pointerId);
-    const onMove = (moveEvent) => { if (moveEvent.pointerId === event.pointerId) applyHeight(startHeight + moveEvent.clientY - startY); };
+    const onMove = (moveEvent) => { if (moveEvent.pointerId === event.pointerId) applyHeight(startHeight + startY - moveEvent.clientY); };
     const onEnd = (endEvent) => { if (endEvent.pointerId !== event.pointerId) return; handle.removeEventListener("pointermove", onMove); handle.removeEventListener("pointerup", onEnd); handle.removeEventListener("pointercancel", onEnd); saveHeight(); };
     handle.addEventListener("pointermove", onMove); handle.addEventListener("pointerup", onEnd); handle.addEventListener("pointercancel", onEnd);
   });
