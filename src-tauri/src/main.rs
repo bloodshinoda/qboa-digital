@@ -316,6 +316,30 @@ fn humanize_execution_log(message: &str) -> String {
         "confirmation-timeout" => "Tempo limite da confirmação atingido",
         _ => return message.to_string(),
     };
+    let details = details
+        .replace("task_id=", "tarefa=")
+        .replace("pid=", "processo=")
+        .replace("command=", "comando=")
+        .replace("args=", "argumentos=")
+        .replace("status=", "resultado=")
+        .replace("output_bytes=", "bytes_de_saida=")
+        .replace("error=", "detalhe=")
+        .replace("reason=", "motivo=")
+        .replace("operation=", "operação=");
+    if key == "restore-point" {
+        return if details.starts_with("started") {
+            format!("Criação do ponto de restauração iniciada: {}", details.trim_start_matches("started").trim())
+        } else if details.starts_with("completed") {
+            "Ponto de restauração criado com sucesso.".to_string()
+        } else if details.starts_with("failed") {
+            format!("Falha ao criar o ponto de restauração: {}", details.trim_start_matches("failed").trim())
+        } else {
+            format!("Ponto de restauração: {details}")
+        };
+    }
+    if key == "journal" && details.starts_with("persist failed") {
+        return format!("Falha ao salvar o histórico de alterações: {}", details.trim_start_matches("persist failed").trim());
+    }
     if details.is_empty() {
         label.to_string()
     } else {
