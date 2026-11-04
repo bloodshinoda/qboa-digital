@@ -326,7 +326,8 @@ fn humanize_execution_log(message: &str) -> String {
         .replace("output=", "saída=")
         .replace("error=", "detalhe=")
         .replace("reason=", "motivo=")
-        .replace("operation=", "operação=");
+        .replace("operation=", "operação=")
+        .replace("persist_error=", "erro_de_persistência=");
     if key == "restore-point" {
         return if details.starts_with("started") {
             format!("Criação do ponto de restauração iniciada: {}", details.trim_start_matches("started").trim())
@@ -339,7 +340,16 @@ fn humanize_execution_log(message: &str) -> String {
         };
     }
     if key == "journal" && details.starts_with("persist failed") {
-        return format!("Falha ao salvar o histórico de alterações: {}", details.trim_start_matches("persist failed").trim());
+        return format!(
+            "Falha ao salvar o histórico de alterações: {}",
+            details.trim_start_matches("persist failed").trim()
+        );
+    }
+    if key == "journal" && details.starts_with("update failed after task error:") {
+        return format!(
+            "Falha ao atualizar o histórico após um erro na tarefa: {}",
+            details.trim_start_matches("update failed after task error:").trim()
+        );
     }
     if details.is_empty() {
         label.to_string()
