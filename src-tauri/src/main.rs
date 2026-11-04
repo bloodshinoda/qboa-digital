@@ -941,7 +941,9 @@ fn execute_task(
             )?;
             on_output("[Etapa 2/4] Limpando somente o cache de downloads do Windows Update...");
             let part_2 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 3/4] Limpando caches regeneráveis conhecidos dos aplicativos Adobe...");
+            on_output(
+                "[Etapa 3/4] Limpando caches regeneráveis conhecidos dos aplicativos Adobe...",
+            );
             let part_3 = cleanup_engine::cleanup_adobe_caches(on_output, is_cancelled)?;
             on_output("[Etapa 4/4] Removendo somente atalhos quebrados e associações inválidas confirmadas...");
             let findings = apply_cleanup_findings("complete", on_output);
@@ -965,7 +967,9 @@ fn execute_task(
             )?;
             on_output("[Etapa 2/9] Limpando caches Adobe regeneráveis conhecidos...");
             let part_adobe = cleanup_engine::cleanup_adobe_caches(on_output, is_cancelled)?;
-            on_output("[Etapa 3/9] Limpando Prefetch, temporários avançados e relatórios de falha...");
+            on_output(
+                "[Etapa 3/9] Limpando Prefetch, temporários avançados e relatórios de falha...",
+            );
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
             on_output("[Etapa 4/9] Processando o cache de downloads do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
@@ -1086,12 +1090,17 @@ async fn respond_restore_point_failure(execution_id: String, proceed: bool) -> R
 }
 
 #[tauri::command]
-async fn respond_reset_base_confirmation(execution_id: String, proceed: bool) -> Result<(), String> {
+async fn respond_reset_base_confirmation(
+    execution_id: String,
+    proceed: bool,
+) -> Result<(), String> {
     let sender = reset_base_responses()
         .lock()
         .unwrap()
         .remove(&execution_id)
-        .ok_or_else(|| "A confirmação do DISM /ResetBase expirou ou não está mais pendente.".to_string())?;
+        .ok_or_else(|| {
+            "A confirmação do DISM /ResetBase expirou ou não está mais pendente.".to_string()
+        })?;
     sender
         .send(proceed)
         .map_err(|_| "Não foi possível enviar a resposta da confirmação do /ResetBase.".to_string())
