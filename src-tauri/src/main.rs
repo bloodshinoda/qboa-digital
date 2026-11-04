@@ -493,7 +493,6 @@ fn cleanup_standard(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
     apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
-    confirm_reset_base: &mut dyn FnMut(&str) -> bool,
 ) -> Result<String, String> {
     let output = cleanup_engine::cleanup_standard(
         on_output,
@@ -918,6 +917,7 @@ fn execute_task(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
     apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
+    confirm_reset_base: &mut dyn FnMut(&str) -> bool,
 ) -> Result<String, String> {
     if is_cancelled() {
         return Err("Tudo bem, a tarefa foi interrompida a seu pedido.".to_string());
