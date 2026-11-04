@@ -1308,7 +1308,10 @@ fn start_task(
                     let proceed = match receiver.recv_timeout(Duration::from_secs(300)) {
                         Ok(response) => response,
                         Err(mpsc::RecvTimeoutError::Timeout) => {
-                            write_execution_log(&execution_id_for_spawn, "confirmation-timeout tipo=ponto-de-restauracao; decisão=cancelar");
+                            write_execution_log(
+                                &execution_id_for_spawn,
+                                "confirmation-timeout tipo=ponto-de-restauracao; decisão=cancelar",
+                            );
                             false
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => false,
@@ -1522,7 +1525,10 @@ fn start_task(
             let proceed = match receiver.recv_timeout(Duration::from_secs(300)) {
                 Ok(response) => response,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    write_execution_log(&execution_id_for_spawn, "confirmation-timeout tipo=reset-base; decisão=cancelar");
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        "confirmation-timeout tipo=reset-base; decisão=cancelar",
+                    );
                     false
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => false,
@@ -1930,7 +1936,9 @@ async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<St
         return Err("A execução informada não pertence à tarefa solicitada.".to_string());
     }
     if safety.cancel_execution(&execution_id) {
-        Ok(format!("Tarefa marcada para cancelamento: {task_id} ({execution_id})"))
+        Ok(format!(
+            "Tarefa marcada para cancelamento: {task_id} ({execution_id})"
+        ))
     } else {
         Err(format!("A tarefa não está mais em execução: {task_id}"))
     }
