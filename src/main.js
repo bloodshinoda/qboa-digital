@@ -8,6 +8,7 @@ let pendingConfirmationResolver = null;
 let activeTaskId = null;
 let activeExecutionId = null;
 let launchPending = false;
+let eventListenersReady = false;
 let currentOperationName = "";
 let currentOperationStage = "";
 let consoleBuffer = "";
@@ -1045,6 +1046,10 @@ async function prepareBrowserCleanupIfNeeded() {
 }
 
 async function executeTask(item, cardEl) {
+  if (!eventListenersReady) {
+    appendConsole("Não foi possível iniciar a operação porque o acompanhamento em tempo real não está disponível.");
+    return false;
+  }
   if (operationIsBusy(item?.name)) return false;
   launchPending = true; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
   if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
@@ -3192,8 +3197,17 @@ async function registerEvents() {
 
   // Não bloqueia o vínculo dos controles da interface esperando o listener Tauri.
   // Se listen() demorar ou falhar, os botões de confirmação continuam funcionais.
-  void listen("qboa-event", (event) => {
-    const payload = event.payload;
+  await listen("qboa-event", (event) => {
+    const payload = event.payload || {};
+    const isStartingThisLaunch = payload.event === "task-started" && launchPending && activeTaskId === payload.task_id;
+    if (payload.event === "task-started") {
+      if (!isStartingThisLaunch && payload.execution_id !== activeExecutionId) return;
+    } else if (!payload.execution_id) {
+      if (payload.event === "task-error" && payload.message) appendConsole(`Falha ao iniciar ${taskDisplayName(payload.task_id)}: ${payload.message}`);
+      return;
+    } else if (payload.execution_id !== activeExecutionId) {
+      return;
+    }
     if (payload.event === "task-started") {
       executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false;
       currentOperationName = taskDisplayName(payload.task_id);
@@ -3248,7 +3262,8 @@ async function registerEvents() {
       currentOperationStage = payload.message;
       updateOperationProgress(currentOperationName, currentOperationStage, payload.progress);
     } else if (payload.event === "task-output" && payload.message) {
-      executionOutput.push(payload.message); appendConsole(payload.message);
+      executionOutput.push(payload.message);
+      if (!/^\s*\[[=\s>.-]*\d+(?:[.,]\d+)?%[=\s>.-]*\]\s*$/.test(payload.message)) appendConsole(payload.message);
     } else if (payload.event === "task-completed") {
       stopActivity();
       appendConsole(taskSuccessMessage(taskDisplayName(payload.task_id)));
@@ -3276,9 +3291,12 @@ async function registerEvents() {
       syncExecutionControls();
       refreshHistory();
     }
+  }).then(() => {
+    eventListenersReady = true;
   }).catch((error) => {
-    console.error("Não foi possível registrar os eventos do Qboa:", error);
-    appendConsole(`Aviso: eventos em tempo real indisponíveis: ${String(error)}`);
+    eventListenersReady = false;
+    console.error("Não foi possível registrar os eventos do QBoa:", error);
+    appendConsole(`Não foi possível preparar o acompanhamento das tarefas: ${String(error)}. As operações foram bloqueadas por segurança.`);
   });
 }
 
@@ -3287,8 +3305,12 @@ async function registerEvents() {
   syncExecutionControls();
   renderTabs();
   renderSectionSummary();
-  renderCards();
   await registerEvents();
+  renderCards();
+  if (!eventListenersReady) {
+    writeStatus("Acompanhamento de tarefas indisponível. Feche e abra o QBoa; nenhuma limpeza será iniciada enquanto os eventos não estiverem prontos.");
+    return;
+  }
   await refreshHistory();
   await loadDiagnosticHistory(true);
 
