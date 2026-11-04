@@ -258,9 +258,11 @@ mod platform {
             metrics.entries, metrics.failed
         ));
         if skipped_in_use > 0 {
-            output.push(format!(
+            let message = format!(
                 "{skipped_in_use} item(ns) ignorado(s) porque estavam em uso por outros processos."
-            ));
+            );
+            on_output(&message);
+            output.push(message);
         }
         Ok((metrics, output.join("\n")))
     }
