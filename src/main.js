@@ -3271,9 +3271,6 @@ async function registerEvents() {
         );
         try {
           await Qboa.respondRestorePointFailure(payload.execution_id, proceed);
-          if (!proceed) {
-            appendConsole("Você optou por cancelar a tarefa após a falha do ponto de restauração.");
-          }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação: ${String(error)}`);
         }
@@ -3290,9 +3287,6 @@ async function registerEvents() {
         );
         try {
           await Qboa.respondResetBaseConfirmation(payload.execution_id, proceed);
-          if (!proceed) {
-            appendConsole("Autorização negada. A limpeza pesada será cancelada antes do /ResetBase.");
-          }
         } catch (error) {
           appendConsole(`Não foi possível responder à confirmação do /ResetBase: ${String(error)}`);
         }
