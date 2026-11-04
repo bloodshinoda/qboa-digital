@@ -8,7 +8,7 @@
 
 ## Resultado automatizado
 
-<badge>PASSOU</badge>
+**Resultado: PASSOU**
 
 | Etapa | Resultado |
 |---|---|
