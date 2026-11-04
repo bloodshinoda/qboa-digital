@@ -1113,8 +1113,12 @@ async function executeTask(item, cardEl) {
   try {
     const result = await Qboa.runTask(item.id, shutdownOnComplete);
     const output = result.output || "(sem saída)";
-    if (activeTaskId === item.id) activeExecutionId = result.execution_id || activeExecutionId;
-    launchPending = false; currentOperationStage = "Mãos à obra! Aguardando o andamento da tarefa…"; syncExecutionControls();
+    if (activeTaskId === item.id) {
+      activeExecutionId = result.execution_id || activeExecutionId;
+      launchPending = false;
+      currentOperationStage = "Mãos à obra! Aguardando o andamento da tarefa…";
+      syncExecutionControls();
+    }
     appendConsole(output);
     return true;
   } catch (err) {
