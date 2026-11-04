@@ -953,7 +953,14 @@ fn clean_final_cleanup_output(output: &str) -> String {
         .lines()
         .filter(|line| {
             let line = line.trim();
-            !line.contains("QBOA_METRICS")
+            let is_progress_bar = line.starts_with('[')
+                && line.ends_with(']')
+                && line.contains('%')
+                && line.chars().all(|character| {
+                    character.is_ascii_digit() || "[]=%>.- , ".contains(character)
+                });
+            !is_progress_bar
+                && !line.contains("QBOA_METRICS")
                 && !line.starts_with("Limpeza padrão:")
                 && !line.starts_with("Limpeza leve:")
                 && !line.starts_with("Limpeza média:")
