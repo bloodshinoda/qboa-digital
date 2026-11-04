@@ -397,7 +397,6 @@ mod platform {
         Ok(result)
     }
 
-
     fn collect_adobe_cache_dirs(
         root: &Path,
         names: &[&str],
@@ -431,7 +430,10 @@ mod platform {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            if names.iter().any(|candidate| name == candidate.to_ascii_lowercase()) {
+            if names
+                .iter()
+                .any(|candidate| name == candidate.to_ascii_lowercase())
+            {
                 found.push(path.clone());
                 // Um diretório de cache conhecido é uma unidade de descarte; não varrer seu conteúdo.
                 continue;
@@ -445,22 +447,56 @@ mod platform {
         on_output: &mut dyn FnMut(&str),
         check: &dyn Fn() -> bool,
     ) -> Result<String, String> {
-        let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
-        let roaming = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_default();
+        let local = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let roaming = std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_default();
 
         // Premiere Pro, After Effects e Media Encoder compartilham os caches em Adobe\Common.
         // Audition também mantém arquivos de pico regeneráveis em sua própria árvore AppData.
         let scan_roots = [
-            (local.join("Adobe/Common"), vec!["Media Cache", "Media Cache Files"]),
-            (roaming.join("Adobe/Common"), vec!["Media Cache", "Media Cache Files"]),
-            (local.join("Adobe/Premiere Pro"), vec!["Media Cache", "Media Cache Files"]),
-            (roaming.join("Adobe/Premiere Pro"), vec!["Media Cache", "Media Cache Files"]),
-            (local.join("Adobe/After Effects"), vec!["Media Cache", "Media Cache Files"]),
-            (roaming.join("Adobe/After Effects"), vec!["Media Cache", "Media Cache Files"]),
-            (local.join("Adobe/Media Encoder"), vec!["Media Cache", "Media Cache Files"]),
-            (roaming.join("Adobe/Media Encoder"), vec!["Media Cache", "Media Cache Files"]),
-            (local.join("Adobe/Audition"), vec!["Media Cache", "Media Cache Files", "Peak Files"]),
-            (roaming.join("Adobe/Audition"), vec!["Media Cache", "Media Cache Files", "Peak Files"]),
+            (
+                local.join("Adobe/Common"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                roaming.join("Adobe/Common"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                local.join("Adobe/Premiere Pro"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                roaming.join("Adobe/Premiere Pro"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                local.join("Adobe/After Effects"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                roaming.join("Adobe/After Effects"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                local.join("Adobe/Media Encoder"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                roaming.join("Adobe/Media Encoder"),
+                vec!["Media Cache", "Media Cache Files"],
+            ),
+            (
+                local.join("Adobe/Audition"),
+                vec!["Media Cache", "Media Cache Files", "Peak Files"],
+            ),
+            (
+                roaming.join("Adobe/Audition"),
+                vec!["Media Cache", "Media Cache Files", "Peak Files"],
+            ),
         ];
 
         let mut metrics = Metrics::default();
@@ -662,10 +698,16 @@ mod platform {
             let candidate = PathBuf::from(format!("{}\\{}", drive.trim_end_matches('\\'), name));
             if candidate.exists() {
                 if upgrade_residue_is_safe(&candidate, check) {
-                    on_output(&format!("Resíduo de atualização antigo identificado: {}", candidate.display()));
+                    on_output(&format!(
+                        "Resíduo de atualização antigo identificado: {}",
+                        candidate.display()
+                    ));
                     roots.push(candidate);
                 } else {
-                    on_output(&format!("Resíduo de atualização preservado por segurança: {}", candidate.display()));
+                    on_output(&format!(
+                        "Resíduo de atualização preservado por segurança: {}",
+                        candidate.display()
+                    ));
                 }
             }
         }
