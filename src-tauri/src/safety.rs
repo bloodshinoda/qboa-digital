@@ -578,6 +578,9 @@ impl SafetyManager {
         let Some(state) = self.execution_state.get_mut(execution_id) else {
             return false;
         };
+        if state.status != "running" && state.status != "cancelling" {
+            return false;
+        }
         state.cancelled = true;
         state.status = "cancelling".to_string();
         true
@@ -1205,6 +1208,15 @@ mod tests {
         assert!(manager.is_cancelled(&first.execution_id));
         assert!(!manager.is_cancelled(&second.execution_id))
     }
+    #[test]
+    fn finished_execution_cannot_be_cancelled_again() {
+        let mut manager = SafetyManager::new();
+        let execution = manager.register_execution("finished-task");
+        manager.finish_execution(&execution.execution_id, "completed");
+        assert!(!manager.cancel_execution(&execution.execution_id));
+        assert!(!manager.is_cancelled(&execution.execution_id));
+    }
+
     #[test]
     fn timestamp_is_rfc3339_utc() {
         let timestamp = iso_timestamp();
