@@ -98,7 +98,18 @@ mod platform {
         let mut output = Vec::new();
         for root in roots {
             cancelled(check)?;
-            if !root.exists() { continue; }
+            let root_meta = match fs::symlink_metadata(root) {
+                Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => meta,
+                Ok(_) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) if ignore_root_errors => {
+                    metrics.failed += 1;
+                    output.push(format!("Não foi possível acessar {}: {error}", root.display()));
+                    continue;
+                }
+                Err(error) => return Err(format!("Não foi possível acessar {}: {error}", root.display())),
+            };
+            let _ = root_meta;
             output.push(format!("Limpando temporários: {}", root.display()));
             let entries = match fs::read_dir(root) {
                 Ok(entries) => entries,
@@ -152,6 +163,8 @@ mod platform {
     fn collect_named_dirs(root: &Path, names: &[&str], found: &mut Vec<PathBuf>, depth: usize, check: &dyn Fn() -> bool) -> Result<(), String> {
         cancelled(check)?;
         if depth > 16 { return Ok(()); }
+        let root_meta = match fs::symlink_metadata(root) { Ok(v) => v, Err(_) => return Ok(()) };
+        if root_meta.file_type().is_symlink() || !root_meta.is_dir() { return Ok(()); }
         let entries = match fs::read_dir(root) { Ok(v) => v, Err(_) => return Ok(()) };
         for entry in entries.flatten() {
             cancelled(check)?;
@@ -351,6 +364,8 @@ mod platform {
     fn collect_files_named(root: &Path, target: &str, found: &mut Vec<PathBuf>, depth: usize, check: &dyn Fn() -> bool) -> Result<(), String> {
         cancelled(check)?;
         if depth > 16 { return Ok(()); }
+        let root_meta = match fs::symlink_metadata(root) { Ok(v) => v, Err(_) => return Ok(()) };
+        if root_meta.file_type().is_symlink() || !root_meta.is_dir() { return Ok(()); }
         let entries = match fs::read_dir(root) { Ok(v) => v, Err(_) => return Ok(()) };
         for entry in entries.flatten() {
             cancelled(check)?;
