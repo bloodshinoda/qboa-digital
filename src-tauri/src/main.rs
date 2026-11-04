@@ -877,7 +877,8 @@ fn format_cleanup_summary(
 ) -> String {
     let registry_label = if registry == 1 {
         "chave/entrada de Registro excluída"
-    } else {        "chaves/entradas de Registro excluídas"
+    } else {
+        "chaves/entradas de Registro excluídas"
     };
     format!(
         "\n\n=================\nRESUMO DA EXECUÇÃO\n=================\n\n- {files} arquivos removidos\n- {registry} {registry_label}\n- {:.1} MB liberados (estimativa)\n- Tempo de execução: {elapsed_label}\n\n- Total de erros durante execução: {failures}",
@@ -1373,7 +1374,8 @@ fn start_task(
                                     true,
                                     Some(&format!("{overall}%")),
                                     &task_risk_for_output,
-                                );                            }
+                                );
+                            }
                         }
                     }
                 }
@@ -1872,7 +1874,8 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
 async fn get_debloat_profile_tasks(
     profile: task_registry::TweakProfile,
     selected_ids: Vec<String>,
-) -> Result<Vec<String>, String> {    let registry = TaskRegistry::try_new()?;
+) -> Result<Vec<String>, String> {
+    let registry = TaskRegistry::try_new()?;
     tweak_profiles::resolve_task_ids(&registry, profile, &selected_ids)
 }
 
@@ -2371,7 +2374,8 @@ async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
     service_profiles::capture_initial_baseline(&mut backend, &system)?;
-    let profile = service_profiles::system_profile(&system)?;    Ok(ServiceProfileState {
+    let profile = service_profiles::system_profile(&system)?;
+    Ok(ServiceProfileState {
         system,
         profile,
         products: service_profiles::product_profiles(),
