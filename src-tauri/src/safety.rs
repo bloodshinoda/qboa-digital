@@ -621,28 +621,29 @@ impl SafetyManager {
 }
 
 fn humanize_safety_log(message: &str) -> String {
-    if let Some(details) = message.strip_prefix("journal load failed") {
-        return format!("Falha ao carregar o histórico de alterações{details}");
-    }
-    if let Some(details) = message.strip_prefix("journal invalid") {
-        return format!("Histórico de alterações inválido{details}");
-    }
-    if let Some(details) = message.strip_prefix("journal persist failed") {
-        return format!("Falha ao salvar o histórico de alterações{details}");
-    }
-    if let Some(details) = message.strip_prefix("restore-point started") {
-        return format!("Criação do ponto de restauração iniciada{details}");
-    }
-    if message == "restore-point completed" {
+    let (label, details) = if let Some(details) = message.strip_prefix("journal load failed") {
+        ("Falha ao carregar o histórico de alterações", details)
+    } else if let Some(details) = message.strip_prefix("journal invalid") {
+        ("Histórico de alterações inválido", details)
+    } else if let Some(details) = message.strip_prefix("journal persist failed") {
+        ("Falha ao salvar o histórico de alterações", details)
+    } else if let Some(details) = message.strip_prefix("restore-point started") {
+        ("Criação do ponto de restauração iniciada", details)
+    } else if message == "restore-point completed" {
         return "Ponto de restauração criado com sucesso.".to_string();
-    }
-    if let Some(details) = message.strip_prefix("restore-point failed") {
-        return format!("Falha ao criar o ponto de restauração{details}");
-    }
-    if let Some(details) = message.strip_prefix("journal replacement succeeded but backup cleanup failed") {
-        return format!("Histórico atualizado, mas não foi possível remover o backup antigo{details}");
-    }
-    message.to_string()
+    } else if let Some(details) = message.strip_prefix("restore-point failed") {
+        ("Falha ao criar o ponto de restauração", details)
+    } else if let Some(details) = message.strip_prefix("journal replacement succeeded but backup cleanup failed") {
+        ("Histórico atualizado, mas não foi possível remover o backup antigo", details)
+    } else {
+        return message.to_string();
+    };
+    let details = details
+        .replace("path=", "caminho=")
+        .replace("error=", "detalhe=")
+        .replace("recovery_file=", "arquivo_de_recuperação=")
+        .replace("renamed=", "renomeado=");
+    format!("{label}{details}")
 }
 
 fn write_safety_log(message: &str) {
