@@ -2598,6 +2598,18 @@ mod tests {
     }
 
     #[test]
+    fn execution_log_humanizer_translates_internal_events() {
+        assert_eq!(
+            humanize_execution_log("task-started task_id=limpeza_leve"),
+            "Tarefa iniciada: tarefa=limpeza_leve"
+        );
+        assert_eq!(
+            humanize_execution_log("started pid=123 command=dism args=[/Online]"),
+            "Comando iniciado: processo=123 comando=dism argumentos=[/Online]"
+        );
+    }
+
+    #[test]
     fn cancellation_rejects_execution_belonging_to_another_task() {
         let mut safety = SafetyManager::new();
         let execution = safety.try_register_execution("task-a").unwrap();
