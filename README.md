@@ -260,6 +260,10 @@ O workflow `.github/workflows/windows-build.yml` compila o aplicativo Windows em
 
 O workflow é executado em pushes para `main`, pull requests para `main`, execução manual e tags `v*`. Ao publicar uma tag `v*`, o workflow lê a versão de `src-tauri/tauri.conf.json`, compila os pacotes `qboa-digital-<versão>-x64-installer.exe` e `qboa-digital-<versão>-x64-portable.exe` e cria uma release em rascunho com ambos os arquivos anexados. Depois, revise e publique o rascunho em [Releases](https://github.com/bloodshinoda/qboa-digital/releases). Os artefatos temporários das execuções também ficam disponíveis no GitHub Actions por 14 dias. A versão portátil é distribuída como `.exe` individual, não como ZIP, e ainda exige que o Microsoft Edge WebView2 Runtime esteja instalado no Windows.
 
+## Higiene e manutenção do repositório
+
+O estado dos workflows, dependências, documentação e classificação das branches está registrado em [docs/higiene-repositorio-3.2.1.md](docs/higiene-repositorio-3.2.1.md).
+
 ## Validação P0 no Windows
 
 A matriz de validação manual está em [docs/p0-windows-validation.md](docs/p0-windows-validation.md). Ela cobre snapshots e rollback, serviços, tarefas agendadas, Restore Point, PowerShell, DISM, SFC, cancelamento, árvores de processos e execuções concorrentes. Os testes que alteram o Windows devem ser executados somente em uma VM descartável com checkpoint externo.
