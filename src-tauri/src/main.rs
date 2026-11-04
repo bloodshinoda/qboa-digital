@@ -305,10 +305,10 @@ fn humanize_execution_log(message: &str) -> String {
         "restore-point-phase-failed" => "Falha ao criar o ponto de restauração",
         "task-cancelled-by-user-after-restore-point-failure" => {
             "Tarefa cancelada após falha no ponto de restauração"
-        },
+        }
         "user-approved-proceeding-without-restore-point" => {
             "Usuário autorizou continuar sem ponto de restauração"
-        },
+        }
         "task-executor-completed" => "Execução concluída",
         "task-executor-failed" => "Falha no executor da tarefa",
         "registry-operation-failed" => "Falha na operação do Registro",
