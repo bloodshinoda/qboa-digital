@@ -1112,14 +1112,12 @@ async function executeTask(item, cardEl) {
 
   try {
     const result = await Qboa.runTask(item.id, shutdownOnComplete);
-    const output = result.output || "(sem saída)";
     if (activeTaskId === item.id) {
       activeExecutionId = result.execution_id || activeExecutionId;
       launchPending = false;
       currentOperationStage = "Mãos à obra! Aguardando o andamento da tarefa…";
       syncExecutionControls();
     }
-    appendConsole(output);
     return true;
   } catch (err) {
     stopActivity();
@@ -3262,6 +3260,7 @@ async function registerEvents() {
       currentOperationName = taskDisplayName(payload.task_id);
       currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
+      appendConsole(`Tarefa iniciada: ${taskDisplayName(payload.task_id)}.`);
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.add("running");
     }
     if (payload.event === "restore-point-confirmation-required") {
