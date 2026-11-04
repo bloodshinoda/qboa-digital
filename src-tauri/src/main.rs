@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod capability_inventory;
+mod cleanup_engine;
 mod cleanup_findings;
 mod complete_diagnostic;
 mod cpu_diagnostic;
@@ -480,16 +481,15 @@ fn report_system_compatibility(on_output: &mut dyn FnMut(&str)) -> bool {
 
 fn cleanup_standard(
     task_id: &str,
-    execution_id: &str,
+    _execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
     apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
 ) -> Result<String, String> {
-    let output = run_powershell(
-        include_str!("../scripts/cleanup_standard.ps1"),
-        execution_id,
+    let output = cleanup_engine::cleanup_standard(
         on_output,
         is_cancelled,
+        BROWSER_CLEANUP_ENABLED.load(Ordering::Relaxed),
     )?;
     let registry_keys_removed = apply_registry(task_id)?;
     let summary = "Faxina básica concluída: temporários, caches, histórico recente e lixeira.";
@@ -500,77 +500,19 @@ fn cleanup_standard(
 }
 
 fn cleanup_heavy_temp(
-    execution_id: &str,
+    _execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
-    run_powershell(
-        r#"
-$paths = @("$env:TEMP", "$env:WINDIR\Temp", "$env:WINDIR\Minidump", "$env:WINDIR\LiveKernelReports");
-$removed = 0; $removedFiles = 0; [long]$freedBytes = 0; $failed = 0;
-foreach ($p in $paths) {
-  if (Test-Path -LiteralPath $p) {
-    foreach ($item in @(Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue)) {
-      try {
-        if ($item.PSIsContainer) { $files = @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue) }
-        else { $files = @($item) }
-        $size = ($files | Measure-Object -Property Length -Sum).Sum
-        Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
-        $removedFiles += $files.Count
-        if ($size) { $freedBytes += [long]$size }
-        $removed++
-      } catch { $failed++ ; Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message) }
-    }
-  }
-}
-try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
-Write-Output ("Limpeza pesada: {0} item(ns)/pasta(s) removido(s), {1} falha(s)." -f $removed, $failed)
-Write-Output ("QBOA_METRICS files={0} bytes={1} registry=0" -f $removedFiles, $freedBytes)
-"#,
-        execution_id,
-        on_output,
-        is_cancelled,
-    )
+    cleanup_engine::cleanup_heavy_temp(on_output, is_cancelled)
 }
 
 fn cleanup_windows_update(
-    execution_id: &str,
+    _execution_id: &str,
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
-    run_powershell(
-        r#"
-$ErrorActionPreference = 'Stop';
-$path = Join-Path $env:WINDIR 'SoftwareDistribution\Download';
-if (-not (Test-Path -LiteralPath $path)) {
-  Write-Output 'Cache de download do Windows Update não existe; nada a limpar.';
-  Write-Output 'QBOA_METRICS files=0 bytes=0 registry=0';
-  exit 0;
-}
-$items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop);
-$removed = 0; $removedFiles = 0; [long]$freedBytes = 0; $failed = 0;
-foreach ($item in $items) {
-  try {
-    $tree = @($item) + @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -File -ErrorAction SilentlyContinue);
-    $files = @($tree | Where-Object { -not $_.PSIsContainer });
-    $size = ($files | Measure-Object -Property Length -Sum).Sum;
-    Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop;
-    $removedFiles += $files.Count;
-    if ($size) { $freedBytes += [long]$size; }
-    $removed++;
-  } catch {
-    $failed++;
-    Write-Output ("Não foi possível remover: " + $item.FullName + " — " + $_.Exception.Message);
-  }
-}
-Write-Output ("Windows Update: {0} item(ns) removido(s), {1} falha(s)." -f $removed, $failed);
-Write-Output ("QBOA_METRICS files={0} bytes={1} registry=0" -f $removedFiles, $freedBytes);
-if ($failed -gt 0) { exit 2 }
-"#,
-        execution_id,
-        on_output,
-        is_cancelled,
-    )
+    cleanup_engine::cleanup_windows_update(on_output, is_cancelled)
 }
 
 fn disable_telemetry_components(
@@ -728,69 +670,6 @@ fn disable_diagnostic_tasks(
         on_output,
         is_cancelled,
     )
-}
-
-#[cfg(target_os = "windows")]
-fn run_cleanmgr_silently(
-    execution_id: &str,
-    on_output: &mut dyn FnMut(&str),
-    is_cancelled: &dyn Fn() -> bool,
-) -> Result<String, String> {
-    // cleanmgr é Win32 GUI; -WindowStyle Hidden não oculta de forma confiável
-    // a janela principal. Ocultamos as janelas vinculadas ao PID do processo
-    // durante toda a execução, inclusive as que surgem após a inicialização.
-    let script = r#"
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class QboaWindowHider {
-    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr extra);
-    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
-    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
-    delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr extra);
-    public static void Hide(uint targetPid) {
-        EnumWindows((hwnd, extra) => {
-            uint pid;
-            GetWindowThreadProcessId(hwnd, out pid);
-            if (pid == targetPid) ShowWindow(hwnd, 0);
-            return true;
-        }, IntPtr.Zero);
-    }
-}
-'@
-$exe = Join-Path $env:SystemRoot 'System32\cleanmgr.exe'
-$p = Start-Process -FilePath $exe -ArgumentList @('/verylowdisk','/d',$env:SystemDrive) -PassThru
-while (-not $p.HasExited) {
-    [QboaWindowHider]::Hide([uint32]$p.Id)
-    Start-Sleep -Milliseconds 200
-    $p.Refresh()
-}
-exit $p.ExitCode
-"#;
-    on_output("Chamando a Limpeza de Disco do Windows em modo silencioso...");
-    run_command(
-        "powershell",
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            script,
-        ],
-        execution_id,
-        on_output,
-        is_cancelled,
-    )
-}
-
-#[cfg(not(target_os = "windows"))]
-fn run_cleanmgr_silently(
-    _execution_id: &str,
-    _on_output: &mut dyn FnMut(&str),
-    _is_cancelled: &dyn Fn() -> bool,
-) -> Result<String, String> {
-    Err("CleanMGR só está disponível no Windows.".to_string())
 }
 
 fn run_system_command(
@@ -1047,7 +926,7 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O QBoa manterá o DISM padrão, sem inventar uma origem de reparo.");
             }
-            on_output("[Etapa 1/5] Limpando temporários, caches e lixeira...");
+            on_output("[Etapa 1/4] Limpando temporários, caches e lixeira com o motor nativo...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -1055,16 +934,14 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output("[Etapa 2/5] Executando a Limpeza de Disco do Windows (cleanmgr)...");
-            let part_2 = run_cleanmgr_silently(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 3/5] Processando o cache temporário do Windows Update...");
+            on_output("[Etapa 2/4] Processando o cache temporário do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output(
-                "[Etapa 4/5] Removendo atalhos quebrados e associações inválidas confirmadas...",
+                "[Etapa 3/4] Removendo atalhos quebrados e associações inválidas confirmadas...",
             );
             let findings = apply_cleanup_findings("complete", on_output);
             on_output(
-                "[Etapa 5/5] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
+                "[Etapa 4/4] Verificando e reparando a imagem do Windows com DISM RestoreHealth...",
             );
             let part_4 = run_system_command(
                 "dism",
@@ -1074,7 +951,7 @@ fn execute_task(
                 is_cancelled,
             )?;
             Ok(format!(
-                "{part_1}\n{part_2}\n{part_3}\n{}\n{part_4}",
+                "{part_1}\n{part_3}\n{}\n{part_4}",
                 findings_summary(&findings)
             ))
         }
@@ -1153,11 +1030,10 @@ fn execute_task(
         }
         "desengordurar_tarefas" => disable_diagnostic_tasks(execution_id, on_output, is_cancelled),
         "limpeza_windows_update" => cleanup_windows_update(execution_id, on_output, is_cancelled),
-        "limpeza_historico_navegadores" => run_powershell(
-            include_str!("../scripts/cleanup_browser_history.ps1"),
-            execution_id,
+        "limpeza_historico_navegadores" => cleanup_engine::cleanup_browser_history(
             on_output,
             is_cancelled,
+            BROWSER_CLEANUP_ENABLED.load(Ordering::Relaxed),
         ),
         "diagnostico_dism_scan" => run_system_command(
             "dism",
