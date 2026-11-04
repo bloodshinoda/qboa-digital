@@ -1,0 +1,35 @@
+name: Temporary Rust formatting helper
+
+on:
+  push:
+    branches:
+      - feat/native-rust-cleanup
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/native-rust-cleanup
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-msvc
+          components: rustfmt
+      - name: Format Rust sources
+        working-directory: src-tauri
+        run: cargo fmt --all
+      - name: Commit formatting changes
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "style(cleanup): aplica rustfmt ao motor nativo"
+            git push origin HEAD:feat/native-rust-cleanup
+          }
