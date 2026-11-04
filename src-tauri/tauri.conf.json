@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Qboa Digital",
-  "version": "3.2.1",
+  "productName": "QBoa Digital",
+  "version": "3.2.2",
   "identifier": "com.qboa.digital",
   "build": {
     "frontendDist": "../src",
@@ -12,7 +12,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Qboa Digital",
+        "title": "QBoa Digital",
         "width": 980,
         "height": 720,
         "resizable": true,

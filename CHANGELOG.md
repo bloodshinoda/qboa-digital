@@ -2,6 +2,18 @@
 
 Todas as mudanças relevantes do QBoa Digital são registradas neste arquivo.
 
+## [3.2.2] — 2026-11-04
+
+### Interface e experiência de uso
+- Adiciona redimensionamento do Registro de Atividades por alça de arraste, com persistência da altura e suporte ao teclado.
+- Exibe o progresso da operação no botão do QBoa na barra de tarefas do Windows, limpando o indicador ao finalizar.
+- Adiciona mensagens contextuais bem-humoradas ao popup de progresso, com cinco variações por etapa, alternância sem repetição imediata e animação discreta.
+- Inclui aparições especiais e raras com referências ao QBoa e ao dízimo.
+- Atualiza a versão exibida na aba Sobre e os metadados do aplicativo para 3.2.2.
+
+### Validação
+- Aguardando CI e testes funcionais no Windows para esta atualização.
+
 ## [3.2.1] — 2026-11-04
 
 ### Limpeza e manutenção

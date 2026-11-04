@@ -581,7 +581,7 @@ button {
   height: 170px;
   min-height: 110px;
   max-height: 60vh;
-  resize: vertical;
+  resize: none;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 8px;
@@ -1123,3 +1123,14 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .complete-diagnostic-summary { margin:16px 0; padding:13px 15px; border:1px solid rgba(255,255,255,.18); border-radius:9px; background:rgba(0,0,0,.18); font-weight:700; line-height:1.5; }
 #diagnostic-modal-close:disabled { opacity:.4; cursor:not-allowed; }
 @media(prefers-reduced-motion:reduce) { #complete-diagnostic-progress-bar { transition:none; } }
+
+/* Alça acessível para redimensionar o Registro de Atividades por arraste. */
+.console-resize-handle { display:flex; align-items:center; justify-content:center; height:10px; margin:0 0 4px; cursor:ns-resize; touch-action:none; user-select:none; outline-offset:2px; }
+.console-resize-handle::after { content:""; width:52px; height:3px; border-radius:999px; background:rgba(255,255,255,.28); transition:width .15s ease, background .15s ease; }
+.console-resize-handle:hover::after,.console-resize-handle:focus-visible::after { width:76px; background:#4ade80; }
+.operation-progress { grid-template-rows:auto auto; }
+.operation-progress-flavor { grid-column:1 / -1; margin:1px 0 0; color:#b8d9c3; font-size:.82rem; line-height:1.35; text-align:center; opacity:.88; }
+.operation-progress-flavor.is-changing { animation:qboa-flavor-arrive .34s ease both; }
+@keyframes qboa-flavor-arrive { from { opacity:0; transform:translateY(4px); } to { opacity:.88; transform:translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .operation-progress-flavor.is-changing { animation:none; } .console-resize-handle::after { transition:none; } }
+@media(max-width:600px) { .operation-progress-flavor { grid-column:1 / -1; grid-row:3; } }

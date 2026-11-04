@@ -1,14 +1,14 @@
-# Qboa Digital
+# QBoa Digital
 
-![Qboa Digital](src-tauri/icons/logo.png)
+![QBoa Digital](src-tauri/icons/logo.png)
 
-Versão atual: `3.2.1` (versão do pacote: `3.2.1`)
+Versão atual: `3.2.2` (versão do pacote: `3.2.2`)
 
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
 
-## QBoa Digital 3.2.1
+## QBoa Digital 3.2.2
 
-A versão 3.2.1 aprimora a execução e o acompanhamento das rotinas de limpeza e manutenção do Windows, com progresso por etapas, integração do percentual reportado pelo DISM, resumo final e melhorias no fluxo de inicialização. Também adiciona limpeza de histórico de navegadores e corrige operações de telemetria e privacidade avançada.
+A versão 3.2.2 refina a experiência de execução: permite redimensionar o Registro de Atividades por arraste, apresenta o progresso na barra de tarefas do Windows e exibe mensagens contextuais bem-humoradas no popup de progresso, com variações e animação sutil. Mantém o percentual real das operações separado das mensagens descontraídas.
 
 > O QBoa Digital mantém diagnóstico separado de limpeza e manutenção.
 
@@ -36,11 +36,18 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
   <p><strong>Serviços do Windows</strong></p>
 </div>
 
-## Downloads — versão 3.2.1
+## Downloads — versão 3.2.2
 
-- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.1/qboa-digital-3.2.1-x64-installer.exe)** — instalação tradicional.
-- **[Versão portátil Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.1/qboa-digital-3.2.1-x64-portable.exe)** — executável portátil distribuído como arquivo individual.
-- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.2.1).
+- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.2/qboa-digital-3.2.2-x64-installer.exe)** — instalação tradicional.
+- **[Versão portátil Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.2/qboa-digital-3.2.2-x64-portable.exe)** — executável portátil distribuído como arquivo individual.
+- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.2.2).
+
+### Destaques da versão 3.2.2
+
+- Redimensionamento do Registro de Atividades por alça de arraste, com altura persistida entre sessões.
+- Indicador de progresso na barra de tarefas do Windows, com estado indeterminado ou percentual real.
+- Mensagens contextuais com cinco variações por etapa, sem repetição imediata, além de easter eggs raros com QBoa e o dízimo.
+- Animação discreta e respeito à preferência do Windows por movimento reduzido.
 
 ### Destaques da versão 3.2.1
 
@@ -150,7 +157,7 @@ A camada de segurança possui proteção para operações destrutivas:
 - validação do estado após o rollback
 - identificador único por execução (`execution_id`)
 - cancelamento associado à execução e à árvore de processos
-- log técnico de execução em `%LOCALAPPDATA%\Qboa Digital\logs\execution.log`
+- log técnico de execução em `%LOCALAPPDATA%\QBoa Digital\logs\execution.log`
 
 O journal de alterações e o estado das execuções ainda ficam em memória durante a sessão. Os snapshots ficam em `%TEMP%\qboa-digital\snapshots`.
 
@@ -158,7 +165,7 @@ O journal de alterações e o estado das execuções ainda ficam em memória dur
 
 A Restauração do Sistema do Windows é usada como proteção de nível sistêmico antes de alterações arriscadas. O Qboa identifica seus próprios pontos de restauração usando uma convenção consistente de descrição, como:
 
-- Qboa Digital — Antes da tarefa: X
+- QBoa Digital — Antes da tarefa: X
 
 Isso não substitui pontos de restauração criados pelo usuário, e o aplicativo não remove automaticamente pontos de restauração existentes.
 
