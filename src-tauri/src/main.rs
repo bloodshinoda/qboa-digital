@@ -18,6 +18,7 @@ mod storage_diagnostic;
 mod system_compat;
 mod task_registry;
 mod tweak_profiles;
+mod windows_update;
 
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -2542,6 +2543,11 @@ async fn manage_windows_service(
 }
 
 #[tauri::command]
+async fn set_windows_update_enabled(enabled: bool) -> Result<String, String> {
+    windows_update::set_enabled(enabled)
+}
+
+#[tauri::command]
 async fn get_service_profile_state() -> Result<ServiceProfileState, String> {
     let mut backend = service_profiles::WindowsServiceProfileBackend::default();
     let system = backend.detect_system()?;
@@ -2727,6 +2733,7 @@ fn main() {
             get_capability_inventory,
             list_windows_services,
             manage_windows_service,
+            set_windows_update_enabled,
             get_service_profile_state,
             preview_service_profile,
             apply_service_profile,
