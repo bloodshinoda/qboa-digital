@@ -377,10 +377,7 @@ enum ConfirmationWait {
     Disconnected,
 }
 
-fn receive_confirmation(
-    receiver: &mpsc::Receiver<bool>,
-    timeout: Duration,
-) -> ConfirmationWait {
+fn receive_confirmation(receiver: &mpsc::Receiver<bool>, timeout: Duration) -> ConfirmationWait {
     match receiver.recv_timeout(timeout) {
         Ok(response) => ConfirmationWait::Answered(response),
         Err(mpsc::RecvTimeoutError::Timeout) => ConfirmationWait::TimedOut,
