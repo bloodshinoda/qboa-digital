@@ -3230,7 +3230,7 @@ async function registerEvents() {
           payload.message || "O DISM /ResetBase impede a desinstalação das atualizações já instaladas. Deseja executar mesmo assim?",
           "Operação irreversível: DISM /ResetBase",
           "Sim, executar /ResetBase",
-          "Pular esta etapa"
+          "Cancelar limpeza pesada"
         );
         try {
           await Qboa.respondResetBaseConfirmation(payload.execution_id, proceed);
