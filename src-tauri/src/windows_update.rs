@@ -115,9 +115,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
   throw 'Execute o QBoa Digital como administrador para alterar o Windows Update.'
 }
 
-$policyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
-New-Item -Path $policyPath -Force | Out-Null
-New-ItemProperty -Path $policyPath -Name NoAutoUpdate -PropertyType DWord -Value 1 -Force | Out-Null
+$policyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+$auPath = Join-Path $policyPath 'AU'
+New-Item -Path $auPath -Force | Out-Null
+New-ItemProperty -Path $auPath -Name NoAutoUpdate -PropertyType DWord -Value 1 -Force | Out-Null
 New-ItemProperty -Path $policyPath -Name DisableWindowsUpdateAccess -PropertyType DWord -Value 1 -Force | Out-Null
 New-ItemProperty -Path $policyPath -Name SetDisableUXWUAccess -PropertyType DWord -Value 1 -Force | Out-Null
 
