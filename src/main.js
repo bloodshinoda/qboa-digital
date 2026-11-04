@@ -807,6 +807,30 @@ function writeStatus(text) {
   renderConsole();
 }
 
+function restoreConsoleHeight() {
+  const output = document.getElementById("console-output");
+  if (!output) return;
+  try {
+    const savedHeight = Number(localStorage.getItem("qboa-console-height"));
+    const maximum = Math.floor(window.innerHeight * 0.6);
+    if (Number.isFinite(savedHeight) && savedHeight >= 110 && savedHeight <= maximum) {
+      output.style.height = `${savedHeight}px`;
+    }
+  } catch (_) {
+    // A preferência é opcional; o painel continua redimensionável sem persistência.
+  }
+  const saveHeight = () => {
+    try {
+      const height = Math.round(output.getBoundingClientRect().height);
+      if (height >= 110) localStorage.setItem("qboa-console-height", String(height));
+    } catch (_) {
+      // Não interrompe o registro de atividades se o armazenamento estiver indisponível.
+    }
+  };
+  window.addEventListener("pointerup", saveHeight);
+  window.addEventListener("touchend", saveHeight);
+}
+
 function renderConsole() {
   const out = document.getElementById("console-output");
   const content = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
@@ -3323,6 +3347,7 @@ async function registerEvents() {
 }
 
 (async function init() {
+  restoreConsoleHeight();
   await loadStructure();
   syncExecutionControls();
   renderTabs();
