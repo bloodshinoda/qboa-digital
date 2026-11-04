@@ -1949,6 +1949,24 @@ async fn prepare_browser_cleanup(close_running: bool) -> Result<String, String> 
     }
 }
 
+fn validate_execution_task(
+    safety: &SafetyManager,
+    task_id: &str,
+    execution_id: &str,
+) -> Result<(), String> {
+    let execution = safety
+        .execution_state
+        .get(execution_id)
+        .ok_or_else(|| "A execução informada não existe mais.".to_string())?;
+    if execution.task_id != task_id {
+        return Err("A execução informada não pertence à tarefa solicitada.".to_string());
+    }
+    if execution.status != "running" && execution.status != "cancelling" {
+        return Err("A tarefa não está mais em execução.".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<String, String> {
     let mut safety = safety_state().lock().unwrap();
@@ -1957,13 +1975,7 @@ async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<St
         .ok_or_else(|| {
             format!("Identificador da execução obrigatório ou ambíguo para a tarefa: {task_id}")
         })?;
-    let execution = safety
-        .execution_state
-        .get(&execution_id)
-        .ok_or_else(|| "A execução informada não existe mais.".to_string())?;
-    if execution.task_id != task_id {
-        return Err("A execução informada não pertence à tarefa solicitada.".to_string());
-    }
+    validate_execution_task(&safety, &task_id, &execution_id)?;
     if safety.cancel_execution(&execution_id) {
         Ok(format!(
             "Tarefa marcada para cancelamento: {task_id} ({execution_id})"
@@ -2583,6 +2595,22 @@ mod tests {
     fn unknown_tasks_are_rejected() {
         let registry = TaskRegistry::try_new().unwrap();
         assert!(registry.resolve("task_inexistente").is_none());
+    }
+
+    #[test]
+    fn cancellation_rejects_execution_belonging_to_another_task() {
+        let mut safety = SafetyManager::new();
+        let execution = safety.try_register_execution("task-a").unwrap();
+        assert!(validate_execution_task(&safety, "task-b", &execution.execution_id).is_err());
+        assert!(validate_execution_task(&safety, "task-a", &execution.execution_id).is_ok());
+    }
+
+    #[test]
+    fn cancellation_rejects_finished_execution() {
+        let mut safety = SafetyManager::new();
+        let execution = safety.try_register_execution("task-a").unwrap();
+        safety.finish_execution(&execution.execution_id, "completed");
+        assert!(validate_execution_task(&safety, "task-a", &execution.execution_id).is_err());
     }
 }
 
