@@ -370,6 +370,27 @@ fn humanize_execution_log(message: &str) -> String {
     }
 }
 
+fn receive_confirmation(
+    receiver: &mpsc::Receiver<bool>,
+    execution_id: &str,
+    confirmation_type: &str,
+    timeout: Duration,
+) -> bool {
+    match receiver.recv_timeout(timeout) {
+        Ok(response) => response,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            write_execution_log(
+                execution_id,
+                &format!(
+                    "confirmation-timeout tipo={confirmation_type}; decisão=cancelar"
+                ),
+            );
+            false
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => false,
+    }
+}
+
 fn write_execution_log(execution_id: &str, message: &str) {
     let path = execution_log_path();
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
@@ -1334,17 +1355,12 @@ fn start_task(
                         None,
                         &task_risk_for_spawn,
                     );
-                    let proceed = match receiver.recv_timeout(Duration::from_secs(300)) {
-                        Ok(response) => response,
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            write_execution_log(
-                                &execution_id_for_spawn,
-                                "confirmation-timeout tipo=ponto-de-restauracao; decisão=cancelar",
-                            );
-                            false
-                        }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => false,
-                    };
+                    let proceed = receive_confirmation(
+                        &receiver,
+                        &execution_id_for_spawn,
+                        "ponto-de-restauracao",
+                        Duration::from_secs(300),
+                    );
                     restore_point_responses()
                         .lock()
                         .unwrap()
@@ -1551,17 +1567,12 @@ fn start_task(
                 None,
                 &task_risk_for_spawn,
             );
-            let proceed = match receiver.recv_timeout(Duration::from_secs(300)) {
-                Ok(response) => response,
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    write_execution_log(
-                        &execution_id_for_spawn,
-                        "confirmation-timeout tipo=reset-base; decisão=cancelar",
-                    );
-                    false
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => false,
-            };
+            let proceed = receive_confirmation(
+                &receiver,
+                &execution_id_for_spawn,
+                "reset-base",
+                Duration::from_secs(300),
+            );
             reset_base_responses()
                 .lock()
                 .unwrap()
@@ -2595,6 +2606,41 @@ mod tests {
     fn unknown_tasks_are_rejected() {
         let registry = TaskRegistry::try_new().unwrap();
         assert!(registry.resolve("task_inexistente").is_none());
+    }
+
+    #[test]
+    fn confirmation_timeout_fails_closed() {
+        let (_sender, receiver) = mpsc::channel();
+        assert!(!receive_confirmation(
+            &receiver,
+            "execution-test",
+            "reset-base",
+            Duration::from_millis(1)
+        ));
+    }
+
+    #[test]
+    fn disconnected_confirmation_fails_closed() {
+        let (sender, receiver) = mpsc::channel();
+        drop(sender);
+        assert!(!receive_confirmation(
+            &receiver,
+            "execution-test",
+            "ponto-de-restauracao",
+            Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn explicit_confirmation_response_is_respected() {
+        let (sender, receiver) = mpsc::channel();
+        sender.send(true).unwrap();
+        assert!(receive_confirmation(
+            &receiver,
+            "execution-test",
+            "reset-base",
+            Duration::from_secs(1)
+        ));
     }
 
     #[test]
