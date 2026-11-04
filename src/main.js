@@ -3241,17 +3241,16 @@ async function registerEvents() {
     console.error("Falha ao registrar eventos de diagnóstico:", error);
   })));
 
-  // Não bloqueia o vínculo dos controles da interface esperando o listener Tauri.
-  // Se listen() demorar ou falhar, os botões de confirmação continuam funcionais.
+  // O listener principal precisa estar pronto antes de liberar qualquer operação.
   await listen("qboa-event", (event) => {
     const payload = event.payload || {};
     const isStartingThisLaunch = payload.event === "task-started" && launchPending && activeTaskId === payload.task_id;
     if (payload.event === "task-started") {
-      if (!isStartingThisLaunch && payload.execution_id !== activeExecutionId) return;
+      if (!isStartingThisLaunch && (payload.execution_id !== activeExecutionId || payload.task_id !== activeTaskId)) return;
     } else if (!payload.execution_id) {
       if (payload.event === "task-error" && payload.message) appendConsole(`Falha ao iniciar ${taskDisplayName(payload.task_id)}: ${payload.message}`);
       return;
-    } else if (payload.execution_id !== activeExecutionId) {
+    } else if (payload.execution_id !== activeExecutionId || payload.task_id !== activeTaskId) {
       return;
     }
     if (payload.event === "task-started") {
