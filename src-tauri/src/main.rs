@@ -303,8 +303,12 @@ fn humanize_execution_log(message: &str) -> String {
         "restore-point-phase-started" => "Criação do ponto de restauração iniciada",
         "restore-point-phase-completed" => "Ponto de restauração criado",
         "restore-point-phase-failed" => "Falha ao criar o ponto de restauração",
-        "task-cancelled-by-user-after-restore-point-failure" => "Tarefa cancelada após falha no ponto de restauração",
-        "user-approved-proceeding-without-restore-point" => "Usuário autorizou continuar sem ponto de restauração",
+        "task-cancelled-by-user-after-restore-point-failure" => {
+            "Tarefa cancelada após falha no ponto de restauração"
+        },
+        "user-approved-proceeding-without-restore-point" => {
+            "Usuário autorizou continuar sem ponto de restauração"
+        },
         "task-executor-completed" => "Execução concluída",
         "task-executor-failed" => "Falha no executor da tarefa",
         "registry-operation-failed" => "Falha na operação do Registro",
@@ -330,11 +334,17 @@ fn humanize_execution_log(message: &str) -> String {
         .replace("persist_error=", "erro_de_persistência=");
     if key == "restore-point" {
         return if details.starts_with("started") {
-            format!("Criação do ponto de restauração iniciada: {}", details.trim_start_matches("started").trim())
+            format!(
+                "Criação do ponto de restauração iniciada: {}",
+                details.trim_start_matches("started").trim()
+            )
         } else if details.starts_with("completed") {
             "Ponto de restauração criado com sucesso.".to_string()
         } else if details.starts_with("failed") {
-            format!("Falha ao criar o ponto de restauração: {}", details.trim_start_matches("failed").trim())
+            format!(
+                "Falha ao criar o ponto de restauração: {}",
+                details.trim_start_matches("failed").trim()
+            )
         } else {
             format!("Ponto de restauração: {details}")
         };
@@ -348,7 +358,9 @@ fn humanize_execution_log(message: &str) -> String {
     if key == "journal" && details.starts_with("update failed after task error:") {
         return format!(
             "Falha ao atualizar o histórico após um erro na tarefa: {}",
-            details.trim_start_matches("update failed after task error:").trim()
+            details
+                .trim_start_matches("update failed after task error:")
+                .trim()
         );
     }
     if details.is_empty() {
