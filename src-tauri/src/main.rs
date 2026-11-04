@@ -370,24 +370,21 @@ fn humanize_execution_log(message: &str) -> String {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ConfirmationWait {
+    Answered(bool),
+    TimedOut,
+    Disconnected,
+}
+
 fn receive_confirmation(
     receiver: &mpsc::Receiver<bool>,
-    execution_id: &str,
-    confirmation_type: &str,
     timeout: Duration,
-) -> bool {
+) -> ConfirmationWait {
     match receiver.recv_timeout(timeout) {
-        Ok(response) => response,
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            write_execution_log(
-                execution_id,
-                &format!(
-                    "confirmation-timeout tipo={confirmation_type}; decisão=cancelar"
-                ),
-            );
-            false
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => false,
+        Ok(response) => ConfirmationWait::Answered(response),
+        Err(mpsc::RecvTimeoutError::Timeout) => ConfirmationWait::TimedOut,
+        Err(mpsc::RecvTimeoutError::Disconnected) => ConfirmationWait::Disconnected,
     }
 }
 
@@ -1355,12 +1352,17 @@ fn start_task(
                         None,
                         &task_risk_for_spawn,
                     );
-                    let proceed = receive_confirmation(
-                        &receiver,
-                        &execution_id_for_spawn,
-                        "ponto-de-restauracao",
-                        Duration::from_secs(300),
-                    );
+                    let proceed = match receive_confirmation(&receiver, Duration::from_secs(300)) {
+                        ConfirmationWait::Answered(response) => response,
+                        ConfirmationWait::TimedOut => {
+                            write_execution_log(
+                                &execution_id_for_spawn,
+                                "confirmation-timeout tipo=ponto-de-restauracao; decisão=cancelar",
+                            );
+                            false
+                        }
+                        ConfirmationWait::Disconnected => false,
+                    };
                     restore_point_responses()
                         .lock()
                         .unwrap()
@@ -1567,12 +1569,17 @@ fn start_task(
                 None,
                 &task_risk_for_spawn,
             );
-            let proceed = receive_confirmation(
-                &receiver,
-                &execution_id_for_spawn,
-                "reset-base",
-                Duration::from_secs(300),
-            );
+            let proceed = match receive_confirmation(&receiver, Duration::from_secs(300)) {
+                ConfirmationWait::Answered(response) => response,
+                ConfirmationWait::TimedOut => {
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        "confirmation-timeout tipo=reset-base; decisão=cancelar",
+                    );
+                    false
+                }
+                ConfirmationWait::Disconnected => false,
+            };
             reset_base_responses()
                 .lock()
                 .unwrap()
@@ -2611,36 +2618,30 @@ mod tests {
     #[test]
     fn confirmation_timeout_fails_closed() {
         let (_sender, receiver) = mpsc::channel();
-        assert!(!receive_confirmation(
-            &receiver,
-            "execution-test",
-            "reset-base",
-            Duration::from_millis(1)
-        ));
+        assert_eq!(
+            receive_confirmation(&receiver, Duration::from_millis(1)),
+            ConfirmationWait::TimedOut
+        );
     }
 
     #[test]
     fn disconnected_confirmation_fails_closed() {
         let (sender, receiver) = mpsc::channel();
         drop(sender);
-        assert!(!receive_confirmation(
-            &receiver,
-            "execution-test",
-            "ponto-de-restauracao",
-            Duration::from_secs(1)
-        ));
+        assert_eq!(
+            receive_confirmation(&receiver, Duration::from_secs(1)),
+            ConfirmationWait::Disconnected
+        );
     }
 
     #[test]
     fn explicit_confirmation_response_is_respected() {
         let (sender, receiver) = mpsc::channel();
         sender.send(true).unwrap();
-        assert!(receive_confirmation(
-            &receiver,
-            "execution-test",
-            "reset-base",
-            Duration::from_secs(1)
-        ));
+        assert_eq!(
+            receive_confirmation(&receiver, Duration::from_secs(1)),
+            ConfirmationWait::Answered(true)
+        );
     }
 
     #[test]
