@@ -217,7 +217,10 @@ mod platform {
         let windir = std::env::var_os("WINDIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
         let roots = [temp, windir.join("Temp")];
         let (mut metrics, initial) = clean_roots(&roots, "Limpeza padrão", check, true, on_output)?;
-        let mut output = vec![initial];
+        let mut output = initial.lines()
+            .filter(|line| !line.starts_with("Limpeza padrão:"))
+            .map(str::to_string)
+            .collect::<Vec<_>>();
         if clean_browser_cache {
             clean_browser_caches(&mut metrics, &mut output, check, on_output)?;
         } else {
@@ -227,11 +230,13 @@ mod platform {
             Ok(()) => output.push("Lixeira esvaziada.".into()),
             Err(error) => output.push(format!("Lixeira não esvaziada: {error}")),
         }
-        output.push(format!("Limpeza padrão: {} item(ns)/pasta(s) removido(s), {} falha(s).", metrics.entries, metrics.failed));
-        output.push(format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
+        let summary = format!("Limpeza padrão: {} item(ns)/pasta(s) removido(s), {} falha(s).", metrics.entries, metrics.failed);
+        let metrics_line = format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes);
+        output.push(summary.clone());
+        output.push(metrics_line.clone());
         let result = output.join("\n");
-        on_output(&format!("Limpeza padrão: {} item(ns)/pasta(s) removido(s), {} falha(s).", metrics.entries, metrics.failed));
-        on_output(&format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
+        on_output(&summary);
+        on_output(&metrics_line);
         Ok(result)
     }
 
@@ -242,10 +247,11 @@ mod platform {
         let (metrics, result) = clean_roots(&roots, "Limpeza pesada", check, true, on_output)?;
         let mut output = vec![result];
         let _ = clear_recycle_bin();
-        output.push(format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
+        let metrics_line = format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes);
+        output.push(metrics_line.clone());
         let result = output.join("\n");
         on_output(&format!("Limpeza pesada: {} item(ns)/pasta(s) removido(s), {} falha(s).", metrics.entries, metrics.failed));
-        on_output(&format!("QBOA_METRICS files={} bytes={} registry=0", metrics.files, metrics.bytes));
+        on_output(&metrics_line);
         Ok(result)
     }
 
@@ -306,7 +312,9 @@ mod platform {
         let mut profiles = 0u64;
         let mut output = Vec::new();
         if !clean_browser_cache {
-            output.push("Histórico dos navegadores preservado conforme sua escolha de manter os navegadores abertos.".into());
+            let message = "Histórico dos navegadores preservado conforme sua escolha de manter os navegadores abertos.";
+            output.push(message.into());
+            on_output(message);
         } else {
             output.push("[Etapa 1/1] Localizando perfis e limpando históricos...".into());
             on_output("[Etapa 1/1] Localizando perfis e limpando históricos...");
