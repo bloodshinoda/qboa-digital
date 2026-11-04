@@ -111,6 +111,18 @@ mod platform {
         Ok(())
     }
 
+    fn format_cleanup_io_error(error: std::io::Error) -> String {
+        match error.raw_os_error() {
+            Some(32) => format!("{error} [win32=32]"),
+            Some(code) => format!("{error} [win32={code}]"),
+            None => error.to_string(),
+        }
+    }
+
+    fn is_file_in_use_error(error: &str) -> bool {
+        error.contains("[win32=32]")
+    }
+
     fn remove_entry(
         path: &Path,
         metrics: &mut Metrics,
@@ -121,11 +133,11 @@ mod platform {
         clear_readonly_recursive(path, check)?;
         let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
         if meta.is_dir() && !meta.file_type().is_symlink() {
-            fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+            fs::remove_dir_all(path).map_err(format_cleanup_io_error)?;
         } else if meta.file_type().is_symlink() && path.is_dir() {
-            fs::remove_dir(path).map_err(|e| e.to_string())?;
+            fs::remove_dir(path).map_err(format_cleanup_io_error)?;
         } else {
-            fs::remove_file(path).map_err(|e| e.to_string())?;
+            fs::remove_file(path).map_err(format_cleanup_io_error)?;
         }
         metrics.entries += 1;
         metrics.files += files;
@@ -160,6 +172,7 @@ mod platform {
     ) -> Result<(Metrics, String), String> {
         let mut metrics = Metrics::default();
         let mut output = Vec::new();
+        let mut skipped_in_use = 0u64;
         for root in roots {
             cancelled(check)?;
             let root_meta = match fs::symlink_metadata(root) {
@@ -211,6 +224,15 @@ mod platform {
                             Err(error) if error == "Limpeza cancelada pelo usuário." => {
                                 return Err(error)
                             }
+                            Err(error) if is_file_in_use_error(&error) => {
+                                skipped_in_use += 1;
+                                let message = format!(
+                                    "Ignorado porque está em uso por outro processo: {}",
+                                    path.display()
+                                );
+                                on_output(&message);
+                                output.push(message);
+                            }
                             Err(error) => {
                                 metrics.failed += 1;
                                 let message = format!(
@@ -235,6 +257,11 @@ mod platform {
             "{label}: {} item(ns)/pasta(s) removido(s), {} falha(s).",
             metrics.entries, metrics.failed
         ));
+        if skipped_in_use > 0 {
+            output.push(format!(
+                "{skipped_in_use} item(ns) ignorado(s) porque estavam em uso por outros processos."
+            ));
+        }
         Ok((metrics, output.join("\n")))
     }
 
