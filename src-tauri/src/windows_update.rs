@@ -23,9 +23,9 @@ pub(crate) fn set_enabled(enabled: bool) -> Result<String, String> {
             script,
         ]);
         command.creation_flags(0x08000000);
-        let output = command
-            .output()
-            .map_err(|error| format!("Não foi possível iniciar o reparo do Windows Update: {error}"))?;
+        let output = command.output().map_err(|error| {
+            format!("Não foi possível iniciar o reparo do Windows Update: {error}")
+        })?;
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if output.status.success() {
