@@ -12,6 +12,20 @@ A versão 3.2.2 refina a experiência de execução: permite redimensionar o Reg
 
 > O QBoa Digital mantém diagnóstico separado de limpeza e manutenção.
 
+## Em desenvolvimento — QBoa Pro 3.3
+
+A próxima etapa é ampliar o QBoa com ferramentas voltadas ao trabalho técnico:
+
+- Inventário técnico completo do computador e do Windows.
+- Diagnóstico de rede e conectividade.
+- Central de reparo do Windows, reunindo fluxos guiados de SFC, DISM e Windows Update.
+- Auditoria de programas instalados e itens de inicialização, inicialmente informativa.
+- Personalização de componentes e configurações do Windows.
+- Laudo técnico em PDF com logo próprio e informações OEM.
+- Atualização assistida do aplicativo.
+
+Itens como auditoria de drivers, comparação de inventários, backup/restauração de configurações e auditoria de segurança podem entrar em incrementos posteriores. Gestão de ordens de serviço e clientes fica para uma etapa futura. O escopo pode ser ajustado durante o desenvolvimento.
+
 ## Screenshots
 
 Capturas da interface do QBoa Digital. As imagens são hospedadas no repositório do hotsite para manter uma única cópia dos arquivos.
