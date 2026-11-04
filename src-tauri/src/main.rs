@@ -480,9 +480,9 @@ fn report_system_compatibility(on_output: &mut dyn FnMut(&str)) -> bool {
         }
         Err(error) => {
             on_output(&format!(
-                "[Compatibilidade] Não foi possível classificar o ambiente; mantendo o fluxo padrão. Detalhe: {error}"
+                "[Compatibilidade] Não foi possível classificar o ambiente; tratando como restritivo e preservando a reversibilidade. Detalhe: {error}"
             ));
-            false
+            true
         }
     }
 }
@@ -991,7 +991,7 @@ fn execute_task(
                 on_output("[Etapa 8/9] /ResetBase omitido: o ambiente foi classificado como modificado/restritivo.");
                 "DISM /ResetBase omitido por compatibilidade; as atualizações continuam reversíveis.".to_string()
             } else if confirm_reset_base(
-                "A próxima etapa executará DISM /StartComponentCleanup /ResetBase. Depois dela, não será possível desinstalar as atualizações do Windows que já estão instaladas. O restante da limpeza e a verificação SFC continuarão mesmo se você optar por pular esta etapa. Deseja executar o /ResetBase?"
+                "A próxima etapa executará DISM /StartComponentCleanup /ResetBase. Depois dela, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada será cancelada antes desta operação. Deseja executar o /ResetBase?"
             ) {
                 on_output("[Etapa 8/9] Executando DISM StartComponentCleanup /ResetBase após confirmação explícita...");
                 run_system_command(
