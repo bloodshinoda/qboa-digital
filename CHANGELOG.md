@@ -2,6 +2,23 @@
 
 Todas as mudanças relevantes do QBoa Digital são registradas neste arquivo.
 
+## [3.2.1] — 2026-11-04
+
+### Limpeza e manutenção
+- Adiciona a limpeza explícita do histórico dos navegadores compatíveis, preservando favoritos, senhas e arquivos baixados.
+- Melhora a confirmação de fechamento dos navegadores e respeita a escolha de manter os dados abertos/preservados.
+- Corrige a aplicação e a verificação das configurações de telemetria e privacidade avançada, com retorno de falhas por componente.
+- Ajusta a execução silenciosa da Limpeza de Disco do Windows.
+
+### Progresso e experiência de execução
+- Exibe progresso por etapas nas limpezas média e pesada, incluindo o percentual real reportado pelo DISM.
+- Separa eventos de progresso da saída técnica e apresenta resumo final da execução.
+- Melhora o fluxo de inicialização com splash screen e abertura controlada da janela principal.
+- Atualiza textos e estados da interface de execução.
+
+### Validação
+- Testes automatizados e testes funcionais reais em Windows realizados pelo mantenedor.
+
 ## [3.2.0] — 2026-10-30
 
 ### Diagnóstico e hardware
