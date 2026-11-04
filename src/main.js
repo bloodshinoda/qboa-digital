@@ -818,16 +818,16 @@ function restoreConsoleHeight() {
   const minimum = 110;
   const maximum = () => Math.max(minimum, Math.floor(window.innerHeight * 0.6));
   const saveHeight = () => { try { localStorage.setItem("qboa-console-height", String(Math.round(output.getBoundingClientRect().height))); } catch (_) { /* Preferência opcional. */ } };
-  const applyHeight = (height) => { const next = Math.max(minimum, Math.min(maximum(), Math.round(height))); output.style.height = next + "px"; handle.setAttribute("aria-valuenow", String(next)); };
+  const applyHeight = (height) => { const next = Math.max(minimum, Math.min(maximum(), Math.round(height))); output.style.height = next + "px"; handle.setAttribute("aria-valuenow", String(next)); handle.setAttribute("aria-valuemax", String(maximum())); };
   try { const savedHeight = Number(localStorage.getItem("qboa-console-height")); if (Number.isFinite(savedHeight) && savedHeight >= minimum) applyHeight(savedHeight); } catch (_) { /* Painel continua redimensionável sem persistência. */ }
   handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return; event.preventDefault();
     const startY = event.clientY; const startHeight = output.getBoundingClientRect().height; handle.setPointerCapture(event.pointerId);
-    const onMove = (moveEvent) => { if (moveEvent.pointerId === event.pointerId) applyHeight(startHeight + startY - moveEvent.clientY); };
+    const onMove = (moveEvent) => { if (moveEvent.pointerId === event.pointerId) applyHeight(startHeight + moveEvent.clientY - startY); };
     const onEnd = (endEvent) => { if (endEvent.pointerId !== event.pointerId) return; handle.removeEventListener("pointermove", onMove); handle.removeEventListener("pointerup", onEnd); handle.removeEventListener("pointercancel", onEnd); saveHeight(); };
     handle.addEventListener("pointermove", onMove); handle.addEventListener("pointerup", onEnd); handle.addEventListener("pointercancel", onEnd);
   });
-  handle.addEventListener("keydown", (event) => { const current = output.getBoundingClientRect().height; if (event.key === "ArrowUp") { event.preventDefault(); applyHeight(current + 16); saveHeight(); } else if (event.key === "ArrowDown") { event.preventDefault(); applyHeight(current - 16); saveHeight(); } else if (event.key === "Home") { event.preventDefault(); applyHeight(minimum); saveHeight(); } else if (event.key === "End") { event.preventDefault(); applyHeight(maximum()); saveHeight(); } });
+  handle.addEventListener("keydown", (event) => { const current = output.getBoundingClientRect().height; if (event.key === "ArrowDown") { event.preventDefault(); applyHeight(current + 16); saveHeight(); } else if (event.key === "ArrowUp") { event.preventDefault(); applyHeight(current - 16); saveHeight(); } else if (event.key === "Home") { event.preventDefault(); applyHeight(minimum); saveHeight(); } else if (event.key === "End") { event.preventDefault(); applyHeight(maximum()); saveHeight(); } });
   window.addEventListener("resize", () => applyHeight(output.getBoundingClientRect().height));
 }
 function renderConsole() {

@@ -163,7 +163,7 @@ O journal de alterações e o estado das execuções ainda ficam em memória dur
 
 ## Pontos de restauração
 
-A Restauração do Sistema do Windows é usada como proteção de nível sistêmico antes de alterações arriscadas. O Qboa identifica seus próprios pontos de restauração usando uma convenção consistente de descrição, como:
+A Restauração do Sistema do Windows é usada como proteção de nível sistêmico antes de alterações arriscadas. O QBoa identifica seus próprios pontos de restauração usando uma convenção consistente de descrição, como:
 
 - QBoa Digital — Antes da tarefa: X
 
@@ -171,15 +171,15 @@ Isso não substitui pontos de restauração criados pelo usuário, e o aplicativ
 
 ## Rollback
 
-O rollback no Qboa possui duas camadas:
+O rollback no QBoa possui duas camadas:
 
 ### Restauração do Sistema do Windows
 Um mecanismo de proteção fornecido pelo próprio Windows.
 
-### Rollback do Qboa
+### Rollback do QBoa
 Uma camada própria de rollback para alterações reversíveis, como ajustes no registro e em serviços. As operações são registradas e gerenciadas pelo diário de alterações, sendo aplicadas em ordem inversa dentro de uma sessão.
 
-No Windows, o rollback granular restaura o estado capturado das políticas de telemetria, serviços associados e tarefas agendadas processadas pelo Qboa. A operação só é marcada como concluída após validação. Limpeza de arquivos, verificações e reparos do sistema são operações sem reversão granular; nesses casos, o ponto de restauração é a proteção disponível.
+No Windows, o rollback granular restaura o estado capturado das políticas de telemetria, serviços associados e tarefas agendadas processadas pelo QBoa. A operação só é marcada como concluída após validação. Limpeza de arquivos, verificações e reparos do sistema são operações sem reversão granular; nesses casos, o ponto de restauração é a proteção disponível.
 
 ## Modos de limpeza
 
