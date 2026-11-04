@@ -767,8 +767,28 @@ function humanizeLogMessage(message) {
     .replace(/exit code: 0/gi, "concluído");
 }
 
+function humanizeActivityMessage(message) {
+  return String(message ?? "")
+    .replace(/execuÃ§Ã£o/gi, "execução")
+    .replace(/nÃ£o/gi, "não")
+    .replace(/operaÃ§Ã£o/gi, "operação")
+    .replace(/informaÃ§Ã£o/gi, "informação")
+    .replace(/alteraÃ§Ãµes/gi, "alterações")
+    .replace(/concluÃ­da/gi, "concluída")
+    .replace(/concluÃ­do/gi, "concluído")
+    .replace(/â€”/g, "—")
+    .replace(/Deployment Image Servicing and Management tool/gi, "Ferramenta de Gerenciamento e Manutenção de Imagens do Windows (DISM)")
+    .replace(/The restore operation completed successfully\.?/gi, "A operação de restauração foi concluída com sucesso.")
+    .replace(/The operation completed successfully\.?/gi, "A operação foi concluída com sucesso.")
+    .replace(/Beginning system scan\. This process will take some time\./gi, "Iniciando a verificação do sistema. Este processo pode levar algum tempo.")
+    .replace(/Beginning verification phase of system scan\./gi, "Iniciando a etapa de verificação do sistema.")
+    .replace(/Windows Resource Protection did not find any integrity violations\./gi, "A Proteção de Recursos do Windows não encontrou violações de integridade.")
+    .replace(/Windows Resource Protection found corrupt files and successfully repaired them\./gi, "A Proteção de Recursos do Windows encontrou arquivos corrompidos e os reparou com sucesso.")
+    .replace(/Windows Resource Protection found corrupt files but was unable to fix some of them\./gi, "A Proteção de Recursos do Windows encontrou arquivos corrompidos, mas não conseguiu reparar alguns.");
+}
+
 function appendConsole(message) {
-  const line = String(message ?? "").trim();
+  const line = humanizeActivityMessage(message).trim();
   if (!line) return;
   const isDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(line);
   const lines = consoleBuffer.split("\n");
