@@ -320,9 +320,9 @@ function renderCards() {
     updateCard.className = "card windows-update-card";
     updateCard.tabIndex = 0;
     updateCard.setAttribute("role", "button");
-    updateCard.setAttribute("aria-label", "Windows update: restaurar ou desabilitar atualizações");
-    updateCard.innerHTML = '<h3>Windows update</h3><p>Escolha se o Windows deve continuar recebendo atualizações ou se prefere bloquear o serviço.</p><small class="windows-update-recommendation">Recomendado para o Chuck</small>';
-    const openUpdate = () => openWindowsUpdateChoice();
+    updateCard.setAttribute("aria-label", "Windows update: restaurar o funcionamento das atualizações");
+    updateCard.innerHTML = '<h3>Windows update</h3><p>Diagnóstico e reparo para devolver ao Windows a capacidade de receber atualizações.</p><small class="windows-update-recommendation">Recomendado para o Chuck</small>';
+    const openUpdate = () => openWindowsUpdateRepair();
     updateCard.addEventListener("click", openUpdate);
     updateCard.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openUpdate(); }
@@ -2296,50 +2296,21 @@ async function refreshStorageDisks(preserveSelection = true) {
   }
 }
 
-function openWindowsUpdateChoice() {
-  const overlay = document.createElement("div");
-  overlay.className = "windows-update-overlay";
-  overlay.innerHTML = `
-    <section class="windows-update-dialog" role="dialog" aria-modal="true" aria-labelledby="windows-update-title">
-      <button class="windows-update-close" type="button" aria-label="Fechar">×</button>
-      <span class="eyebrow">QBoa Digital · diagnóstico e reparo</span>
-      <h2 id="windows-update-title">Windows update</h2>
-      <p>Vamos decidir o destino das atualizações do Windows.</p>
-      <div class="windows-update-choices">
-        <button type="button" class="windows-update-choice windows-update-human" data-choice="enable"><strong>Ser gente</strong><span>Colocar o Windows Update para funcionar novamente.</span></button>
-        <button type="button" class="windows-update-choice" data-choice="disable"><strong>Ser trouxa</strong><span>Bloquear as atualizações automáticas. O Chuck aprova.</span></button>
-      </div>
-    </section>
-  `;
-  document.body.appendChild(overlay);
-  return new Promise((resolve) => {
-    const finish = (choice) => { overlay.remove(); resolve(choice); };
-    overlay.querySelector(".windows-update-close").addEventListener("click", () => finish(null));
-    overlay.addEventListener("click", (event) => { if (event.target === overlay) finish(null); });
-    overlay.querySelectorAll("[data-choice]").forEach((button) => {
-      button.addEventListener("click", () => finish(button.dataset.choice));
-    });
-    overlay.querySelector('[data-choice="enable"]').focus();
-  }).then(async (choice) => {
-    if (!choice) return;
-    const enabled = choice === "enable";
-    const confirmed = await askConfirmation(
-      enabled
-        ? "O QBoa vai remover as políticas locais de bloqueio do Windows Update, reabilitar os serviços e reativar as tarefas de atualização. Deseja continuar?"
-        : "O QBoa vai aplicar políticas locais para bloquear as atualizações automáticas e desabilitar os principais componentes do Windows Update. Isso pode deixar o sistema sem correções de segurança. Deseja continuar?",
-      enabled ? "Ser gente tem suas vantagens" : "Chuck, é sério mesmo?",
-      enabled ? "Restaurar Windows Update" : "Desabilitar atualizações",
-      "Cancelar"
-    );
-    if (!confirmed) return;
+function openWindowsUpdateRepair() {
+  const confirmed = askConfirmation(
+    "O QBoa vai remover políticas locais que bloqueiam o Windows Update, reabilitar os serviços necessários e reativar as tarefas de atualização. O objetivo é deixar o Windows Update funcionando novamente. Deseja continuar?",
+    "Chuck, esta é a sua chance de se redimir",
+    "Restaurar Windows Update",
+    "Cancelar"
+  );
+  Promise.resolve(confirmed).then(async (accepted) => {
+    if (!accepted) return;
     try {
-      const result = await Qboa.setWindowsUpdateEnabled(enabled);
+      const result = await Qboa.setWindowsUpdateEnabled(true);
       appendConsole(result);
-      appendConsole(enabled
-        ? "Windows Update restaurado. Abra Configurações > Windows Update e procure atualizações."
-        : "Atualizações automáticas bloqueadas. Quando bater o arrependimento, escolha “Ser gente”.");
+      appendConsole("Windows Update restaurado. Abra Configurações > Windows Update e procure atualizações.");
     } catch (error) {
-      appendConsole(`Falha ao alterar o Windows Update: ${String(error)}`);
+      appendConsole(`Falha ao restaurar o Windows Update: ${String(error)}`);
       await askConfirmation(String(error), "Não foi possível concluir", "Entendi", "Fechar");
     }
   });
