@@ -1228,11 +1228,13 @@ fn start_task(
     let execution_id_for_spawn = execution_id.clone();
 
     tauri::async_runtime::spawn(async move {
-        let mut cleanup_lifecycle = operation_contracts::CleanupExecutionLifecycle::new(
-            &task_id_for_spawn,
-            &execution_id_for_spawn,
-        );
-        if let Err(error) = cleanup_lifecycle.transition(
+        let cleanup_lifecycle = Arc::new(Mutex::new(
+            operation_contracts::CleanupExecutionLifecycle::new(
+                &task_id_for_spawn,
+                &execution_id_for_spawn,
+            ),
+        ));
+        if let Err(error) = cleanup_lifecycle.lock().unwrap().transition(
             operation_contracts::CleanupExecutionState::Running,
         ) {
             write_execution_log(&execution_id_for_spawn, &format!("cleanup-contract-start-failed error={error}"));
@@ -1270,7 +1272,7 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .finish_execution(&execution_id_for_spawn, "failed");
-                    if let Err(contract_error) = cleanup_lifecycle.finish(
+                    if let Err(contract_error) = cleanup_lifecycle.lock().unwrap().finish(
                         operation_contracts::CleanupExecutionState::Failed,
                         error.clone(),
                         None,
@@ -1325,7 +1327,7 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .insert(execution_id_for_spawn.clone(), sender);
-                    if let Err(error) = cleanup_lifecycle.transition(
+                    if let Err(error) = cleanup_lifecycle.lock().unwrap().transition(
                         operation_contracts::CleanupExecutionState::AwaitingConfirmation,
                     ) {
                         write_execution_log(&execution_id_for_spawn, &format!("cleanup-contract-confirmation-failed error={error}"));
@@ -1358,7 +1360,7 @@ fn start_task(
                         .unwrap()
                         .remove(&execution_id_for_spawn);
                     if proceed {
-                        if let Err(error) = cleanup_lifecycle.transition(
+                        if let Err(error) = cleanup_lifecycle.lock().unwrap().transition(
                             operation_contracts::CleanupExecutionState::Running,
                         ) {
                             write_execution_log(&execution_id_for_spawn, &format!("cleanup-contract-resume-failed error={error}"));
@@ -1373,7 +1375,7 @@ fn start_task(
                             .lock()
                             .unwrap()
                             .finish_execution(&execution_id_for_spawn, "cancelled");
-                        if let Err(error) = cleanup_lifecycle.finish(
+                        if let Err(error) = cleanup_lifecycle.lock().unwrap().finish(
                             operation_contracts::CleanupExecutionState::Cancelled,
                             "Execução cancelada após falha na criação do ponto de restauração.",
                             None,
@@ -1413,7 +1415,7 @@ fn start_task(
             None
         };
 
-        if let Err(error) = cleanup_lifecycle.record_progress(operation_contracts::CleanupProgress {
+        if let Err(error) = cleanup_lifecycle.lock().unwrap().record_progress(operation_contracts::CleanupProgress {
             current: None,
             total: None,
             percent: Some(30),
@@ -1469,7 +1471,7 @@ fn start_task(
                                     0.0,
                                 );
                                 let friendly = description.trim_end_matches("...");
-                                if let Err(error) = cleanup_lifecycle.record_progress(
+                                if let Err(error) = cleanup_lifecycle.lock().unwrap().record_progress(
                                     operation_contracts::CleanupProgress {
                                         current: Some(current),
                                         total: Some(total),
@@ -1514,7 +1516,7 @@ fn start_task(
                                 let overall = cleanup_progress::cleanup_progress_percent(
                                     current, total, true, value,
                                 );
-                                if let Err(error) = cleanup_lifecycle.record_progress(
+                                if let Err(error) = cleanup_lifecycle.lock().unwrap().record_progress(
                                     operation_contracts::CleanupProgress {
                                         current: Some(current),
                                         total: Some(total),
@@ -1600,7 +1602,7 @@ fn start_task(
                 .lock()
                 .unwrap()
                 .insert(execution_id_for_spawn.clone(), sender);
-            if let Err(error) = cleanup_lifecycle.transition(
+            if let Err(error) = cleanup_lifecycle.lock().unwrap().transition(
                 operation_contracts::CleanupExecutionState::AwaitingConfirmation,
             ) {
                 write_execution_log(&execution_id_for_spawn, &format!("cleanup-contract-confirmation-failed error={error}"));
@@ -1631,7 +1633,7 @@ fn start_task(
                 .unwrap()
                 .remove(&execution_id_for_spawn);
             if proceed {
-                if let Err(error) = cleanup_lifecycle.transition(
+                if let Err(error) = cleanup_lifecycle.lock().unwrap().transition(
                     operation_contracts::CleanupExecutionState::Running,
                 ) {
                     write_execution_log(&execution_id_for_spawn, &format!("cleanup-contract-resume-failed error={error}"));
@@ -1711,7 +1713,7 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .finish_execution(&execution_id_for_spawn, "journal_failed");
-                    if let Err(error) = cleanup_lifecycle.finish(
+                    if let Err(error) = cleanup_lifecycle.lock().unwrap().finish(
                         operation_contracts::CleanupExecutionState::Failed,
                         message.clone(),
                         None,
@@ -1731,7 +1733,7 @@ fn start_task(
                     return;
                 }
 
-                if let Err(error) = cleanup_lifecycle.finish(
+                if let Err(error) = cleanup_lifecycle.lock().unwrap().finish(
                     operation_contracts::CleanupExecutionState::Completed,
                     summary.clone(),
                     None,
@@ -1857,7 +1859,7 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .finish_execution(&execution_id_for_spawn, "cancelled");
-                    if let Err(error) = cleanup_lifecycle.finish(
+                    if let Err(error) = cleanup_lifecycle.lock().unwrap().finish(
                         operation_contracts::CleanupExecutionState::Cancelled,
                         cancellation_message.clone(),
                         None,
@@ -1919,7 +1921,7 @@ fn start_task(
                                 .lock()
                                 .unwrap()
                                 .finish_execution(&execution_id_for_spawn, final_status);
-                            if let Err(error) = cleanup_lifecycle.finish(
+                            if let Err(error) = cleanup_lifecycle.lock().unwrap().finish(
                                 operation_contracts::CleanupExecutionState::Failed,
                                 message.clone(),
                                 None,
@@ -1982,7 +1984,7 @@ fn start_task(
                     } else {
                         operation_contracts::CleanupExecutionState::Failed
                     };
-                    if let Err(error) = cleanup_lifecycle.finish(
+                    if let Err(error) = cleanup_lifecycle.lock().unwrap().finish(
                         terminal_state,
                         err.clone(),
                         None,
