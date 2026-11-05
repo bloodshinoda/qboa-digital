@@ -98,7 +98,10 @@ pub(crate) enum FindingAction {
 }
 
 pub(crate) trait CleanupFindingBackend {
-    fn shortcuts(&mut self) -> Result<Vec<ShortcutObservation>, String>;
+    fn shortcuts(
+        &mut self,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<ShortcutObservation>, String>;
     fn associations(&mut self) -> Result<Vec<AssociationObservation>, String>;
     fn uninstall_entries(&mut self) -> Result<Vec<UninstallObservation>, String>;
     fn path_exists(&mut self, path: &Path) -> Result<bool, String>;
@@ -151,10 +154,14 @@ pub(crate) struct CleanupExecutionReport {
 pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
     backend: &mut B,
     profile: &str,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<CleanupExecutionReport, String> {
-    let detected = detect_actions(backend)?;
+    let detected = detect_actions_with_cancel(backend, is_cancelled)?;
     let mut report = CleanupExecutionReport::default();
     for candidate in detected {
+        if is_cancelled() {
+            return Err("Tarefa cancelada pelo usuário durante a varredura integrada.".to_string());
+        }
         if !candidate
             .finding
             .profiles
@@ -169,6 +176,11 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
                 .unwrap_or(0),
             _ => 0,
         };
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário antes de aplicar uma alteração.".to_string(),
+            );
+        }
         match backend.delete(&candidate.action) {
             Ok(()) => match candidate.action {
                 FindingAction::DeleteShortcut(_) => {
@@ -194,9 +206,24 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
 fn detect_actions<B: CleanupFindingBackend>(
     backend: &mut B,
 ) -> Result<Vec<DetectedFinding>, String> {
+    detect_actions_with_cancel(backend, &|| false)
+}
+
+fn detect_actions_with_cancel<B: CleanupFindingBackend>(
+    backend: &mut B,
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<Vec<DetectedFinding>, String> {
+    if is_cancelled() {
+        return Err("Tarefa cancelada pelo usuário antes da varredura integrada.".to_string());
+    }
     let mut findings = Vec::new();
 
-    for shortcut in backend.shortcuts()? {
+    for shortcut in backend.shortcuts(is_cancelled)? {
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de atalhos.".to_string(),
+            );
+        }
         let (reason, risk) = match shortcut.state {
             ShortcutState::BrokenTarget => ("O destino do atalho não existe.", FindingRisk::Low),
             ShortcutState::InvalidLink => ("O arquivo de atalho é inválido.", FindingRisk::Low),
@@ -217,6 +244,11 @@ fn detect_actions<B: CleanupFindingBackend>(
     }
 
     for association in backend.associations()? {
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de associações.".to_string(),
+            );
+        }
         if !ASSOCIATION_EXTENSIONS
             .iter()
             .any(|extension| extension.eq_ignore_ascii_case(&association.extension))
@@ -286,11 +318,23 @@ fn detect_actions<B: CleanupFindingBackend>(
     }
 
     for entry in backend.uninstall_entries()? {
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de programas instalados."
+                    .to_string(),
+            );
+        }
         if entry.display_name.trim().is_empty() || entry.evidence_paths.is_empty() {
             continue;
         }
         let mut all_missing = true;
         for path in &entry.evidence_paths {
+            if is_cancelled() {
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a verificação de programas instalados."
+                        .to_string(),
+                );
+            }
             if backend.path_exists(path)? {
                 all_missing = false;
                 break;
@@ -367,11 +411,29 @@ fn stable_path(path: &Path) -> String {
 }
 
 #[cfg(target_os = "windows")]
+const SAFE_ROOTED_PATH_HELPER: &str = r#"
+function Get-SafeRootedPath([string]$value) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return $null }
+    try {
+        if ($value.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $null }
+        if ($value -match '[<>"|?*]' -or ($value.Length -gt 2 -and $value.Substring(2) -match ':')) { return $null }
+        if ([IO.Path]::IsPathRooted($value)) { return $value }
+    } catch {
+        return $null
+    }
+    return $null
+}
+"#;
+
+#[cfg(target_os = "windows")]
 pub(crate) struct WindowsCleanupFindingBackend;
 
 #[cfg(target_os = "windows")]
 impl CleanupFindingBackend for WindowsCleanupFindingBackend {
-    fn shortcuts(&mut self) -> Result<Vec<ShortcutObservation>, String> {
+    fn shortcuts(
+        &mut self,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<ShortcutObservation>, String> {
         let mut roots: Vec<PathBuf> = run_powershell_json(
             r#"$ErrorActionPreference='Stop';$r=@([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),[Environment]::GetFolderPath([Environment+SpecialFolder]::StartMenu),[Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory),[Environment]::GetFolderPath([Environment+SpecialFolder]::CommonStartMenu));ConvertTo-Json -InputObject @($r|Where-Object{$_}) -Compress"#,
         )?;
@@ -402,13 +464,16 @@ impl CleanupFindingBackend for WindowsCleanupFindingBackend {
                     ))
                 }
             }
-            collect_shortcuts(&root, &mut seen, &mut observations)?;
+            collect_shortcuts(&root, &mut seen, &mut observations, is_cancelled)?;
         }
         Ok(observations)
     }
 
     fn associations(&mut self) -> Result<Vec<AssociationObservation>, String> {
-        let script = r#"
+        let script = format!(
+            "{}\n{}",
+            SAFE_ROOTED_PATH_HELPER,
+            r#"
 $ErrorActionPreference = 'Stop'
 $extensions = @('.txt','.pdf','.png','.jpg','.jpeg','.gif','.bmp','.webp','.zip','.7z','.rar','.mp3','.wav','.mp4','.mkv','.html','.htm','.docx','.xlsx','.pptx','.json','.csv')
 $currentUser = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser,[Microsoft.Win32.RegistryView]::Default)
@@ -462,15 +527,17 @@ foreach ($extension in $extensions) {
     } elseif ($command -match '^\s*(.+?\.exe)(?:\s|,|$)') {
         $executable = $Matches[1].Trim()
     }
-    if (!$executable -or ![IO.Path]::IsPathRooted($executable)) { continue }
+    $executable = Get-SafeRootedPath $executable
+    if (!$executable) { continue }
     $results += [pscustomobject]@{ extension=$extension; source=$source; prog_id=$progId; state='candidate'; executable=$executable }
 }
 $currentUser.Dispose()
 $localMachine.Dispose()
 $classes.Dispose()
 ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
-"#;
-        let items: Vec<WindowsAssociation> = run_powershell_json(script)?;
+"#
+        );
+        let items: Vec<WindowsAssociation> = run_powershell_json(&script)?;
         Ok(items
             .into_iter()
             .filter_map(WindowsAssociation::into_observation)
@@ -478,8 +545,62 @@ ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
     }
 
     fn uninstall_entries(&mut self) -> Result<Vec<UninstallObservation>, String> {
-        let script = r#"$ErrorActionPreference='Stop';$roots=@(@('LocalMachine','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),@('LocalMachine','SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),@('CurrentUser','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'));$r=@();foreach($root in $roots){$base=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root[0]),[Microsoft.Win32.RegistryView]::Default);$key=$base.OpenSubKey($root[1]);if(!$key){continue};foreach($name in $key.GetSubKeyNames()){$child=$key.OpenSubKey($name);if(!$child){continue};$display=[string]$child.GetValue('DisplayName');$install=[string]$child.GetValue('InstallLocation');$icon=[string]$child.GetValue('DisplayIcon');$evidence=@();if($install -and [IO.Path]::IsPathRooted($install)){$evidence+=@($install)};if($icon){$candidate=$icon.Trim().Trim('"');if($candidate -match '^(.+?\.exe)(?:,.*)?$'){$candidate=$Matches[1]};if([IO.Path]::IsPathRooted($candidate)){$evidence+=@($candidate)}};if($display -and $evidence.Count -gt 0){$r+=[pscustomobject]@{hive=$root[0];key_path=($root[1]+'\'+$name);display_name=$display;evidence_paths=@($evidence)}};$child.Dispose()};$key.Dispose();$base.Dispose()};ConvertTo-Json -InputObject @($r) -Depth 6 -Compress"#;
-        let items: Vec<WindowsUninstallEntry> = run_powershell_json(script)?;
+        let script = format!("{}\n", SAFE_ROOTED_PATH_HELPER)
+            + r#"
+$ErrorActionPreference = 'Stop'
+$roots = @(
+    @('LocalMachine', 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),
+    @('LocalMachine', 'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),
+    @('CurrentUser', 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall')
+)
+$results = @()
+foreach ($root in $roots) {
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+        [Microsoft.Win32.RegistryHive]::$($root[0]),
+        [Microsoft.Win32.RegistryView]::Default
+    )
+    $key = $base.OpenSubKey($root[1])
+    if (!$key) {
+        $base.Dispose()
+        continue
+    }
+    foreach ($name in $key.GetSubKeyNames()) {
+        $child = $key.OpenSubKey($name)
+        if (!$child) { continue }
+
+        $display = [string]$child.GetValue('DisplayName')
+        $install = [string]$child.GetValue('InstallLocation')
+        $icon = [string]$child.GetValue('DisplayIcon')
+        $evidence = @()
+
+        $safeInstall = Get-SafeRootedPath $install
+        if ($safeInstall) { $evidence += $safeInstall }
+
+        if ($icon) {
+            $candidate = $icon.Trim().Trim('"')
+            if ($candidate -match '^(.+?\.exe)(?:,.*)?(?:\s|$)') {
+                $candidate = $Matches[1]
+            }
+            $safeCandidate = Get-SafeRootedPath $candidate
+            if ($safeCandidate) { $evidence += $safeCandidate }
+        }
+
+        if ($display -and $evidence.Count -gt 0) {
+            $results += [pscustomobject]@{
+                hive = $root[0]
+                key_path = ($root[1] + '\' + $name)
+                display_name = $display
+                evidence_paths = @($evidence)
+            }
+        }
+        $child.Dispose()
+    }
+    $key.Dispose()
+    $base.Dispose()
+}
+ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
+"#;
+        let items: Vec<WindowsUninstallEntry> = run_powershell_json(&script)?;
         Ok(items
             .into_iter()
             .map(|item| UninstallObservation {
@@ -545,10 +666,19 @@ fn collect_shortcuts(
     directory: &Path,
     seen: &mut std::collections::HashSet<PathBuf>,
     observations: &mut Vec<ShortcutObservation>,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<(), String> {
+    if is_cancelled() {
+        return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
+    }
     let entries = std::fs::read_dir(directory)
         .map_err(|error| format!("Não foi possível ler {}: {error}", directory.display()))?;
     for entry in entries {
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
+            );
+        }
         let entry = entry.map_err(|error| {
             format!("Não foi possível enumerar {}: {error}", directory.display())
         })?;
@@ -557,7 +687,7 @@ fn collect_shortcuts(
             .file_type()
             .map_err(|error| format!("Não foi possível verificar {}: {error}", path.display()))?;
         if file_type.is_dir() {
-            collect_shortcuts(&path, seen, observations)?;
+            collect_shortcuts(&path, seen, observations, is_cancelled)?;
         } else if file_type.is_file()
             && path
                 .extension()
@@ -829,7 +959,10 @@ pub(crate) struct WindowsCleanupFindingBackend;
 
 #[cfg(not(target_os = "windows"))]
 impl CleanupFindingBackend for WindowsCleanupFindingBackend {
-    fn shortcuts(&mut self) -> Result<Vec<ShortcutObservation>, String> {
+    fn shortcuts(
+        &mut self,
+        _is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<ShortcutObservation>, String> {
         Err("A detecção de limpeza só está disponível no Windows.".to_string())
     }
 
@@ -865,7 +998,10 @@ mod tests {
     }
 
     impl CleanupFindingBackend for FakeBackend {
-        fn shortcuts(&mut self) -> Result<Vec<ShortcutObservation>, String> {
+        fn shortcuts(
+            &mut self,
+            _is_cancelled: &dyn Fn() -> bool,
+        ) -> Result<Vec<ShortcutObservation>, String> {
             Ok(self.shortcuts.clone())
         }
 
@@ -1080,7 +1216,7 @@ mod tests {
             ..FakeBackend::default()
         };
 
-        let report = cleanup_profile(&mut backend, "complete").unwrap();
+        let report = cleanup_profile(&mut backend, "complete", &|| false).unwrap();
         assert_eq!(report.files_removed, 1);
         assert_eq!(report.registry_entries_removed, 1);
         assert_eq!(report.failures, 0);
@@ -1089,6 +1225,62 @@ mod tests {
             .deleted
             .iter()
             .any(|action| matches!(action, FindingAction::DeleteUninstallEntry { .. })));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn malformed_registry_paths_are_ignored_without_aborting_scan() {
+        let script = format!("{}\n", SAFE_ROOTED_PATH_HELPER)
+            + r#"$paths = @('C:\Program Files\Good App', 'C:\Program Files\Bad|App', 'relative\path'); $result = @($paths | ForEach-Object { $safe = Get-SafeRootedPath $_; if ($safe) { $safe } else { '<null>' } }); ConvertTo-Json -InputObject @($result) -Compress"#;
+        let result: Vec<String> = run_powershell_json(&script).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], r"C:\Program Files\Good App");
+        assert_eq!(result[1], "<null>");
+        assert_eq!(result[2], "<null>");
+    }
+
+    #[test]
+    fn cleanup_profile_stops_when_cancelled_before_scanning() {
+        let mut backend = FakeBackend {
+            shortcuts: vec![ShortcutObservation {
+                path: PathBuf::from(r"C:\Users\test\Desktop\broken.lnk"),
+                state: ShortcutState::BrokenTarget,
+            }],
+            ..FakeBackend::default()
+        };
+
+        let result = cleanup_profile(&mut backend, "complete", &|| true);
+
+        assert!(result.unwrap_err().contains("cancelada"));
+        assert!(backend.deleted.is_empty());
+    }
+
+    #[test]
+    fn cleanup_profile_stops_between_deletions_when_cancelled() {
+        let mut backend = FakeBackend {
+            shortcuts: vec![
+                ShortcutObservation {
+                    path: PathBuf::from(r"C:\Users\test\Desktop\one.lnk"),
+                    state: ShortcutState::BrokenTarget,
+                },
+                ShortcutObservation {
+                    path: PathBuf::from(r"C:\Users\test\Desktop\two.lnk"),
+                    state: ShortcutState::BrokenTarget,
+                },
+            ],
+            ..FakeBackend::default()
+        };
+        let checks = std::cell::Cell::new(0);
+        let is_cancelled = || {
+            let current = checks.get();
+            checks.set(current + 1);
+            current >= 6
+        };
+
+        let result = cleanup_profile(&mut backend, "complete", &is_cancelled);
+
+        assert!(result.unwrap_err().contains("cancelada"));
+        assert_eq!(backend.deleted.len(), 1);
     }
 
     #[test]
