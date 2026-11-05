@@ -961,6 +961,12 @@ fn parse_cleanup_metrics(output: &str) -> (u64, u64, u64, u64) {
                 .unwrap_or(0);
             failures = failures.saturating_add(count);
         }
+        // O resumo final é a fonte agregada: usa max para não contar duas vezes
+        // falhas que já apareceram nas mensagens individuais das etapas.
+        if let Some((_, count)) = line.split_once("Total de erros durante execução:") {
+            let summary_failures = count.trim().parse::<u64>().unwrap_or(0);
+            failures = failures.max(summary_failures);
+        }
     }
     (files, bytes, registry, failures)
 }
@@ -1778,7 +1784,7 @@ fn start_task(
                         current: None,
                         total: None,
                         percent: Some(100),
-                        stage: "Concluída".into(),
+                        stage: terminal_label.into(),
                         message: summary.clone(),
                     },
                 ) {
@@ -1791,11 +1797,12 @@ fn start_task(
                     &execution_id_for_spawn,
                     &format!("task-executor-completed {summary}"),
                 );
+                let result_status = if failures == 0 { "completed" } else { "partial" };
                 let journal_result = if let Some(change) = registry_change.take() {
                     safety_state()
                         .lock()
                         .unwrap()
-                        .update_change_result(&change.id, "completed")
+                        .update_change_result(&change.id, result_status)
                         .map_err(|error| error)
                 } else {
                     safety_state()
@@ -1807,7 +1814,7 @@ fn start_task(
                             &task_name,
                             task.reversible,
                             snapshot_location.as_deref(),
-                            "completed",
+                            result_status,
                         )
                         .map(|_| ())
                         .map_err(|error| error.error)
@@ -1846,9 +1853,11 @@ fn start_task(
                     return;
                 }
 
+                let terminal_state = operation_contracts::cleanup_result_state(failures);
+                let terminal_label = if failures == 0 { "Concluída" } else { "Concluída parcialmente" };
                 if let Err(error) = finish_cleanup_lifecycle(
                     &cleanup_lifecycle,
-                    operation_contracts::CleanupExecutionState::Completed,
+                    terminal_state,
                     summary.clone(),
                     None,
                 ) {
@@ -1860,7 +1869,7 @@ fn start_task(
                 safety_state()
                     .lock()
                     .unwrap()
-                    .finish_execution(&execution_id_for_spawn, "completed");
+                    .finish_execution(&execution_id_for_spawn, result_status);
                 emit_event(
                     &app_for_spawn,
                     "task-output",
@@ -1876,7 +1885,11 @@ fn start_task(
                     "task-completed",
                     &task_id_for_spawn,
                     &execution_id_for_spawn,
-                    &format!("Prontinho! Tarefa concluída: {}", task_name),
+                    &if failures == 0 {
+                        format!("Prontinho! Tarefa concluída: {}", task_name)
+                    } else {
+                        format!("Tarefa concluída parcialmente: {}. {} erro(s) registrado(s).", task_name, failures)
+                    },
                     true,
                     Some("100%"),
                     &task_risk_for_spawn,
@@ -2843,6 +2856,26 @@ mod tests {
         assert!(resolve_task("limpeza_leve").unwrap().is_some());
         assert!(resolve_task("desengordurar_telemetria").unwrap().is_some());
         assert!(resolve_task("diagnostico_sfc").unwrap().is_some());
+    }
+
+    #[test]
+    fn resumo_agregado_de_erros_e_contabilizado_sem_duplicacao() {
+        let output = "Etapa: 1 falha(s).\\n- Total de erros durante execução: 1";
+        assert_eq!(parse_cleanup_metrics(output).3, 1);
+        let output = "Etapa A: 1 falha(s).\\nEtapa B: 2 falha(s).\\n- Total de erros durante execução: 3";
+        assert_eq!(parse_cleanup_metrics(output).3, 3);
+    }
+
+    #[test]
+    fn resumo_com_erro_nao_pode_terminar_com_sucesso_integral() {
+        assert_eq!(
+            operation_contracts::cleanup_result_state(parse_cleanup_metrics("- Total de erros durante execução: 1").3),
+            operation_contracts::CleanupExecutionState::PartiallyCompleted
+        );
+        assert_eq!(
+            operation_contracts::cleanup_result_state(parse_cleanup_metrics("- Total de erros durante execução: 0").3),
+            operation_contracts::CleanupExecutionState::Completed
+        );
     }
 
     #[test]
