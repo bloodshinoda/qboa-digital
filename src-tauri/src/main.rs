@@ -1778,7 +1778,11 @@ fn start_task(
                 } else {
                     "Concluída parcialmente"
                 };
-                let result_status = if failures == 0 { "completed" } else { "partial" };
+                let result_status = if failures == 0 {
+                    "completed"
+                } else {
+                    "partial"
+                };
                 let cleaned_output = clean_final_cleanup_output(&output);
                 let output = if cleaned_output.trim().is_empty() {
                     summary.clone()
@@ -1892,7 +1896,10 @@ fn start_task(
                     &if failures == 0 {
                         format!("Prontinho! Tarefa concluída: {}", task_name)
                     } else {
-                        format!("Tarefa concluída parcialmente: {}. {} erro(s) registrado(s).", task_name, failures)
+                        format!(
+                            "Tarefa concluída parcialmente: {}. {} erro(s) registrado(s).",
+                            task_name, failures
+                        )
                     },
                     true,
                     Some("100%"),
@@ -2873,11 +2880,15 @@ mod tests {
     #[test]
     fn resumo_com_erro_nao_pode_terminar_com_sucesso_integral() {
         assert_eq!(
-            operation_contracts::cleanup_result_state(parse_cleanup_metrics("- Total de erros durante execução: 1").3),
+            operation_contracts::cleanup_result_state(
+                parse_cleanup_metrics("- Total de erros durante execução: 1").3
+            ),
             operation_contracts::CleanupExecutionState::PartiallyCompleted
         );
         assert_eq!(
-            operation_contracts::cleanup_result_state(parse_cleanup_metrics("- Total de erros durante execução: 0").3),
+            operation_contracts::cleanup_result_state(
+                parse_cleanup_metrics("- Total de erros durante execução: 0").3
+            ),
             operation_contracts::CleanupExecutionState::Completed
         );
     }
