@@ -320,7 +320,8 @@ fn detect_actions_with_cancel<B: CleanupFindingBackend>(
     for entry in backend.uninstall_entries()? {
         if is_cancelled() {
             return Err(
-                "Tarefa cancelada pelo usuário durante a verificação de programas instalados.".to_string(),
+                "Tarefa cancelada pelo usuário durante a verificação de programas instalados."
+                    .to_string(),
             );
         }
         if entry.display_name.trim().is_empty() || entry.evidence_paths.is_empty() {
@@ -330,7 +331,8 @@ fn detect_actions_with_cancel<B: CleanupFindingBackend>(
         for path in &entry.evidence_paths {
             if is_cancelled() {
                 return Err(
-                    "Tarefa cancelada pelo usuário durante a verificação de programas instalados.".to_string(),
+                    "Tarefa cancelada pelo usuário durante a verificação de programas instalados."
+                    .to_string(),
                 );
             }
             if backend.path_exists(path)? {
@@ -667,13 +669,17 @@ fn collect_shortcuts(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<(), String> {
     if is_cancelled() {
-        return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
+        return Err(
+                "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
+            );
     }
     let entries = std::fs::read_dir(directory)
         .map_err(|error| format!("Não foi possível ler {}: {error}", directory.display()))?;
     for entry in entries {
         if is_cancelled() {
-            return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
+            return Err(
+                "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
+            );
         }
         let entry = entry.map_err(|error| {
             format!("Não foi possível enumerar {}: {error}", directory.display())
