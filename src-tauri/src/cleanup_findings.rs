@@ -423,7 +423,7 @@ impl CleanupFindingBackend for WindowsCleanupFindingBackend {
 
     fn associations(&mut self) -> Result<Vec<AssociationObservation>, String> {
         let script = format!(
-            "{}\\n{}",
+            "{}\n{}",
             SAFE_ROOTED_PATH_HELPER,
             r#"
 $ErrorActionPreference = 'Stop'
@@ -1118,14 +1118,14 @@ mod tests {
     #[test]
     fn malformed_registry_paths_are_ignored_without_aborting_scan() {
         let script = format!(
-            r#"{}; $paths = @('C:\\Program Files\\Good App', 'C:\\Program Files\\Bad|App', 'relative\\path'); $result = @($paths | ForEach-Object {{ Get-SafeRootedPath $_ }}); ConvertTo-Json -InputObject @($result) -Compress"#,
+            r#"{}; $paths = @('C:\Program Files\Good App', 'C:\Program Files\Bad|App', 'relative\path'); $result = @($paths | ForEach-Object {{ $safe = Get-SafeRootedPath $_; if ($safe) { $safe } else { '<null>' } }}); ConvertTo-Json -InputObject @($result) -Compress"#,
             SAFE_ROOTED_PATH_HELPER
         );
-        let result: Vec<Option<String>> = run_powershell_json(&script).unwrap();
+        let result: Vec<String> = run_powershell_json(&script).unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].as_deref(), Some(r"C:\\Program Files\\Good App"));
-        assert_eq!(result[1], None);
-        assert_eq!(result[2], None);
+        assert_eq!(result[1], "<null>");
+        assert_eq!(result[2], "<null>");
     }
 
     #[test]
