@@ -299,8 +299,14 @@ mod tests {
     #[test]
     fn falhas_na_execucao_classificam_resultado_como_parcial() {
         assert_eq!(cleanup_result_state(0), CleanupExecutionState::Completed);
-        assert_eq!(cleanup_result_state(1), CleanupExecutionState::PartiallyCompleted);
-        assert_eq!(cleanup_result_state(26), CleanupExecutionState::PartiallyCompleted);
+        assert_eq!(
+            cleanup_result_state(1),
+            CleanupExecutionState::PartiallyCompleted
+        );
+        assert_eq!(
+            cleanup_result_state(26),
+            CleanupExecutionState::PartiallyCompleted
+        );
     }
 
     #[test]
