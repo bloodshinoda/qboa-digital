@@ -1483,15 +1483,17 @@ fn start_task(
         if let Err(error) = record_cleanup_progress(
             &cleanup_lifecycle,
             operation_contracts::CleanupProgress {
-            current: None,
-            total: None,
-            percent: Some(30),
-            stage: "Preparação".into(),
-            message: "Preparando tudo com cuidado e verificando possíveis riscos.".into(),
+                current: None,
+                total: None,
+                percent: Some(30),
+                stage: "Preparação".into(),
+                message: "Preparando tudo com cuidado e verificando possíveis riscos.".into(),
         }) {
             write_execution_log(
                 &execution_id_for_spawn,
-                &format!("cleanup-contract-progress-rejected error={error}"),
+                &format!(
+                    "cleanup-contract-progress-rejected error={error}"
+                ),
             );
         }
         emit_event(
@@ -1543,7 +1545,7 @@ fn start_task(
                                 let friendly = description.trim_end_matches("...");
                                 if let Err(error) = record_cleanup_progress(
                                     &cleanup_lifecycle,
-            operation_contracts::CleanupProgress {
+                                    operation_contracts::CleanupProgress {
                                         current: Some(current),
                                         total: Some(total),
                                         percent: Some(percent.min(100) as u8),
@@ -1553,7 +1555,9 @@ fn start_task(
                                 ) {
                                     write_execution_log(
                                         &execution_id_for_output,
-                                        &format!("cleanup-contract-progress-rejected error={error}"),
+                                        &format!(
+                                            "cleanup-contract-progress-rejected error={error}"
+                                        ),
                                     );
                                 }
                                 emit_event(
@@ -1592,7 +1596,7 @@ fn start_task(
                                 );
                                 if let Err(error) = record_cleanup_progress(
                                     &cleanup_lifecycle,
-            operation_contracts::CleanupProgress {
+                                    operation_contracts::CleanupProgress {
                                         current: Some(current),
                                         total: Some(total),
                                         percent: Some(overall.min(100) as u8),
@@ -1605,7 +1609,9 @@ fn start_task(
                                 ) {
                                     write_execution_log(
                                         &execution_id_for_output,
-                                        &format!("cleanup-contract-progress-rejected error={error}"),
+                                        &format!(
+                                            "cleanup-contract-progress-rejected error={error}"
+                                        ),
                                     );
                                 }
                                 emit_event(
@@ -1769,7 +1775,7 @@ fn start_task(
                 };
                 if let Err(error) = record_cleanup_progress(
                     &cleanup_lifecycle,
-            operation_contracts::CleanupProgress {
+                    operation_contracts::CleanupProgress {
                         current: None,
                         total: None,
                         percent: Some(100),
@@ -1779,7 +1785,9 @@ fn start_task(
                 ) {
                     write_execution_log(
                         &execution_id_for_spawn,
-                        &format!("cleanup-contract-progress-rejected error={error}"),
+                        &format!(
+                            "cleanup-contract-progress-rejected error={error}"
+                        ),
                     );
                 }
                 write_execution_log(
