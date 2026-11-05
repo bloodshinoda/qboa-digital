@@ -182,7 +182,6 @@ impl CleanupExecutionLifecycle {
         if !progress.is_valid() {
             return Err("O progresso informado não respeita o contrato de etapas/percentual.".into());
         }
-        let _ = progress;
         Ok(())
     }
 
