@@ -372,6 +372,7 @@ function Get-SafeRootedPath([string]$value) {
     if ([string]::IsNullOrWhiteSpace($value)) { return $null }
     try {
         if ($value.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $null }
+        if ($value -match '[<>"|?*]' -or ($value.Length -gt 2 -and $value.Substring(2) -match ':')) { return $null }
         if ([IO.Path]::IsPathRooted($value)) { return $value }
     } catch {
         return $null
