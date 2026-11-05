@@ -1276,7 +1276,10 @@ fn start_task(
                 ),
             )))
         };
-        if let Err(error) = transition_cleanup_lifecycle(&cleanup_lifecycle, operation_contracts::CleanupExecutionState::Running) {
+        if let Err(error) = transition_cleanup_lifecycle(
+            &cleanup_lifecycle,
+            operation_contracts::CleanupExecutionState::Running,
+        ) {
             write_execution_log(
                             &execution_id_for_spawn,
                             &format!("cleanup-contract-start-failed error={error}"),
@@ -1315,7 +1318,8 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .finish_execution(&execution_id_for_spawn, "failed");
-                    if let Err(contract_error) = finish_cleanup_lifecycle(&cleanup_lifecycle, 
+                    if let Err(contract_error) = finish_cleanup_lifecycle(
+                        &cleanup_lifecycle,
                         operation_contracts::CleanupExecutionState::Failed,
                         error.clone(),
                         None,
@@ -1373,7 +1377,10 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .insert(execution_id_for_spawn.clone(), sender);
-                    if let Err(error) = transition_cleanup_lifecycle(&cleanup_lifecycle, operation_contracts::CleanupExecutionState::AwaitingConfirmation) {
+                    if let Err(error) = transition_cleanup_lifecycle(
+                        &cleanup_lifecycle,
+                        operation_contracts::CleanupExecutionState::AwaitingConfirmation,
+                    ) {
                         write_execution_log(
                             &execution_id_for_spawn,
                             &format!("cleanup-contract-confirmation-failed error={error}"),
@@ -1407,7 +1414,10 @@ fn start_task(
                         .unwrap()
                         .remove(&execution_id_for_spawn);
                     if proceed {
-                        if let Err(error) = transition_cleanup_lifecycle(&cleanup_lifecycle, operation_contracts::CleanupExecutionState::Running) {
+                        if let Err(error) = transition_cleanup_lifecycle(
+                            &cleanup_lifecycle,
+                            operation_contracts::CleanupExecutionState::Running,
+                        ) {
                             write_execution_log(
                             &execution_id_for_spawn,
                             &format!("cleanup-contract-resume-failed error={error}"),
@@ -1423,7 +1433,8 @@ fn start_task(
                             .lock()
                             .unwrap()
                             .finish_execution(&execution_id_for_spawn, "cancelled");
-                        if let Err(error) = finish_cleanup_lifecycle(&cleanup_lifecycle, 
+                        if let Err(error) = finish_cleanup_lifecycle(
+                            &cleanup_lifecycle,
                             operation_contracts::CleanupExecutionState::Cancelled,
                             "Execução cancelada após falha na criação do ponto de restauração.",
                             None,
@@ -1466,7 +1477,9 @@ fn start_task(
             None
         };
 
-        if let Err(error) = record_cleanup_progress(&cleanup_lifecycle, 
+        if let Err(error) = record_cleanup_progress(
+
+            &cleanup_lifecycle,
             operation_contracts::CleanupProgress {
             current: None,
             total: None,
@@ -1526,7 +1539,8 @@ fn start_task(
                                     0.0,
                                 );
                                 let friendly = description.trim_end_matches("...");
-                                if let Err(error) = record_cleanup_progress(&cleanup_lifecycle, 
+                                if let Err(error) = record_cleanup_progress(
+                                    &cleanup_lifecycle,
             operation_contracts::CleanupProgress {
                                         current: Some(current),
                                         total: Some(total),
@@ -1574,7 +1588,8 @@ fn start_task(
                                 let overall = cleanup_progress::cleanup_progress_percent(
                                     current, total, true, value,
                                 );
-                                if let Err(error) = record_cleanup_progress(&cleanup_lifecycle, 
+                                if let Err(error) = record_cleanup_progress(
+                                    &cleanup_lifecycle,
             operation_contracts::CleanupProgress {
                                         current: Some(current),
                                         total: Some(total),
@@ -1663,7 +1678,10 @@ fn start_task(
                 .lock()
                 .unwrap()
                 .insert(execution_id_for_spawn.clone(), sender);
-            if let Err(error) = transition_cleanup_lifecycle(&cleanup_lifecycle, operation_contracts::CleanupExecutionState::AwaitingConfirmation) {
+            if let Err(error) = transition_cleanup_lifecycle(
+                &cleanup_lifecycle,
+                operation_contracts::CleanupExecutionState::AwaitingConfirmation,
+            ) {
                 write_execution_log(
                             &execution_id_for_spawn,
                             &format!("cleanup-contract-confirmation-failed error={error}"),
@@ -1695,7 +1713,10 @@ fn start_task(
                 .unwrap()
                 .remove(&execution_id_for_spawn);
             if proceed {
-                if let Err(error) = transition_cleanup_lifecycle(&cleanup_lifecycle, operation_contracts::CleanupExecutionState::Running) {
+                if let Err(error) = transition_cleanup_lifecycle(
+                    &cleanup_lifecycle,
+                    operation_contracts::CleanupExecutionState::Running,
+                ) {
                     write_execution_log(
                             &execution_id_for_spawn,
                             &format!("cleanup-contract-resume-failed error={error}"),
@@ -1741,7 +1762,8 @@ fn start_task(
                 } else {
                     format!("{cleaned_output}\n\n{summary}")
                 };
-                if let Err(error) = record_cleanup_progress(&cleanup_lifecycle, 
+                if let Err(error) = record_cleanup_progress(
+                    &cleanup_lifecycle,
             operation_contracts::CleanupProgress {
                         current: None,
                         total: None,
@@ -1790,7 +1812,8 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .finish_execution(&execution_id_for_spawn, "journal_failed");
-                    if let Err(error) = finish_cleanup_lifecycle(&cleanup_lifecycle, 
+                    if let Err(error) = finish_cleanup_lifecycle(
+                        &cleanup_lifecycle,
                         operation_contracts::CleanupExecutionState::Failed,
                         message.clone(),
                         None,
@@ -1813,7 +1836,9 @@ fn start_task(
                     return;
                 }
 
-                if let Err(error) = finish_cleanup_lifecycle(&cleanup_lifecycle, 
+                if let Err(error) = finish_cleanup_lifecycle(
+
+                    &cleanup_lifecycle,
                     operation_contracts::CleanupExecutionState::Completed,
                     summary.clone(),
                     None,
@@ -1942,7 +1967,8 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .finish_execution(&execution_id_for_spawn, "cancelled");
-                    if let Err(error) = finish_cleanup_lifecycle(&cleanup_lifecycle, 
+                    if let Err(error) = finish_cleanup_lifecycle(
+                        &cleanup_lifecycle,
                         operation_contracts::CleanupExecutionState::Cancelled,
                         cancellation_message.clone(),
                         None,
@@ -2007,7 +2033,8 @@ fn start_task(
                                 .lock()
                                 .unwrap()
                                 .finish_execution(&execution_id_for_spawn, final_status);
-                            if let Err(error) = finish_cleanup_lifecycle(&cleanup_lifecycle, 
+                            if let Err(error) = finish_cleanup_lifecycle(
+                                &cleanup_lifecycle,
                                 operation_contracts::CleanupExecutionState::Failed,
                                 message.clone(),
                                 None,
@@ -2071,7 +2098,12 @@ fn start_task(
                         } else {
                             operation_contracts::CleanupExecutionState::Failed
                         };
-                    if let Err(error) = finish_cleanup_lifecycle(&cleanup_lifecycle, terminal_state, err.clone(), None)
+                    if let Err(error) = finish_cleanup_lifecycle(
+                        &cleanup_lifecycle,
+                        terminal_state,
+                        err.clone(),
+                        None,
+                    )
                     {
                         write_execution_log(
                             &execution_id_for_spawn,
