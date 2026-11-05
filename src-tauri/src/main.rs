@@ -1281,10 +1281,13 @@ fn start_task(
             operation_contracts::CleanupExecutionState::Running,
         ) {
             write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-start-failed error={error}"),
-                        );
-            safety_state().lock().unwrap().finish_execution(&execution_id_for_spawn, "failed");
+                &execution_id_for_spawn,
+                &format!("cleanup-contract-start-failed error={error}"),
+            );
+            safety_state()
+                .lock()
+                .unwrap()
+                .finish_execution(&execution_id_for_spawn, "failed");
             return;
         }
         write_execution_log(
@@ -1419,9 +1422,9 @@ fn start_task(
                             operation_contracts::CleanupExecutionState::Running,
                         ) {
                             write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-resume-failed error={error}"),
-                        );
+                                &execution_id_for_spawn,
+                                &format!("cleanup-contract-resume-failed error={error}"),
+                            );
                         }
                     }
                     if !proceed {
@@ -1440,9 +1443,9 @@ fn start_task(
                             None,
                         ) {
                             write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-finalization-failed error={error}"),
-                        );
+                                &execution_id_for_spawn,
+                                &format!("cleanup-contract-finalization-failed error={error}"),
+                            );
                         }
                         emit_event(
                             &app_for_spawn,
@@ -1488,9 +1491,9 @@ fn start_task(
             message: "Preparando tudo com cuidado e verificando possíveis riscos.".into(),
         }) {
             write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-progress-rejected error={error}"),
-                        );
+                &execution_id_for_spawn,
+                &format!("cleanup-contract-progress-rejected error={error}"),
+            );
         }
         emit_event(
             &app_for_spawn,
@@ -1595,7 +1598,10 @@ fn start_task(
                                         total: Some(total),
                                         percent: Some(overall.min(100) as u8),
                                         stage: dism_stage_label.clone(),
-                                        message: format!("Passo {current}/{total} · {} ({rounded}%)", dism_stage_label.trim_end_matches('.')),
+                                        message: format!(
+                                            "Passo {current}/{total} · {} ({rounded}%)",
+                                            dism_stage_label.trim_end_matches('.')
+                                        ),
                                     },
                                 ) {
                                     write_execution_log(
@@ -1683,9 +1689,9 @@ fn start_task(
                 operation_contracts::CleanupExecutionState::AwaitingConfirmation,
             ) {
                 write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-confirmation-failed error={error}"),
-                        );
+                    &execution_id_for_spawn,
+                    &format!("cleanup-contract-confirmation-failed error={error}"),
+                );
             }
             emit_event(
                 &app_for_spawn,
@@ -1718,9 +1724,9 @@ fn start_task(
                     operation_contracts::CleanupExecutionState::Running,
                 ) {
                     write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-resume-failed error={error}"),
-                        );
+                        &execution_id_for_spawn,
+                        &format!("cleanup-contract-resume-failed error={error}"),
+                    );
                 }
             }
             proceed
@@ -1773,9 +1779,9 @@ fn start_task(
                     },
                 ) {
                     write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-progress-rejected error={error}"),
-                        );
+                        &execution_id_for_spawn,
+                        &format!("cleanup-contract-progress-rejected error={error}"),
+                    );
                 }
                 write_execution_log(
                     &execution_id_for_spawn,
@@ -1844,9 +1850,9 @@ fn start_task(
                     None,
                 ) {
                     write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-finalization-failed error={error}"),
-                        );
+                        &execution_id_for_spawn,
+                        &format!("cleanup-contract-finalization-failed error={error}"),
+                    );
                 }
                 safety_state()
                     .lock()
@@ -2040,9 +2046,9 @@ fn start_task(
                                 None,
                             ) {
                                 write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-finalization-failed error={error}"),
-                        );
+                                    &execution_id_for_spawn,
+                                    &format!("cleanup-contract-finalization-failed error={error}"),
+                                );
                             }
                             emit_event(
                                 &app_for_spawn,
@@ -2103,8 +2109,7 @@ fn start_task(
                         terminal_state,
                         err.clone(),
                         None,
-                    )
-                    {
+                    ) {
                         write_execution_log(
                             &execution_id_for_spawn,
                             &format!("cleanup-contract-finalization-failed error={error}"),
