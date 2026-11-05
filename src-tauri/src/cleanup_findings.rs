@@ -1123,7 +1123,7 @@ mod tests {
         );
         let result: Vec<String> = run_powershell_json(&script).unwrap();
         assert_eq!(result.len(), 3);
-        assert_eq!(result[0].as_deref(), Some(r"C:\Program Files\Good App"));
+        assert_eq!(result[0], r"C:\Program Files\Good App");
         assert_eq!(result[1], "<null>");
         assert_eq!(result[2], "<null>");
     }
