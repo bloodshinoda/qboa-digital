@@ -1678,6 +1678,17 @@ fn start_task(
                 } else {
                     format!("{cleaned_output}\n\n{summary}")
                 };
+                if let Err(error) = cleanup_lifecycle.lock().unwrap().record_progress(
+                    operation_contracts::CleanupProgress {
+                        current: None,
+                        total: None,
+                        percent: Some(100),
+                        stage: "Concluída".into(),
+                        message: summary.clone(),
+                    },
+                ) {
+                    write_execution_log(&execution_id_for_spawn, &format!("cleanup-contract-progress-rejected error={error}"));
+                }
                 write_execution_log(
                     &execution_id_for_spawn,
                     &format!("task-executor-completed {summary}"),
