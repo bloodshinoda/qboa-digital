@@ -1192,19 +1192,6 @@ mod tests {
         assert!(detect(&mut backend).unwrap().is_empty());
     }
 }
-){$candidate=$Matches[1]};$safeCandidate=Get-SafeRootedPath $candidate;if($safeCandidate){$evidence+=@($safeCandidate)}};if($display -and $evidence.Count -gt 0){$r+=[pscustomobject]@{hive=$root[0];key_path=($root[1]+'\'+$name);display_name=$display;evidence_paths=@($evidence)}};$child.Dispose()};$key.Dispose();$base.Dispose()};ConvertTo-Json -InputObject @($r) -Depth 6 -Compress"#;
-        let items: Vec<WindowsUninstallEntry> = run_powershell_json(script)?;
-        Ok(items
-            .into_iter()
-            .map(|item| UninstallObservation {
-                hive: item.hive,
-                key_path: item.key_path,
-                display_name: item.display_name,
-                evidence_paths: item.evidence_paths.into_iter().map(PathBuf::from).collect(),
-            })
-            .collect())
-    }
-
     fn path_exists(&mut self, path: &Path) -> Result<bool, String> {
         match std::fs::metadata(path) {
             Ok(_) => Ok(true),
