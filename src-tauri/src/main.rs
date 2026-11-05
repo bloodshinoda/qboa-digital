@@ -1488,7 +1488,8 @@ fn start_task(
                 percent: Some(30),
                 stage: "Preparação".into(),
                 message: "Preparando tudo com cuidado e verificando possíveis riscos.".into(),
-        }) {
+            },
+        ) {
             write_execution_log(
                 &execution_id_for_spawn,
                 &format!(
@@ -1979,6 +1980,15 @@ fn start_task(
                         .lock()
                         .unwrap()
                         .finish_execution(&execution_id_for_spawn, "cancelled");
+                    if let Err(error) = transition_cleanup_lifecycle(
+                        &cleanup_lifecycle,
+                        operation_contracts::CleanupExecutionState::Cancelling,
+                    ) {
+                        write_execution_log(
+                            &execution_id_for_spawn,
+                            &format!("cleanup-contract-cancellation-transition-failed error={error}"),
+                        );
+                    }
                     if let Err(error) = finish_cleanup_lifecycle(
                         &cleanup_lifecycle,
                         operation_contracts::CleanupExecutionState::Cancelled,
