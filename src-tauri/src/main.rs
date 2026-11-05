@@ -839,9 +839,10 @@ fn apply_registry_task(
 fn apply_cleanup_findings(
     profile: &str,
     on_output: &mut dyn FnMut(&str),
-) -> cleanup_findings::CleanupExecutionReport {
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<cleanup_findings::CleanupExecutionReport, String> {
     let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
-    match cleanup_findings::cleanup_profile(&mut backend, profile) {
+    match cleanup_findings::cleanup_profile(&mut backend, profile, is_cancelled) {
         Ok(report) => {
             on_output(&format!(
                 "Varredura integrada ({profile}): {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).",
@@ -854,16 +855,17 @@ fn apply_cleanup_findings(
                 "QBOA_METRICS files={} bytes={} registry={}",
                 report.files_removed, report.bytes_freed, report.registry_entries_removed
             ));
-            report
+            Ok(report)
         }
+        Err(error) if is_cancelled() => Err(error),
         Err(error) => {
             on_output(&format!(
                 "A varredura integrada não pôde ser concluída: {error}. A limpeza principal continuará."
             ));
-            cleanup_findings::CleanupExecutionReport {
+            Ok(cleanup_findings::CleanupExecutionReport {
                 failures: 1,
                 ..Default::default()
-            }
+            })
         }
     }
 }
@@ -872,8 +874,12 @@ fn apply_cleanup_findings(
 fn apply_cleanup_findings(
     _profile: &str,
     _on_output: &mut dyn FnMut(&str),
-) -> cleanup_findings::CleanupExecutionReport {
-    cleanup_findings::CleanupExecutionReport::default()
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<cleanup_findings::CleanupExecutionReport, String> {
+    if is_cancelled() {
+        return Err("Tarefa cancelada pelo usuário durante a varredura integrada.".to_string());
+    }
+    Ok(cleanup_findings::CleanupExecutionReport::default())
 }
 
 fn findings_summary(report: &cleanup_findings::CleanupExecutionReport) -> String {
@@ -1048,7 +1054,7 @@ fn execute_task(
             );
             let part_3 = cleanup_engine::cleanup_adobe_caches(on_output, is_cancelled)?;
             on_output("[Etapa 4/4] Removendo somente atalhos quebrados e associações inválidas confirmadas...");
-            let findings = apply_cleanup_findings("complete", on_output);
+            let findings = apply_cleanup_findings("complete", on_output, is_cancelled)?;
             Ok(format!(
                 "{part_1}\n{part_2}\n{part_3}\n{}",
                 findings_summary(&findings)
@@ -1076,7 +1082,7 @@ fn execute_task(
             on_output("[Etapa 4/9] Processando o cache de downloads do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output("[Etapa 5/9] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
-            let findings = apply_cleanup_findings("deep", on_output);
+            let findings = apply_cleanup_findings("deep", on_output, is_cancelled)?;
             on_output("[Etapa 6/9] Verificando a integridade da imagem do Windows...");
             let part_4 = run_system_command(
                 "dism",
