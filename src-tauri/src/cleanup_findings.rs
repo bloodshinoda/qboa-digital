@@ -1169,7 +1169,7 @@ mod tests {
     #[test]
     fn malformed_registry_paths_are_ignored_without_aborting_scan() {
         let script = format!("{}\n", SAFE_ROOTED_PATH_HELPER)
-            + r#"$paths = @('C:\\Program Files\\Good App', 'C:\\Program Files\\Bad|App', 'relative\\path'); $result = @($paths | ForEach-Object { $safe = Get-SafeRootedPath $_; if ($safe) { $safe } else { '<null>' } }); ConvertTo-Json -InputObject @($result) -Compress"#;
+            + r#"$paths = @('C:\Program Files\Good App', 'C:\Program Files\Bad|App', 'relative\path'); $result = @($paths | ForEach-Object { $safe = Get-SafeRootedPath $_; if ($safe) { $safe } else { '<null>' } }); ConvertTo-Json -InputObject @($result) -Compress"#;
         let result: Vec<String> = run_powershell_json(&script).unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], r"C:\Program Files\Good App");
