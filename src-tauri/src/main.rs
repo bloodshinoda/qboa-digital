@@ -1772,6 +1772,13 @@ fn start_task(
                     failures,
                     &elapsed_label,
                 );
+                let terminal_state = operation_contracts::cleanup_result_state(failures);
+                let terminal_label = if failures == 0 {
+                    "Concluída"
+                } else {
+                    "Concluída parcialmente"
+                };
+                let result_status = if failures == 0 { "completed" } else { "partial" };
                 let cleaned_output = clean_final_cleanup_output(&output);
                 let output = if cleaned_output.trim().is_empty() {
                     summary.clone()
@@ -1797,7 +1804,6 @@ fn start_task(
                     &execution_id_for_spawn,
                     &format!("task-executor-completed {summary}"),
                 );
-                let result_status = if failures == 0 { "completed" } else { "partial" };
                 let journal_result = if let Some(change) = registry_change.take() {
                     safety_state()
                         .lock()
@@ -1853,8 +1859,6 @@ fn start_task(
                     return;
                 }
 
-                let terminal_state = operation_contracts::cleanup_result_state(failures);
-                let terminal_label = if failures == 0 { "Concluída" } else { "Concluída parcialmente" };
                 if let Err(error) = finish_cleanup_lifecycle(
                     &cleanup_lifecycle,
                     terminal_state,
