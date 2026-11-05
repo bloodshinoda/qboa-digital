@@ -12,7 +12,11 @@ pub(crate) fn set_enabled(enabled: bool) -> Result<String, String> {
 
     #[cfg(windows)]
     {
-        let script = if enabled { ENABLE_SCRIPT } else { DISABLE_SCRIPT };
+        let script = if enabled {
+            ENABLE_SCRIPT
+        } else {
+            DISABLE_SCRIPT
+        };
         let mut command = Command::new("powershell.exe");
         command.args([
             "-NoProfile",
@@ -93,7 +97,7 @@ foreach ($name in @('CryptSvc','BITS','wuauserv','UsoSvc','DoSvc')) {
     $messages.Add("Não foi possível iniciar $name agora: $($_.Exception.Message)")
   }
 }
-foreach ($taskPath in @('\Microsoft\Windows\WindowsUpdate\', '\Microsoft\Windows\UpdateOrchestrator\')) {
+foreach ($taskPath in @('\\Microsoft\\Windows\\WindowsUpdate\\', '\\Microsoft\\Windows\\UpdateOrchestrator\\')) {
   try {
     $tasks = @(Get-ScheduledTask -TaskPath $taskPath -ErrorAction SilentlyContinue)
     foreach ($task in $tasks) {
@@ -134,7 +138,7 @@ foreach ($name in @('wuauserv','UsoSvc')) {
     try { Stop-Service -Name $name -Force -ErrorAction Stop } catch {}
   }
 }
-foreach ($taskPath in @('\Microsoft\Windows\WindowsUpdate\', '\Microsoft\Windows\UpdateOrchestrator\')) {
+foreach ($taskPath in @('\\Microsoft\\Windows\\WindowsUpdate\\', '\\Microsoft\\Windows\\UpdateOrchestrator\\')) {
   try {
     Get-ScheduledTask -TaskPath $taskPath -ErrorAction SilentlyContinue |
       Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
