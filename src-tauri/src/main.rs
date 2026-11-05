@@ -2864,9 +2864,9 @@ mod tests {
 
     #[test]
     fn resumo_agregado_de_erros_e_contabilizado_sem_duplicacao() {
-        let output = "Etapa: 1 falha(s).\\n- Total de erros durante execução: 1";
+        let output = "Etapa: 1 falha(s).\n- Total de erros durante execução: 1";
         assert_eq!(parse_cleanup_metrics(output).3, 1);
-        let output = "Etapa A: 1 falha(s).\\nEtapa B: 2 falha(s).\\n- Total de erros durante execução: 3";
+        let output = "Etapa A: 1 falha(s).\\nEtapa B: 2 falha(s).\n- Total de erros durante execução: 3";
         assert_eq!(parse_cleanup_metrics(output).3, 3);
     }
 
