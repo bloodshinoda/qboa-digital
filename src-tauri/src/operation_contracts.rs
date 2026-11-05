@@ -175,12 +175,13 @@ mod tests {
 
     #[test]
     fn cancelamento_exige_confirmacao_do_estado_final() {
-        assert!(CleanupExecutionState::Running
-            .can_transition_to(CleanupExecutionState::Cancelling));
-        assert!(CleanupExecutionState::Cancelling
-            .can_transition_to(CleanupExecutionState::Cancelled));
-        assert!(!CleanupExecutionState::Cancelling
-            .can_transition_to(CleanupExecutionState::Completed));
+        assert!(CleanupExecutionState::Running.can_transition_to(CleanupExecutionState::Cancelling));
+        assert!(
+            CleanupExecutionState::Cancelling.can_transition_to(CleanupExecutionState::Cancelled)
+        );
+        assert!(
+            !CleanupExecutionState::Cancelling.can_transition_to(CleanupExecutionState::Completed)
+        );
     }
 
     #[test]
