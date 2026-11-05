@@ -98,7 +98,10 @@ pub(crate) enum FindingAction {
 }
 
 pub(crate) trait CleanupFindingBackend {
-    fn shortcuts(&mut self, is_cancelled: &dyn Fn() -> bool) -> Result<Vec<ShortcutObservation>, String>;
+    fn shortcuts(
+        &mut self,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<ShortcutObservation>, String>;
     fn associations(&mut self) -> Result<Vec<AssociationObservation>, String>;
     fn uninstall_entries(&mut self) -> Result<Vec<UninstallObservation>, String>;
     fn path_exists(&mut self, path: &Path) -> Result<bool, String>;
@@ -174,7 +177,9 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
             _ => 0,
         };
         if is_cancelled() {
-            return Err("Tarefa cancelada pelo usuário antes de aplicar uma alteração.".to_string());
+            return Err(
+                "Tarefa cancelada pelo usuário antes de aplicar uma alteração.".to_string(),
+            );
         }
         match backend.delete(&candidate.action) {
             Ok(()) => match candidate.action {
@@ -215,7 +220,9 @@ fn detect_actions_with_cancel<B: CleanupFindingBackend>(
 
     for shortcut in backend.shortcuts(is_cancelled)? {
         if is_cancelled() {
-            return Err("Tarefa cancelada pelo usuário durante a verificação de atalhos.".to_string());
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de atalhos.".to_string(),
+            );
         }
         let (reason, risk) = match shortcut.state {
             ShortcutState::BrokenTarget => ("O destino do atalho não existe.", FindingRisk::Low),
@@ -238,7 +245,9 @@ fn detect_actions_with_cancel<B: CleanupFindingBackend>(
 
     for association in backend.associations()? {
         if is_cancelled() {
-            return Err("Tarefa cancelada pelo usuário durante a verificação de associações.".to_string());
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de associações.".to_string(),
+            );
         }
         if !ASSOCIATION_EXTENSIONS
             .iter()
@@ -310,7 +319,9 @@ fn detect_actions_with_cancel<B: CleanupFindingBackend>(
 
     for entry in backend.uninstall_entries()? {
         if is_cancelled() {
-            return Err("Tarefa cancelada pelo usuário durante a verificação de programas instalados.".to_string());
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de programas instalados.".to_string(),
+            );
         }
         if entry.display_name.trim().is_empty() || entry.evidence_paths.is_empty() {
             continue;
@@ -318,7 +329,9 @@ fn detect_actions_with_cancel<B: CleanupFindingBackend>(
         let mut all_missing = true;
         for path in &entry.evidence_paths {
             if is_cancelled() {
-                return Err("Tarefa cancelada pelo usuário durante a verificação de programas instalados.".to_string());
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a verificação de programas instalados.".to_string(),
+                );
             }
             if backend.path_exists(path)? {
                 all_missing = false;
@@ -415,7 +428,10 @@ pub(crate) struct WindowsCleanupFindingBackend;
 
 #[cfg(target_os = "windows")]
 impl CleanupFindingBackend for WindowsCleanupFindingBackend {
-    fn shortcuts(&mut self, is_cancelled: &dyn Fn() -> bool) -> Result<Vec<ShortcutObservation>, String> {
+    fn shortcuts(
+        &mut self,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<ShortcutObservation>, String> {
         let mut roots: Vec<PathBuf> = run_powershell_json(
             r#"$ErrorActionPreference='Stop';$r=@([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),[Environment]::GetFolderPath([Environment+SpecialFolder]::StartMenu),[Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory),[Environment]::GetFolderPath([Environment+SpecialFolder]::CommonStartMenu));ConvertTo-Json -InputObject @($r|Where-Object{$_}) -Compress"#,
         )?;
@@ -939,7 +955,10 @@ pub(crate) struct WindowsCleanupFindingBackend;
 
 #[cfg(not(target_os = "windows"))]
 impl CleanupFindingBackend for WindowsCleanupFindingBackend {
-    fn shortcuts(&mut self, _is_cancelled: &dyn Fn() -> bool) -> Result<Vec<ShortcutObservation>, String> {
+    fn shortcuts(
+        &mut self,
+        _is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<ShortcutObservation>, String> {
         Err("A detecção de limpeza só está disponível no Windows.".to_string())
     }
 
@@ -975,7 +994,10 @@ mod tests {
     }
 
     impl CleanupFindingBackend for FakeBackend {
-        fn shortcuts(&mut self, _is_cancelled: &dyn Fn() -> bool) -> Result<Vec<ShortcutObservation>, String> {
+        fn shortcuts(
+            &mut self,
+            _is_cancelled: &dyn Fn() -> bool,
+        ) -> Result<Vec<ShortcutObservation>, String> {
             Ok(self.shortcuts.clone())
         }
 
