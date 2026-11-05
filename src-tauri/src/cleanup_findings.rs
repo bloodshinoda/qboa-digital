@@ -367,6 +367,20 @@ fn stable_path(path: &Path) -> String {
 }
 
 #[cfg(target_os = "windows")]
+const SAFE_ROOTED_PATH_HELPER: &str = r#"
+function Get-SafeRootedPath([string]$value) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return $null }
+    try {
+        if ($value.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $null }
+        if ([IO.Path]::IsPathRooted($value)) { return $value }
+    } catch {
+        return $null
+    }
+    return $null
+}
+"#;
+
+#[cfg(target_os = "windows")]
 pub(crate) struct WindowsCleanupFindingBackend;
 
 #[cfg(target_os = "windows")]
@@ -410,6 +424,7 @@ impl CleanupFindingBackend for WindowsCleanupFindingBackend {
     fn associations(&mut self) -> Result<Vec<AssociationObservation>, String> {
         let script = r#"
 $ErrorActionPreference = 'Stop'
+${SAFE_ROOTED_PATH_HELPER}
 $extensions = @('.txt','.pdf','.png','.jpg','.jpeg','.gif','.bmp','.webp','.zip','.7z','.rar','.mp3','.wav','.mp4','.mkv','.html','.htm','.docx','.xlsx','.pptx','.json','.csv')
 $currentUser = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser,[Microsoft.Win32.RegistryView]::Default)
 $localMachine = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine,[Microsoft.Win32.RegistryView]::Default)
@@ -478,7 +493,7 @@ ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
     }
 
     fn uninstall_entries(&mut self) -> Result<Vec<UninstallObservation>, String> {
-        let script = r#"$ErrorActionPreference='Stop';$roots=@(@('LocalMachine','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),@('LocalMachine','SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),@('CurrentUser','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'));$r=@();foreach($root in $roots){$base=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root[0]),[Microsoft.Win32.RegistryView]::Default);$key=$base.OpenSubKey($root[1]);if(!$key){continue};foreach($name in $key.GetSubKeyNames()){$child=$key.OpenSubKey($name);if(!$child){continue};$display=[string]$child.GetValue('DisplayName');$install=[string]$child.GetValue('InstallLocation');$icon=[string]$child.GetValue('DisplayIcon');$evidence=@();if($install -and [IO.Path]::IsPathRooted($install)){$evidence+=@($install)};if($icon){$candidate=$icon.Trim().Trim('"');if($candidate -match '^(.+?\.exe)(?:,.*)?$'){$candidate=$Matches[1]};if([IO.Path]::IsPathRooted($candidate)){$evidence+=@($candidate)}};if($display -and $evidence.Count -gt 0){$r+=[pscustomobject]@{hive=$root[0];key_path=($root[1]+'\'+$name);display_name=$display;evidence_paths=@($evidence)}};$child.Dispose()};$key.Dispose();$base.Dispose()};ConvertTo-Json -InputObject @($r) -Depth 6 -Compress"#;
+        let script = r#"$ErrorActionPreference='Stop';${SAFE_ROOTED_PATH_HELPER};$roots=@(@('LocalMachine','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),@('LocalMachine','SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),@('CurrentUser','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'));$r=@();foreach($root in $roots){$base=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root[0]),[Microsoft.Win32.RegistryView]::Default);$key=$base.OpenSubKey($root[1]);if(!$key){continue};foreach($name in $key.GetSubKeyNames()){$child=$key.OpenSubKey($name);if(!$child){continue};$display=[string]$child.GetValue('DisplayName');$install=[string]$child.GetValue('InstallLocation');$icon=[string]$child.GetValue('DisplayIcon');$evidence=@();$safeInstall=Get-SafeRootedPath $install;if($safeInstall){$evidence+=@($safeInstall)};if($icon){$candidate=$icon.Trim().Trim('"');if($candidate -match '^(.+?\.exe)(?:,.*)?$'){$candidate=$Matches[1]};$safeCandidate=Get-SafeRootedPath $candidate;if($safeCandidate){$evidence+=@($safeCandidate)}};if($display -and $evidence.Count -gt 0){$r+=[pscustomobject]@{hive=$root[0];key_path=($root[1]+'\'+$name);display_name=$display;evidence_paths=@($evidence)}};$child.Dispose()};$key.Dispose();$base.Dispose()};ConvertTo-Json -InputObject @($r) -Depth 6 -Compress"#;
         let items: Vec<WindowsUninstallEntry> = run_powershell_json(script)?;
         Ok(items
             .into_iter()
@@ -1089,6 +1104,20 @@ mod tests {
             .deleted
             .iter()
             .any(|action| matches!(action, FindingAction::DeleteUninstallEntry { .. })));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn malformed_registry_paths_are_ignored_without_aborting_scan() {
+        let script = format!(
+            r#"{}; $paths = @('C:\\Program Files\\Good App', 'C:\\Program Files\\Bad|App', 'relative\\path'); $result = @($paths | ForEach-Object {{ Get-SafeRootedPath $_ }}); ConvertTo-Json -InputObject @($result) -Compress"#,
+            SAFE_ROOTED_PATH_HELPER
+        );
+        let result: Vec<Option<String>> = run_powershell_json(&script).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].as_deref(), Some(r"C:\\Program Files\\Good App"));
+        assert_eq!(result[1], None);
+        assert_eq!(result[2], None);
     }
 
     #[test]
