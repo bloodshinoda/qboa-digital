@@ -173,6 +173,9 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
                 .unwrap_or(0),
             _ => 0,
         };
+        if is_cancelled() {
+            return Err("Tarefa cancelada pelo usuário antes de aplicar uma alteração.".to_string());
+        }
         match backend.delete(&candidate.action) {
             Ok(()) => match candidate.action {
                 FindingAction::DeleteShortcut(_) => {
@@ -1245,7 +1248,7 @@ mod tests {
         let is_cancelled = || {
             let current = checks.get();
             checks.set(current + 1);
-            current >= 5
+            current >= 6
         };
 
         let result = cleanup_profile(&mut backend, "complete", &is_cancelled);
