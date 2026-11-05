@@ -1554,7 +1554,7 @@ fn start_task(
                                 ) {
                                     write_execution_log(
                                         &execution_id_for_output,
-&format!(
+                                        &format!(
                                             "cleanup-contract-progress-rejected error={error}"
                                         ),
                                     );
@@ -1608,7 +1608,7 @@ fn start_task(
                                 ) {
                                     write_execution_log(
                                         &execution_id_for_output,
-&format!(
+                                        &format!(
                                             "cleanup-contract-progress-rejected error={error}"
                                         ),
                                     );
