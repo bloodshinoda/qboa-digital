@@ -75,7 +75,7 @@ $services = @(
 foreach ($item in $services) {
   $service = Get-Service -Name $item.Name -ErrorAction SilentlyContinue
   if (-not $service) { continue }
-  & sc.exe config $item.Name "start= $($item.Start)" 2>&1 | Out-Null
+  & sc.exe config $item.Name 'start=' $item.Start 2>&1 | Out-Null
   if ($LASTEXITCODE -eq 0) {
     $messages.Add("Inicialização de $($item.Name) reconfigurada.")
   } else {
@@ -125,7 +125,7 @@ New-ItemProperty -Path $policyPath -Name SetDisableUXWUAccess -PropertyType DWor
 $messages = [System.Collections.Generic.List[string]]::new()
 foreach ($name in @('wuauserv','UsoSvc')) {
   if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
-    & sc.exe config $name 'start= disabled' 2>&1 | Out-Null
+    & sc.exe config $name 'start=' 'disabled' 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
       $messages.Add("Inicialização de $name desabilitada.")
     } else {
