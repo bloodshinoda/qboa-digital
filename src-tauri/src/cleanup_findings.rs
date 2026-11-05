@@ -499,7 +499,60 @@ ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
 
     fn uninstall_entries(&mut self) -> Result<Vec<UninstallObservation>, String> {
         let script = format!("{}\n", SAFE_ROOTED_PATH_HELPER)
-            + r#"$ErrorActionPreference='Stop';$roots=@(@('LocalMachine','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),@('LocalMachine','SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),@('CurrentUser','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'));$r=@();foreach($root in $roots){$base=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root[0]),[Microsoft.Win32.RegistryView]::Default);$key=$base.OpenSubKey($root[1]);if(!$key){continue};foreach($name in $key.GetSubKeyNames()){$child=$key.OpenSubKey($name);if(!$child){continue};$display=[string]$child.GetValue('DisplayName');$install=[string]$child.GetValue('InstallLocation');$icon=[string]$child.GetValue('DisplayIcon');$evidence=@();$safeInstall=Get-SafeRootedPath $install;if($safeInstall){$evidence+=@($safeInstall)};if($icon){$candidate=$icon.Trim().Trim('"');if($candidate -match '^(.+?\.exe)(?:,.*)?
+            + r#"
+$ErrorActionPreference = 'Stop'
+$roots = @(
+    @('LocalMachine', 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),
+    @('LocalMachine', 'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),
+    @('CurrentUser', 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall')
+)
+$results = @()
+foreach ($root in $roots) {
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+        [Microsoft.Win32.RegistryHive]::$($root[0]),
+        [Microsoft.Win32.RegistryView]::Default
+    )
+    $key = $base.OpenSubKey($root[1])
+    if (!$key) {
+        $base.Dispose()
+        continue
+    }
+    foreach ($name in $key.GetSubKeyNames()) {
+        $child = $key.OpenSubKey($name)
+        if (!$child) { continue }
+
+        $display = [string]$child.GetValue('DisplayName')
+        $install = [string]$child.GetValue('InstallLocation')
+        $icon = [string]$child.GetValue('DisplayIcon')
+        $evidence = @()
+
+        $safeInstall = Get-SafeRootedPath $install
+        if ($safeInstall) { $evidence += $safeInstall }
+
+        if ($icon) {
+            $candidate = $icon.Trim().Trim('"')
+            if ($candidate -match '^(.+?\.exe)(?:,.*)?(?:\s|$)') {
+                $candidate = $Matches[1]
+            }
+            $safeCandidate = Get-SafeRootedPath $candidate
+            if ($safeCandidate) { $evidence += $safeCandidate }
+        }
+
+        if ($display -and $evidence.Count -gt 0) {
+            $results += [pscustomobject]@{
+                hive = $root[0]
+                key_path = ($root[1] + '\' + $name)
+                display_name = $display
+                evidence_paths = @($evidence)
+            }
+        }
+        $child.Dispose()
+    }
+    $key.Dispose()
+    $base.Dispose()
+}
+ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
+"#;
         let items: Vec<WindowsUninstallEntry> = run_powershell_json(&script)?;
         Ok(items
             .into_iter()
