@@ -151,7 +151,6 @@ impl CleanupOperationResult {
 pub(crate) struct CleanupExecutionLifecycle {
     execution: CleanupExecutionRef,
     state: CleanupExecutionState,
-    last_progress: Option<CleanupProgress>,
 }
 
 impl CleanupExecutionLifecycle {
@@ -162,7 +161,6 @@ impl CleanupExecutionLifecycle {
                 execution_id: execution_id.to_string(),
             },
             state: CleanupExecutionState::Pending,
-            last_progress: None,
         }
     }
 
@@ -184,7 +182,7 @@ impl CleanupExecutionLifecycle {
         if !progress.is_valid() {
             return Err("O progresso informado não respeita o contrato de etapas/percentual.".into());
         }
-        self.last_progress = Some(progress);
+        let _ = progress;
         Ok(())
     }
 
