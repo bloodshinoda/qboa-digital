@@ -90,12 +90,13 @@ fn finish_cleanup_lifecycle(
     lifecycle: &Option<SharedCleanupLifecycle>,
     state: operation_contracts::CleanupExecutionState,
     message: impl Into<String>,
+    change_id: Option<String>,
 ) -> Result<(), String> {
     match lifecycle {
         Some(lifecycle) => lifecycle
             .lock()
             .unwrap()
-            .finish(state, message, None)
+            .finish(state, message, change_id)
             .map(|_| ()),
         None => Ok(()),
     }
