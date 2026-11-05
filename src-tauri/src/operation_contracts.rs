@@ -28,17 +28,32 @@ pub(crate) enum CleanupExecutionState {
 
 impl CleanupExecutionState {
     pub(crate) fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::PartiallyCompleted | Self::Cancelled | Self::Failed)
+        matches!(
+            self,
+            Self::Completed | Self::PartiallyCompleted | Self::Cancelled | Self::Failed
+        )
     }
 
     /// Valida transições permitidas sem alterar o estado atual.
     pub(crate) fn can_transition_to(self, next: Self) -> bool {
         use CleanupExecutionState::*;
+
         matches!(
             (self, next),
             (Pending, Running | Cancelled | Failed)
-                | (Running, AwaitingConfirmation | Cancelling | Completed | PartiallyCompleted | Cancelled | Failed)
-                | (AwaitingConfirmation, Running | Cancelling | Cancelled | Failed)
+                | (
+                    Running,
+                    AwaitingConfirmation
+                        | Cancelling
+                        | Completed
+                        | PartiallyCompleted
+                        | Cancelled
+                        | Failed
+                )
+                | (
+                    AwaitingConfirmation,
+                    Running | Cancelling | Cancelled | Failed
+                )
                 | (Cancelling, Cancelled | Failed | PartiallyCompleted)
         )
     }
@@ -61,6 +76,7 @@ impl CleanupProgress {
             (None, None) => true,
             _ => false,
         };
+
         steps_valid && self.percent.is_none_or(|percent| percent <= 100)
     }
 }
@@ -106,7 +122,12 @@ mod tests {
 
     #[test]
     fn estados_terminais_nao_podem_ser_reabertos() {
-        for state in [CleanupExecutionState::Completed, CleanupExecutionState::PartiallyCompleted, CleanupExecutionState::Cancelled, CleanupExecutionState::Failed] {
+        for state in [
+            CleanupExecutionState::Completed,
+            CleanupExecutionState::PartiallyCompleted,
+            CleanupExecutionState::Cancelled,
+            CleanupExecutionState::Failed,
+        ] {
             assert!(state.is_terminal());
             assert!(!state.can_transition_to(CleanupExecutionState::Running));
         }
@@ -114,27 +135,45 @@ mod tests {
 
     #[test]
     fn confirmacao_pode_retornar_a_execucao_ou_cancelar() {
-        assert!(CleanupExecutionState::Running.can_transition_to(CleanupExecutionState::AwaitingConfirmation));
-        assert!(CleanupExecutionState::AwaitingConfirmation.can_transition_to(CleanupExecutionState::Running));
-        assert!(CleanupExecutionState::AwaitingConfirmation.can_transition_to(CleanupExecutionState::Cancelled));
+        assert!(CleanupExecutionState::Running
+            .can_transition_to(CleanupExecutionState::AwaitingConfirmation));
+        assert!(CleanupExecutionState::AwaitingConfirmation
+            .can_transition_to(CleanupExecutionState::Running));
+        assert!(CleanupExecutionState::AwaitingConfirmation
+            .can_transition_to(CleanupExecutionState::Cancelled));
     }
 
     #[test]
     fn cancelamento_exige_confirmacao_do_estado_final() {
-        assert!(CleanupExecutionState::Running.can_transition_to(CleanupExecutionState::Cancelling));
-        assert!(CleanupExecutionState::Cancelling.can_transition_to(CleanupExecutionState::Cancelled));
-        assert!(!CleanupExecutionState::Cancelling.can_transition_to(CleanupExecutionState::Completed));
+        assert!(CleanupExecutionState::Running
+            .can_transition_to(CleanupExecutionState::Cancelling));
+        assert!(CleanupExecutionState::Cancelling
+            .can_transition_to(CleanupExecutionState::Cancelled));
+        assert!(!CleanupExecutionState::Cancelling
+            .can_transition_to(CleanupExecutionState::Completed));
     }
 
     #[test]
     fn progresso_aceita_medicao_por_etapas_ou_percentual() {
-        let progress = CleanupProgress { current: Some(2), total: Some(4), percent: Some(50), stage: "Limpeza temporária".into(), message: "Removendo arquivos".into() };
+        let progress = CleanupProgress {
+            current: Some(2),
+            total: Some(4),
+            percent: Some(50),
+            stage: "Limpeza temporária".into(),
+            message: "Removendo arquivos".into(),
+        };
         assert!(progress.is_valid());
     }
 
     #[test]
     fn progresso_rejeita_totais_incoerentes_e_percentual_acima_de_cem() {
-        let mut progress = CleanupProgress { current: Some(5), total: Some(4), percent: Some(50), stage: String::new(), message: String::new() };
+        let mut progress = CleanupProgress {
+            current: Some(5),
+            total: Some(4),
+            percent: Some(50),
+            stage: String::new(),
+            message: String::new(),
+        };
         assert!(!progress.is_valid());
         progress.current = Some(1);
         progress.percent = Some(101);
@@ -143,14 +182,23 @@ mod tests {
 
     #[test]
     fn eventos_preservam_nomes_consumidos_pelo_frontend() {
-        assert_eq!(serde_json::to_string(&CleanupEventKind::TaskStarted).unwrap(), "\"task-started\"");
-        assert_eq!(serde_json::to_string(&CleanupEventKind::RestorePointConfirmationRequired).unwrap(), "\"restore-point-confirmation-required\"");
+        assert_eq!(
+            serde_json::to_string(&CleanupEventKind::TaskStarted).unwrap(),
+            "\"task-started\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CleanupEventKind::RestorePointConfirmationRequired).unwrap(),
+            "\"restore-point-confirmation-required\""
+        );
     }
 
     #[test]
     fn resultado_final_exige_contagem_de_etapas_coerente() {
         let result = CleanupOperationResult {
-            execution: CleanupExecutionRef { task_id: "limpeza_leve".into(), execution_id: "exec-1".into() },
+            execution: CleanupExecutionRef {
+                task_id: "limpeza_leve".into(),
+                execution_id: "exec-1".into(),
+            },
             state: CleanupExecutionState::PartiallyCompleted,
             message: "Uma etapa falhou".into(),
             completed_steps: Some(3),
