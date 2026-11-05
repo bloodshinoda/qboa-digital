@@ -1211,6 +1211,50 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_profile_stops_when_cancelled_before_scanning() {
+        let mut backend = FakeBackend {
+            shortcuts: vec![ShortcutObservation {
+                path: PathBuf::from(r"C:\Users\test\Desktop\broken.lnk"),
+                state: ShortcutState::BrokenTarget,
+            }],
+            ..FakeBackend::default()
+        };
+
+        let result = cleanup_profile(&mut backend, "complete", &|| true);
+
+        assert!(result.unwrap_err().contains("cancelada"));
+        assert!(backend.deleted.is_empty());
+    }
+
+    #[test]
+    fn cleanup_profile_stops_between_deletions_when_cancelled() {
+        let mut backend = FakeBackend {
+            shortcuts: vec![
+                ShortcutObservation {
+                    path: PathBuf::from(r"C:\Users\test\Desktop\one.lnk"),
+                    state: ShortcutState::BrokenTarget,
+                },
+                ShortcutObservation {
+                    path: PathBuf::from(r"C:\Users\test\Desktop\two.lnk"),
+                    state: ShortcutState::BrokenTarget,
+                },
+            ],
+            ..FakeBackend::default()
+        };
+        let checks = std::cell::Cell::new(0);
+        let is_cancelled = || {
+            let current = checks.get();
+            checks.set(current + 1);
+            current >= 5
+        };
+
+        let result = cleanup_profile(&mut backend, "complete", &is_cancelled);
+
+        assert!(result.unwrap_err().contains("cancelada"));
+        assert_eq!(backend.deleted.len(), 1);
+    }
+
+    #[test]
     fn uncommon_extensions_are_not_classified() {
         let mut backend = FakeBackend {
             associations: vec![AssociationObservation {
