@@ -332,7 +332,7 @@ fn detect_actions_with_cancel<B: CleanupFindingBackend>(
             if is_cancelled() {
                 return Err(
                     "Tarefa cancelada pelo usuário durante a verificação de programas instalados."
-                    .to_string(),
+                        .to_string(),
                 );
             }
             if backend.path_exists(path)? {
@@ -669,9 +669,7 @@ fn collect_shortcuts(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<(), String> {
     if is_cancelled() {
-        return Err(
-                "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
-            );
+        return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
     }
     let entries = std::fs::read_dir(directory)
         .map_err(|error| format!("Não foi possível ler {}: {error}", directory.display()))?;
