@@ -146,9 +146,114 @@ impl CleanupOperationResult {
     }
 }
 
+/// Ciclo de vida aplicado pelo executor real de limpeza/manutenção.
+#[derive(Clone, Debug)]
+pub(crate) struct CleanupExecutionLifecycle {
+    execution: CleanupExecutionRef,
+    state: CleanupExecutionState,
+    last_progress: Option<CleanupProgress>,
+}
+
+impl CleanupExecutionLifecycle {
+    pub(crate) fn new(task_id: &str, execution_id: &str) -> Self {
+        Self {
+            execution: CleanupExecutionRef {
+                task_id: task_id.to_string(),
+                execution_id: execution_id.to_string(),
+            },
+            state: CleanupExecutionState::Pending,
+            last_progress: None,
+        }
+    }
+
+    pub(crate) fn transition(&mut self, next: CleanupExecutionState) -> Result<(), String> {
+        if !self.state.can_transition_to(next) {
+            return Err(format!(
+                "Transição de execução inválida: {:?} -> {:?}",
+                self.state, next
+            ));
+        }
+        self.state = next;
+        Ok(())
+    }
+
+    pub(crate) fn record_progress(&mut self, progress: CleanupProgress) -> Result<(), String> {
+        if self.state != CleanupExecutionState::Running {
+            return Err("O progresso só pode ser atualizado durante a execução.".into());
+        }
+        if !progress.is_valid() {
+            return Err("O progresso informado não respeita o contrato de etapas/percentual.".into());
+        }
+        self.last_progress = Some(progress);
+        Ok(())
+    }
+
+    pub(crate) fn finish(
+        &mut self,
+        state: CleanupExecutionState,
+        message: impl Into<String>,
+        change_id: Option<String>,
+    ) -> Result<CleanupOperationResult, String> {
+        if !state.is_terminal() {
+            return Err("O resultado exige um estado terminal.".into());
+        }
+        self.transition(state)?;
+        let result = CleanupOperationResult {
+            execution: self.execution.clone(),
+            state: self.state,
+            message: message.into(),
+            completed_steps: None,
+            total_steps: None,
+            change_id,
+        };
+        if !result.is_consistent() {
+            return Err("O resultado final não respeita o contrato de execução.".into());
+        }
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ciclo_real_exige_inicio_antes_de_progredir_e_finalizar() {
+        let mut lifecycle = CleanupExecutionLifecycle::new("limpeza_leve", "exec-1");
+        assert!(lifecycle.record_progress(CleanupProgress {
+            current: None,
+            total: None,
+            percent: Some(10),
+            stage: "Preparação".into(),
+            message: "Preparando".into(),
+        }).is_err());
+        lifecycle.transition(CleanupExecutionState::Running).unwrap();
+        assert!(lifecycle.record_progress(CleanupProgress {
+            current: Some(1),
+            total: Some(2),
+            percent: Some(25),
+            stage: "Temporários".into(),
+            message: "Limpando".into(),
+        }).is_ok());
+        let result = lifecycle.finish(
+            CleanupExecutionState::Completed,
+            "Concluída",
+            None,
+        ).unwrap();
+        assert_eq!(result.execution.task_id, "limpeza_leve");
+        assert_eq!(result.state, CleanupExecutionState::Completed);
+        assert!(result.is_consistent());
+    }
+
+    #[test]
+    fn ciclo_real_rejeita_transicoes_fora_da_ordem() {
+        let mut lifecycle = CleanupExecutionLifecycle::new("limpeza_leve", "exec-2");
+        assert!(lifecycle.transition(CleanupExecutionState::Completed).is_err());
+        lifecycle.transition(CleanupExecutionState::Running).unwrap();
+        lifecycle.transition(CleanupExecutionState::AwaitingConfirmation).unwrap();
+        lifecycle.transition(CleanupExecutionState::Running).unwrap();
+        assert!(lifecycle.transition(CleanupExecutionState::Pending).is_err());
+    }
 
     #[test]
     fn estados_terminais_nao_podem_ser_reabertos() {
