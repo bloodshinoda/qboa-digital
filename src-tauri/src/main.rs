@@ -1978,7 +1978,9 @@ fn start_task(
                     ) {
                         write_execution_log(
                             &execution_id_for_spawn,
-                            &format!("cleanup-contract-cancellation-transition-failed error={error}"),
+                            &format!(
+                                "cleanup-contract-cancellation-transition-failed error={error}"
+                            ),
                         );
                     }
                     if let Err(error) = finish_cleanup_lifecycle(
