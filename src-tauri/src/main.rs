@@ -49,16 +49,7 @@ struct TaskResult {
     change_id: Option<String>,
 }
 
-#[derive(Clone, Serialize, Debug)]
-struct EventPayload {
-    event: String,
-    task_id: String,
-    execution_id: String,
-    message: String,
-    ok: bool,
-    progress: Option<String>,
-    risk: String,
-}
+type EventPayload = operation_contracts::CleanupEventEnvelope;
 
 static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
 
