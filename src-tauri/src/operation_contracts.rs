@@ -26,6 +26,15 @@ pub(crate) enum CleanupExecutionState {
     Failed,
 }
 
+/// Uma execução com falhas registradas nunca pode ser classificada como sucesso integral.
+pub(crate) fn cleanup_result_state(failures: u64) -> CleanupExecutionState {
+    if failures == 0 {
+        CleanupExecutionState::Completed
+    } else {
+        CleanupExecutionState::PartiallyCompleted
+    }
+}
+
 impl CleanupExecutionState {
     pub(crate) fn is_terminal(self) -> bool {
         matches!(
@@ -285,6 +294,13 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result.state, CleanupExecutionState::PartiallyCompleted);
+    }
+
+    #[test]
+    fn falhas_na_execucao_classificam_resultado_como_parcial() {
+        assert_eq!(cleanup_result_state(0), CleanupExecutionState::Completed);
+        assert_eq!(cleanup_result_state(1), CleanupExecutionState::PartiallyCompleted);
+        assert_eq!(cleanup_result_state(26), CleanupExecutionState::PartiallyCompleted);
     }
 
     #[test]
