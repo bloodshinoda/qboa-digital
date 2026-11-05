@@ -95,6 +95,35 @@ pub(crate) enum CleanupEventKind {
     ResetBaseConfirmationRequired,
 }
 
+/// Tipo de confirmação solicitada durante uma operação.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum CleanupConfirmationKind {
+    RestorePointUnavailable,
+    IrreversibleResetBase,
+}
+
+/// Solicitação vinculada à execução que aguarda uma decisão explícita.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct CleanupConfirmationRequest {
+    pub execution: CleanupExecutionRef,
+    pub kind: CleanupConfirmationKind,
+    pub message: String,
+}
+
+/// Envelope serializado do evento legado. Os campos e seus nomes JSON são mantidos
+/// para que a interface atual continue funcionando durante a migração.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct CleanupEventEnvelope {
+    pub event: String,
+    pub task_id: String,
+    pub execution_id: String,
+    pub message: String,
+    pub ok: bool,
+    pub progress: Option<String>,
+    pub risk: String,
+}
+
 /// Resultado final. A aceitação do comando de início não equivale à conclusão.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct CleanupOperationResult {
@@ -108,11 +137,12 @@ pub(crate) struct CleanupOperationResult {
 
 impl CleanupOperationResult {
     pub(crate) fn is_consistent(&self) -> bool {
-        match (self.completed_steps, self.total_steps) {
-            (Some(completed), Some(total)) => total > 0 && completed <= total,
-            (None, None) => true,
-            _ => false,
-        }
+        self.state.is_terminal()
+            && match (self.completed_steps, self.total_steps) {
+                (Some(completed), Some(total)) => total > 0 && completed <= total,
+                (None, None) => true,
+                _ => false,
+            }
     }
 }
 
