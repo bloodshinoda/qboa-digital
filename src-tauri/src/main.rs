@@ -1481,7 +1481,6 @@ fn start_task(
         };
 
         if let Err(error) = record_cleanup_progress(
-
             &cleanup_lifecycle,
             operation_contracts::CleanupProgress {
             current: None,
@@ -1843,7 +1842,6 @@ fn start_task(
                 }
 
                 if let Err(error) = finish_cleanup_lifecycle(
-
                     &cleanup_lifecycle,
                     operation_contracts::CleanupExecutionState::Completed,
                     summary.clone(),
