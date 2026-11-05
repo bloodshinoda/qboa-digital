@@ -52,7 +52,7 @@ impl CleanupExecutionState {
                 )
                 | (
                     AwaitingConfirmation,
-                    Running | Cancelling | Cancelled | Failed
+                    Running | Cancelling | Cancelled | PartiallyCompleted | Failed
                 )
                 | (Cancelling, Cancelled | Failed | PartiallyCompleted)
         )
@@ -180,7 +180,9 @@ impl CleanupExecutionLifecycle {
             return Err("O progresso só pode ser atualizado durante a execução.".into());
         }
         if !progress.is_valid() {
-            return Err("O progresso informado não respeita o contrato de etapas/percentual.".into());
+            return Err(
+                "O progresso informado não respeita o contrato de etapas/percentual.".into(),
+            );
         }
         Ok(())
     }
@@ -217,26 +219,30 @@ mod tests {
     #[test]
     fn ciclo_real_exige_inicio_antes_de_progredir_e_finalizar() {
         let mut lifecycle = CleanupExecutionLifecycle::new("limpeza_leve", "exec-1");
-        assert!(lifecycle.record_progress(CleanupProgress {
-            current: None,
-            total: None,
-            percent: Some(10),
-            stage: "Preparação".into(),
-            message: "Preparando".into(),
-        }).is_err());
-        lifecycle.transition(CleanupExecutionState::Running).unwrap();
-        assert!(lifecycle.record_progress(CleanupProgress {
-            current: Some(1),
-            total: Some(2),
-            percent: Some(25),
-            stage: "Temporários".into(),
-            message: "Limpando".into(),
-        }).is_ok());
-        let result = lifecycle.finish(
-            CleanupExecutionState::Completed,
-            "Concluída",
-            None,
-        ).unwrap();
+        assert!(lifecycle
+            .record_progress(CleanupProgress {
+                current: None,
+                total: None,
+                percent: Some(10),
+                stage: "Preparação".into(),
+                message: "Preparando".into(),
+            })
+            .is_err());
+        lifecycle
+            .transition(CleanupExecutionState::Running)
+            .unwrap();
+        assert!(lifecycle
+            .record_progress(CleanupProgress {
+                current: Some(1),
+                total: Some(2),
+                percent: Some(25),
+                stage: "Temporários".into(),
+                message: "Limpando".into(),
+            })
+            .is_ok());
+        let result = lifecycle
+            .finish(CleanupExecutionState::Completed, "Concluída", None)
+            .unwrap();
         assert_eq!(result.execution.task_id, "limpeza_leve");
         assert_eq!(result.state, CleanupExecutionState::Completed);
         assert!(result.is_consistent());
@@ -245,11 +251,40 @@ mod tests {
     #[test]
     fn ciclo_real_rejeita_transicoes_fora_da_ordem() {
         let mut lifecycle = CleanupExecutionLifecycle::new("limpeza_leve", "exec-2");
-        assert!(lifecycle.transition(CleanupExecutionState::Completed).is_err());
-        lifecycle.transition(CleanupExecutionState::Running).unwrap();
-        lifecycle.transition(CleanupExecutionState::AwaitingConfirmation).unwrap();
-        lifecycle.transition(CleanupExecutionState::Running).unwrap();
-        assert!(lifecycle.transition(CleanupExecutionState::Pending).is_err());
+        assert!(lifecycle
+            .transition(CleanupExecutionState::Completed)
+            .is_err());
+        lifecycle
+            .transition(CleanupExecutionState::Running)
+            .unwrap();
+        lifecycle
+            .transition(CleanupExecutionState::AwaitingConfirmation)
+            .unwrap();
+        lifecycle
+            .transition(CleanupExecutionState::Running)
+            .unwrap();
+        assert!(lifecycle
+            .transition(CleanupExecutionState::Pending)
+            .is_err());
+    }
+
+    #[test]
+    fn confirmacao_pode_terminar_com_execucao_parcial() {
+        let mut lifecycle = CleanupExecutionLifecycle::new("limpeza_media", "exec-3");
+        lifecycle
+            .transition(CleanupExecutionState::Running)
+            .unwrap();
+        lifecycle
+            .transition(CleanupExecutionState::AwaitingConfirmation)
+            .unwrap();
+        let result = lifecycle
+            .finish(
+                CleanupExecutionState::PartiallyCompleted,
+                "Etapas anteriores concluídas antes da recusa.",
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.state, CleanupExecutionState::PartiallyCompleted);
     }
 
     #[test]
