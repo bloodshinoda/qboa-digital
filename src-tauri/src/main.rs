@@ -11,6 +11,7 @@ mod diagnostics_store;
 mod gpu_diagnostic;
 mod memory_inventory;
 mod memory_test;
+mod operation_contracts;
 mod registry_executor;
 mod safety;
 mod service_manager;
