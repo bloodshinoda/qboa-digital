@@ -52,10 +52,10 @@ function ensureCleanupSessionModal() {
   shell.id = "cleanup-session-modal";
   shell.className = "cleanup-session-modal hidden";
   shell.setAttribute("aria-hidden", "true");
-  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"></div><div class="cleanup-session-content" id="cleanup-session-content"></div><footer id="cleanup-session-footer" class="cleanup-session-footer"></footer></section>';
+  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div class="cleanup-session-content" id="cleanup-session-content"></div></section>';
   document.body.appendChild(shell);
   const content = shell.querySelector("#cleanup-session-content");
-  ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal", "toolbar", "console"].forEach((id) => {
+  ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal", "toolbar"].forEach((id) => {
     const element = id === "toolbar" ? document.querySelector(".toolbar") : document.getElementById(id);
     if (!element || !element.parentNode) return;
     const placeholder = document.createComment("QBoa cleanup session: " + id);
@@ -81,15 +81,13 @@ function setCleanupSessionPhase(phase, taskName = "") {
   const summary = document.getElementById("execution-summary-modal");
   const toolbar = document.querySelector(".toolbar");
   const content = document.getElementById("cleanup-session-content");
-  const footer = document.getElementById("cleanup-session-footer");
   const preparationOptions = document.getElementById("cleanup-preparation-options");
   const shutdownOption = document.querySelector(".shutdown-option");
   cleanupSessionPlaceholders.forEach((_placeholder, element) => {
-    const target = element.id === "console" ? footer : content;
-    if (element.parentNode !== target) target.appendChild(element);
+    if (element.parentNode !== content) content.appendChild(element);
   });
   if (shutdownOption) {
-    const target = phase === "running" ? document.querySelector(".toolbar") : preparationOptions;
+    const target = phase === "running" ? toolbar : preparationOptions;
     if (target && shutdownOption.parentNode !== target) target.appendChild(shutdownOption);
   }
   preparationOptions.hidden = phase !== "preparing";
@@ -122,7 +120,8 @@ function closeCleanupSession() {
   shell.setAttribute("aria-hidden", "true");
   const toolbar = document.querySelector(".toolbar");
   const shutdownOption = document.querySelector(".shutdown-option");
-  if (toolbar && shutdownOption && shutdownOption.parentNode !== toolbar) toolbar.insertBefore(shutdownOption, toolbar.firstChild);
+  const preparationOptions = document.getElementById("cleanup-preparation-options");
+  if (preparationOptions && shutdownOption && shutdownOption.parentNode !== preparationOptions) preparationOptions.appendChild(shutdownOption);
   cleanupSessionPlaceholders.forEach((placeholder, element) => {
     if (placeholder.parentNode) placeholder.parentNode.insertBefore(element, placeholder.nextSibling);
   });
