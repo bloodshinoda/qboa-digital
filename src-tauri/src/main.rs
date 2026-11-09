@@ -113,14 +113,6 @@ fn restore_point_responses() -> &'static Mutex<std::collections::HashMap<String,
     RESTORE_POINT_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
-static RESET_BASE_RESPONSES: std::sync::OnceLock<
-    Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>,
-> = std::sync::OnceLock::new();
-
-fn reset_base_responses() -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>> {
-    RESET_BASE_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-}
-
 fn safety_state() -> &'static Arc<Mutex<SafetyManager>> {
     SAFETY_STATE.get_or_init(|| Arc::new(Mutex::new(SafetyManager::new())))
 }
@@ -1206,23 +1198,6 @@ async fn respond_restore_point_failure(execution_id: String, proceed: bool) -> R
     sender
         .send(proceed)
         .map_err(|_| "Não foi possível enviar a resposta para a tarefa.".to_string())
-}
-
-#[tauri::command]
-async fn respond_reset_base_confirmation(
-    execution_id: String,
-    proceed: bool,
-) -> Result<(), String> {
-    let sender = reset_base_responses()
-        .lock()
-        .unwrap()
-        .remove(&execution_id)
-        .ok_or_else(|| {
-            "A confirmação do DISM /ResetBase expirou ou não está mais pendente.".to_string()
-        })?;
-    sender
-        .send(proceed)
-        .map_err(|_| "Não foi possível enviar a resposta da confirmação do /ResetBase.".to_string())
 }
 
 fn reset_base_confirmation_required(task_id: &str, conservative_repair: bool) -> bool {
@@ -3008,7 +2983,6 @@ fn main() {
             run_task,
             set_shutdown_on_complete,
             respond_restore_point_failure,
-            respond_reset_base_confirmation,
             get_running_browsers,
             prepare_browser_cleanup,
             cancel_task,
