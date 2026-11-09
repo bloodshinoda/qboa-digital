@@ -43,6 +43,7 @@ let gpuInventorySnapshot = null;
 
 let cleanupSessionPhase = "closed";
 let cleanupSessionTaskName = "";
+let cleanupExecutionStarted = false;
 let cleanupSessionPlaceholders = new Map();
 
 function ensureCleanupSessionModal() {
@@ -117,6 +118,7 @@ function closeCleanupSession() {
   if (toolbar) toolbar.hidden = false;
   cleanupSessionPhase = "closed";
   cleanupSessionTaskName = "";
+  cleanupExecutionStarted = false;
   syncExecutionControls();
 }
 
@@ -1171,7 +1173,7 @@ function closeRiskModal() {
   modal.setAttribute("aria-hidden", "true");
   pendingTask = null;
   if (cleanupSessionPhase === "result") return;
-  if (launchPending) setCleanupSessionPhase("preparing");
+  if (launchPending || (cleanupSessionPhase !== "closed" && isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
   else if (activeTaskId) setCleanupSessionPhase("running");
   else closeCleanupSession();
 }
@@ -1213,7 +1215,7 @@ function closeConfirmationModal(confirmed = false) {
   pendingConfirmationResolver = null;
   if (resolve) resolve(confirmed);
   if (cleanupSessionPhase === "result") return;
-  if (launchPending) setCleanupSessionPhase("preparing");
+  if (launchPending || (cleanupSessionPhase !== "closed" && isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
   else if (activeTaskId) setCleanupSessionPhase("running");
   else closeCleanupSession();
 }
@@ -1249,7 +1251,10 @@ async function prepareBrowserCleanupIfNeeded() {
 }
 
 async function executeTask(item, cardEl) {
-  if (isCleanupTask(item?.id)) setCleanupSessionPhase("preparing", item.name);
+  if (isCleanupTask(item?.id)) {
+    cleanupExecutionStarted = false;
+    setCleanupSessionPhase("preparing", item.name);
+  }
   if (!eventListenersReady) {
     appendConsole("Não foi possível iniciar a operação porque o acompanhamento em tempo real não está disponível.");
     if (isCleanupTask(item?.id)) closeCleanupSession();
@@ -3419,7 +3424,10 @@ async function registerEvents() {
     if (payload.event === "task-started") {
       executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false; currentOperationProgress = null; lastProgressFlavorKey = "";
       currentOperationName = taskDisplayName(payload.task_id);
-      if (isCleanupTask(payload.task_id)) setCleanupSessionPhase("running", currentOperationName);
+      if (isCleanupTask(payload.task_id)) {
+        cleanupExecutionStarted = true;
+        setCleanupSessionPhase("running", currentOperationName);
+      }
       currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
       appendConsole(`Tarefa iniciada: ${taskDisplayName(payload.task_id)}.`);
@@ -3484,6 +3492,7 @@ async function registerEvents() {
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
       launchPending = false;
+      if (isCleanupTask(payload.task_id)) cleanupExecutionStarted = false;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
       currentOperationName = "";
       currentOperationStage = "";
