@@ -57,6 +57,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Validate frontend JavaScript syntax
+        run: node --check src/main.js
+
       - name: Validate storage collector and execute all eight tests on a temporary file
         shell: pwsh
         run: |

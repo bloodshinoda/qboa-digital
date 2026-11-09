@@ -161,6 +161,29 @@ mod tests {
         assert!(!ENABLE_SCRIPT.contains("$taskPath:"));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn embedded_powershell_script_parses_without_execution() {
+        let parser = "$tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseInput($env:QBOA_TEST_SCRIPT, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }";
+        let output = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                parser,
+            ])
+            .env("QBOA_TEST_SCRIPT", ENABLE_SCRIPT)
+            .output()
+            .expect("PowerShell deve estar disponível no runner Windows.");
+        assert!(
+            output.status.success(),
+            "O script de recuperação contém erro de sintaxe: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     fn repair_reports_policy_management_limitations() {
         assert!(ENABLE_SCRIPT.contains("Políticas corporativas ou de gerenciamento"));
     }
