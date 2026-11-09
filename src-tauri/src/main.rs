@@ -1213,7 +1213,11 @@ fn reset_base_confirmation_required(task_id: &str, conservative_repair: bool) ->
     task_id == "limpeza_pesada" && !conservative_repair
 }
 
-fn validate_reset_base_authorization(task_id: &str, conservative_repair: bool, authorized: bool) -> Result<(), String> {
+fn validate_reset_base_authorization(
+    task_id: &str,
+    conservative_repair: bool,
+    authorized: bool,
+) -> Result<(), String> {
     if reset_base_confirmation_required(task_id, conservative_repair) && !authorized {
         return Err("A limpeza pesada exige autorização prévia para o DISM /ResetBase.".to_string());
     }
@@ -1225,7 +1229,10 @@ async fn prepare_cleanup(task_id: String) -> Result<bool, String> {
     let conservative_repair = system_compat::detect()
         .map(|assessment| assessment.use_conservative_repair)
         .unwrap_or(true);
-    Ok(reset_base_confirmation_required(&task_id, conservative_repair))
+    Ok(reset_base_confirmation_required(
+        &task_id,
+        conservative_repair,
+    ))
 }
 
 #[tauri::command]
@@ -1250,7 +1257,12 @@ async fn run_task(
         .map(|assessment| assessment.use_conservative_repair)
         .unwrap_or(true);
     validate_reset_base_authorization(&task_id, conservative_repair, reset_base_authorized)?;
-    let execution = start_task(app, task.clone(), shutdown_on_complete, reset_base_authorized)?;
+    let execution = start_task(
+        app,
+        task.clone(),
+        shutdown_on_complete,
+        reset_base_authorized,
+    )?;
     let result = task_result(&task, &execution.execution_id);
     Ok(result)
 }
