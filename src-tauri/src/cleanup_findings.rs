@@ -736,9 +736,7 @@ fn collect_shortcut_paths(
 ) -> Result<(), String> {
     use std::os::windows::fs::MetadataExt;
     if is_cancelled() {
-        return Err(
-            "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
-        );
+        return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
     }
     let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -941,7 +939,8 @@ fn run_powershell_cancelable(
     use std::time::Instant;
     let utf16: Vec<u16> = format!(
         "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
-    ).encode_utf16()
+    )
+    .encode_utf16()
     .collect();
     let encoded = base64_encode(
         &utf16
@@ -968,9 +967,7 @@ fn run_powershell_cancelable(
         if is_cancelled() {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(
-                "Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string(),
-            );
+            return Err("Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string());
         }
         if started.elapsed() >= timeout {
             let _ = child.kill();
