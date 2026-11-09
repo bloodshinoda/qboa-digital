@@ -164,9 +164,6 @@ const Qboa = {
     return invoke("respond_restore_point_failure", { executionId, proceed });
   },
 
-  async respondResetBaseConfirmation(executionId, proceed) {
-    return invoke("respond_reset_base_confirmation", { executionId, proceed });
-  },
 
   async getSessionHistory() {
     return invoke("get_session_history");
@@ -3638,23 +3635,6 @@ async function registerEvents() {
         }
       })();
     }
-
-    if (payload.event === "reset-base-confirmation-required") {
-      void (async () => {
-        const proceed = await askConfirmation(
-          payload.message || "O DISM /ResetBase impede a desinstalação das atualizações já instaladas. Se não autorizar, a limpeza pesada será cancelada.",
-          "Operação irreversível: DISM /ResetBase",
-          "Sim, executar /ResetBase",
-          "Cancelar limpeza pesada"
-        );
-        try {
-          await Qboa.respondResetBaseConfirmation(payload.execution_id, proceed);
-        } catch (error) {
-          appendConsole(`Não foi possível responder à confirmação do /ResetBase: ${String(error)}`);
-        }
-      })();
-    }
-
 
     if (payload.event === "task-progress" && payload.message) {
       currentOperationStage = payload.message;
