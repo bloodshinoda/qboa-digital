@@ -148,8 +148,12 @@ const Qboa = {
     return invoke("prepare_browser_cleanup", { closeRunning });
   },
 
-  async runTask(taskId, shutdownOnComplete) {
-    return invoke("run_task", { taskId, shutdownOnComplete });
+  async prepareCleanup(taskId) {
+    return invoke("prepare_cleanup", { taskId });
+  },
+
+  async runTask(taskId, shutdownOnComplete, resetBaseAuthorized = false) {
+    return invoke("run_task", { taskId, shutdownOnComplete, resetBaseAuthorized });
   },
 
   async setShutdownOnComplete(enabled) {
@@ -1316,8 +1320,34 @@ async function executeTask(item, cardEl) {
     if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
       await prepareBrowserCleanupIfNeeded();
     }
+    let resetBaseAuthorized = false;
+    if (item.id === "limpeza_pesada") {
+      const resetBaseRequired = await Qboa.prepareCleanup(item.id);
+      if (resetBaseRequired) {
+        resetBaseAuthorized = await askConfirmation(
+          "A limpeza pesada executará DISM /StartComponentCleanup /ResetBase. Depois disso, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada não começará.",
+          "Operação irreversível: DISM /ResetBase",
+          "Sim, executar /ResetBase",
+          "Cancelar limpeza pesada"
+        );
+        if (!resetBaseAuthorized) {
+          appendConsole("Limpeza pesada cancelada na preparação: /ResetBase não autorizado. Nenhuma etapa de limpeza foi iniciada.");
+          activeTaskId = null; activeExecutionId = null; launchPending = false;
+          currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
+          const shutdownToggle = document.getElementById("shutdown-on-complete");
+          if (shutdownToggle) shutdownToggle.checked = false;
+          try { await Qboa.setShutdownOnComplete(false); } catch (error) {
+            appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
+          }
+          closeCleanupSession();
+          return false;
+        }
+      } else {
+        appendConsole("Compatibilidade: ambiente restritivo ou não classificável; /ResetBase será omitido para preservar a reversibilidade.");
+      }
+    }
     activeTaskId = item.id;
-    preparedCleanupTask = { item, cardEl };
+    preparedCleanupTask = { item, cardEl, resetBaseAuthorized };
     launchPending = false;
     currentOperationStage = "Aguardando autorização para iniciar.";
     setCleanupSessionPhase("ready", item.name);
@@ -1337,7 +1367,1376 @@ async function executeTask(item, cardEl) {
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
 
   try {
-    const result = await Qboa.runTask(item.id, shutdownOnComplete);
+    const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+
+let structure = null;
+let activeSection = "limpeza";
+let pendingTask = null;
+let pendingConfirmationResolver = null;
+let activeTaskId = null;
+let activeExecutionId = null;
+let launchPending = false;
+let eventListenersReady = false;
+let currentOperationName = "";
+let currentOperationStage = "";
+let consoleBuffer = "";
+let executionOutput = [];
+let executionStartedAt = null;
+let executionToastTimer = null;
+let activityLabel = "";
+let activityDots = "";
+let activityTimer = null;
+let currentOperationProgress = null;
+let lastProgressFlavorKey = "";
+const progressFlavorLastIndex = new Map();
+let serviceProfileState = null;
+let currentServiceProfilePreview = null;
+let editedServiceProfileChanges = [];
+let windowsServices = [];
+let browserCleanupDecision = null;
+let showAllSessionChanges = false;
+let activeDiagnosticTarget = null;
+let activeDiagnosticMode = "quick";
+let completeDiagnosticRunning = false;
+let completeDiagnosticCancelRequested = false;
+let completeDiagnosticCurrentSession = null;
+let completeDiagnosticCancelSent = false;
+let memoryTestSessionSnapshot = null;
+let memoryInventorySnapshot = null;
+let cpuTestSessionSnapshot = null;
+let cpuInventorySnapshot = null;
+let cpuTestSamples = [];
+let gpuTestSessionSnapshot = null;
+let gpuInventorySnapshot = null;
+
+let cleanupSessionPhase = "closed";
+let cleanupSessionTaskName = "";
+let cleanupExecutionStarted = false;
+let preparedCleanupTask = null;
+let cleanupSessionPlaceholders = new Map();
+
+function ensureCleanupSessionModal() {
+  if (document.getElementById("cleanup-session-modal")) return;
+  const shell = document.createElement("div");
+  shell.id = "cleanup-session-modal";
+  shell.className = "cleanup-session-modal hidden";
+  shell.setAttribute("aria-hidden", "true");
+  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div id="cleanup-preparation-actions" class="cleanup-preparation-actions" hidden><button id="cleanup-preparation-cancel" class="secondary-button" type="button">Cancelar</button><button id="cleanup-preparation-start" class="primary-button" type="button">Iniciar</button></div><div class="cleanup-session-content" id="cleanup-session-content"></div></section>';
+  document.body.appendChild(shell);
+  const content = shell.querySelector("#cleanup-session-content");
+  ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal", "toolbar"].forEach((id) => {
+    const element = id === "toolbar" ? document.querySelector(".toolbar") : document.getElementById(id);
+    if (!element || !element.parentNode) return;
+    const placeholder = document.createComment("QBoa cleanup session: " + id);
+    element.parentNode.insertBefore(placeholder, element);
+    cleanupSessionPlaceholders.set(element, placeholder);
+  });
+  shell.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && cleanupSessionPhase === "result") closeExecutionSummary();
+  });
+}
+
+function setCleanupSessionPhase(phase, taskName = "") {
+  ensureCleanupSessionModal();
+  cleanupSessionPhase = phase;
+  if (taskName) cleanupSessionTaskName = taskName;
+  const shell = document.getElementById("cleanup-session-modal");
+  const title = document.getElementById("cleanup-session-title");
+  const description = document.getElementById("cleanup-session-description");
+  const intro = document.getElementById("cleanup-preparation-intro");
+  const risk = document.getElementById("risk-modal");
+  const confirmation = document.getElementById("confirmation-modal");
+  const progress = document.getElementById("operation-progress");
+  const summary = document.getElementById("execution-summary-modal");
+  const toolbar = document.querySelector(".toolbar");
+  const content = document.getElementById("cleanup-session-content");
+  const preparationOptions = document.getElementById("cleanup-preparation-options");
+  const preparationActions = document.getElementById("cleanup-preparation-actions");
+  const shutdownOption = document.querySelector(".shutdown-option");
+  cleanupSessionPlaceholders.forEach((_placeholder, element) => {
+    if (element.parentNode !== content) content.appendChild(element);
+  });
+  if (shutdownOption) {
+    const target = phase === "running" ? toolbar : preparationOptions;
+    if (target && shutdownOption.parentNode !== target) target.appendChild(shutdownOption);
+  }
+  preparationOptions.hidden = !["preparing", "ready", "starting"].includes(phase);
+  if (preparationActions) preparationActions.hidden = phase !== "ready";
+  const preparationPromptOpen = !risk?.classList.contains("hidden") || !confirmation?.classList.contains("hidden");
+  shell.classList.remove("hidden");
+  shell.setAttribute("aria-hidden", "false");
+  shell.dataset.phase = phase;
+  title.textContent = phase === "preparing" ? "Preparando a faxina" : phase === "ready" ? "Pronto para iniciar" : phase === "starting" ? "Preparando a proteção" : phase === "running" ? "Mãos à obra!" : "Como ficou a faxina";
+  description.textContent = phase === "preparing" ? (preparationPromptOpen ? "Precisamos da sua decisão antes de continuar." : "Vamos conferir tudo antes de começar.") : phase === "ready" ? "Tudo conferido. Quando quiser, inicie a limpeza; nenhuma etapa de limpeza começou ainda." : phase === "starting" ? "O QBoa está preparando a proteção do sistema. A limpeza ainda não começou." : phase === "running" ? (cleanupSessionTaskName || "A limpeza está em andamento.") : "A sessão terminou. Confira o resumo abaixo.";
+  intro.hidden = !["preparing", "starting"].includes(phase) || preparationPromptOpen;
+  if (progress) progress.hidden = phase !== "running";
+  if (summary) {
+    summary.classList.toggle("hidden", phase !== "result");
+    summary.setAttribute("aria-hidden", phase !== "result" ? "true" : "false");
+  }
+  if (toolbar) toolbar.hidden = phase !== "running";
+  shell.querySelectorAll("[data-session-step]").forEach((step) => {
+    const stepPhase = step.dataset.sessionStep;
+    const order = { preparing: 0, running: 1, result: 2 };
+    step.classList.toggle("active", stepPhase === (["ready", "starting"].includes(phase) ? "preparing" : phase));
+    step.classList.toggle("complete", order[stepPhase] < (["ready", "starting"].includes(phase) ? 0 : order[phase]));
+  });
+  if (phase === "running") updateOperationProgress(cleanupSessionTaskName || currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", currentOperationProgress);
+}
+
+function closeCleanupSession() {
+  const shell = document.getElementById("cleanup-session-modal");
+  if (!shell) return;
+  shell.classList.add("hidden");
+  shell.setAttribute("aria-hidden", "true");
+  const toolbar = document.querySelector(".toolbar");
+  const shutdownOption = document.querySelector(".shutdown-option");
+  const preparationOptions = document.getElementById("cleanup-preparation-options");
+  if (preparationOptions && shutdownOption && shutdownOption.parentNode !== preparationOptions) preparationOptions.appendChild(shutdownOption);
+  cleanupSessionPlaceholders.forEach((placeholder, element) => {
+    if (placeholder.parentNode) placeholder.parentNode.insertBefore(element, placeholder.nextSibling);
+  });
+  if (toolbar) toolbar.hidden = false;
+  cleanupSessionPhase = "closed";
+  cleanupSessionTaskName = "";
+  cleanupExecutionStarted = false;
+  syncExecutionControls();
+}
+
+const Qboa = {
+  async analyze() {
+    return invoke("get_tasks");
+  },
+
+  async getRunningBrowsers() {
+    return invoke("get_running_browsers");
+  },
+
+  async prepareBrowserCleanup(closeRunning) {
+    return invoke("prepare_browser_cleanup", { closeRunning });
+  },
+
+  async prepareCleanup(taskId) {
+    return invoke("prepare_cleanup", { taskId });
+  },
+
+  async runTask(taskId, shutdownOnComplete, resetBaseAuthorized = false) {
+    return invoke("run_task", { taskId, shutdownOnComplete, resetBaseAuthorized });
+  },
+
+  async setShutdownOnComplete(enabled) {
+    return invoke("set_shutdown_on_complete", { enabled });
+  },
+
+  async respondRestorePointFailure(executionId, proceed) {
+    return invoke("respond_restore_point_failure", { executionId, proceed });
+  },
+
+  async respondResetBaseConfirmation(executionId, proceed) {
+    return invoke("respond_reset_base_confirmation", { executionId, proceed });
+  },
+
+  async getSessionHistory() {
+    return invoke("get_session_history");
+  },
+
+  async runDiagnosticCheck(mode) {
+    return invoke("run_diagnostic_check", { mode });
+  },
+
+  async getDiagnosticReports() {
+    return invoke("get_diagnostic_reports");
+  },
+
+  async updateCompleteDiagnosticReport(reportId, results, issues, system, executionStatus, durationMs = null) {
+    return invoke("update_complete_diagnostic_report", { reportId, results, issues, system, executionStatus, durationMs });
+  },
+
+  async listStorageDisks() {
+    return invoke("list_storage_disks");
+  },
+
+  async runStorageDiagnostic(diskId) {
+    return invoke("run_storage_diagnostic", { diskId });
+  },
+
+  async getStorageDiagnosticReports() {
+    return invoke("get_storage_diagnostic_reports");
+  },
+
+  async startMemoryTest(profile, memoryBudgetBytes = null) {
+    return invoke("start_memory_test", {
+      profile,
+      memoryBudgetBytes,
+      preferredBlockBytes: null,
+      seed: null
+    });
+  },
+
+  async getMemoryInventory() {
+    return invoke("get_memory_inventory");
+  },
+
+  async getCpuInventory() {
+    return invoke("get_cpu_inventory");
+  },
+
+  async installPawnIo() {
+    return invoke("install_pawnio");
+  },
+
+  async startCpuTest(profile) {
+    return invoke("start_cpu_test", { profile });
+  },
+
+  async getCpuTestSession() {
+    return invoke("get_cpu_test_session");
+  },
+
+  async cancelCpuTest(sessionId) {
+    return invoke("cancel_cpu_test", { sessionId });
+  },
+
+  async getCpuDiagnosticReports() {
+    return invoke("get_cpu_diagnostic_reports");
+  },
+
+  async getGpuInventory() {
+    return invoke("get_gpu_inventory");
+  },
+
+  async startGpuTest(profile) {
+    return invoke("start_gpu_test", { profile });
+  },
+
+  async getGpuTestSession() {
+    return invoke("get_gpu_test_session");
+  },
+
+  async cancelGpuTest(sessionId) {
+    return invoke("cancel_gpu_test", { sessionId });
+  },
+
+  async getGpuDiagnosticReports() {
+    return invoke("get_gpu_diagnostic_reports");
+  },
+
+  async getMemoryTestSession() {
+    return invoke("get_memory_test_session");
+  },
+
+  async cancelMemoryTest(sessionId) {
+    return invoke("cancel_memory_test", { sessionId });
+  },
+
+  async repairWindowsUpdate() {
+    return invoke("repair_windows_update");
+  },
+
+  async listWindowsServices() { return invoke("list_windows_services"); },
+
+  async manageWindowsService(name, action, startType = null) { return invoke("manage_windows_service", { name, action, startType }); },
+
+  async getCapabilityInventory() {
+    return invoke("get_capability_inventory");
+  },
+
+  async getServiceProfileState() {
+    return invoke("get_service_profile_state");
+  },
+
+  async previewServiceProfile(profile) {
+    return invoke("preview_service_profile", { profile });
+  },
+
+  async applyServiceProfile(profile, changes) {
+    return invoke("apply_service_profile", { profile, changes });
+  },
+
+  async restoreWindowsServiceDefaults() {
+    return invoke("restore_windows_service_defaults");
+  },
+
+  async undoServiceProfileChanges() {
+    return invoke("undo_service_profile_changes");
+  },
+
+  async createRestorePoint() {
+    return invoke("create_restore_point");
+  },
+
+  async rollbackSession() {
+    return invoke("rollback_session");
+  },
+
+  async cancelTask(taskId) {
+    return invoke("cancel_task", { taskId, executionId: activeExecutionId });
+  },
+
+  async finishStartup() {
+    await new Promise((resolve) => window.setTimeout(resolve, 700));
+    return invoke("finish_startup");
+  }
+};
+
+async function loadStructure() {
+  structure = await fetch("./data/qboa-structure.json").then((res) => res.json());
+}
+
+function renderSectionSummary() {
+  const summaryEl = document.getElementById("section-summary");
+  const section = structure.sections.find((item) => item.id === activeSection);
+  if (!section) return;
+
+  summaryEl.textContent = `${section.title}: ${section.items.length} tarefa${section.items.length === 1 ? "" : "s"} disponíveis`;
+}
+
+function renderTabs() {
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.innerHTML = "";
+
+  const tabs = [
+    {
+      id: "limpeza",
+      label: "🧹 Limpeza",
+      summary: () => renderSectionSummary()
+    },
+    {
+      id: "diagnostico",
+      label: "🩺 Diagnóstico",
+      summary: () => { document.getElementById("section-summary").textContent = "Testes de hardware e saúde do sistema"; }
+    },
+    {
+      id: "servicos",
+      label: "🛠️ Serviços",
+      summary: () => { document.getElementById("section-summary").textContent = "Gerenciamento dos serviços do Windows"; }
+    },
+    {
+      id: "capacidades",
+      label: "🧩 Capacidades",
+      summary: () => { document.getElementById("section-summary").textContent = "Inventário de hardware, firmware e recursos do Windows"; }
+    },
+    {
+      id: "sobre",
+      label: "ℹ️ Sobre",
+      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.2"; }
+    }
+  ];
+
+  tabs.forEach((tab) => {
+    const btn = document.createElement("button");
+    btn.className = "tab" + (tab.id === activeSection ? " active" : "");
+    btn.textContent = tab.label;
+    btn.addEventListener("click", async () => {
+      activeSection = tab.id;
+      renderTabs();
+      tab.summary();
+      renderCards();
+      if (tab.id === "servicos" && !serviceProfileState) await loadServiceProfileState();
+      if (tab.id === "capacidades") void loadCapabilityInventory();
+    });
+    tabsEl.appendChild(btn);
+  });
+}
+
+function syncExecutionControls() {
+  const running = Boolean(activeTaskId || launchPending);
+  const inCleanupSession = cleanupSessionPhase !== "closed";
+  const cancelButton = document.getElementById("cancel-task-btn");
+  const toolbar = document.querySelector(".toolbar");
+  cancelButton.hidden = !activeTaskId || (inCleanupSession && cleanupSessionPhase !== "running");
+  cancelButton.disabled = !activeTaskId || (inCleanupSession && cleanupSessionPhase !== "running");
+  if (toolbar && inCleanupSession) toolbar.hidden = cleanupSessionPhase !== "running";
+  const progress = document.getElementById("operation-progress");
+  if (progress) progress.hidden = !running || (inCleanupSession && cleanupSessionPhase !== "running");
+  if (running && (!inCleanupSession || cleanupSessionPhase === "running")) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
+  else if (!running) clearTaskbarProgress();
+}
+
+function renderCards() {
+  const cardsEl = document.getElementById("cards");
+  const dashboard = document.querySelector(".dashboard");
+  const recoveryPanel = document.querySelector(".recovery-panel");
+  const serviceProfilePanel = document.getElementById("service-profile-panel");
+  const capabilityPanel = document.getElementById("capability-inventory-panel");
+  serviceProfilePanel.hidden = activeSection !== "servicos";
+  capabilityPanel.hidden = activeSection !== "capacidades";
+  dashboard.hidden = activeSection === "servicos" || activeSection === "capacidades";
+  dashboard.classList.toggle("contribution-view", activeSection === "sobre");
+  syncExecutionControls();
+  cardsEl.innerHTML = "";
+  if (activeSection === "servicos" || activeSection === "capacidades") { if (activeSection === "servicos" && !windowsServices.length) void loadWindowsServices(); return; }
+  if (activeSection === "diagnostico") {
+    recoveryPanel.hidden = true;
+    const tests = [
+      { id: "armazenamento", name: "Armazenamento", desc: "Espaço livre e informações disponíveis sobre os volumes." },
+      { id: "teste_memoria", name: "Memória RAM", desc: "Inventaria os módulos e a frequência reportada, mostra as limitações de leitura de timings e executa o teste de integridade com perfil selecionável." },
+      { id: "placa_de_video", name: "GPU", desc: "Teste de estabilidade com compute shader Direct3D 11, validação dos resultados e monitoramento térmico." },
+      { id: "processador", name: "Processador", desc: "Teste de carga por 5, 15 ou 30 minutos, com gráfico de temperatura, utilização e frequência." },
+      { id: "completo", name: "Diagnóstico completo", desc: "Executa a bateria completa e reúne os resultados em um laudo persistente." }
+    ];
+    tests.forEach((test) => {
+      const card = document.createElement("article");
+      card.className = "card";
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-label", `Abrir teste: ${test.name}`);
+      card.innerHTML = `<h3>${test.name}</h3><p>${test.desc}</p>`;
+      const open = () => openDiagnosticModal(test.id === "completo" ? null : test.id, test.id === "completo" ? "complete" : "quick");
+      card.addEventListener("click", open);
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+      });
+      cardsEl.appendChild(card);
+    });
+
+    const updateCard = document.createElement("article");
+    updateCard.className = "card windows-update-card";
+    updateCard.tabIndex = 0;
+    updateCard.setAttribute("role", "button");
+    updateCard.setAttribute("aria-label", "Windows Update: restaurar o funcionamento das atualizações");
+    updateCard.innerHTML = '<h3>Windows Update</h3><p>Repara bloqueios locais conhecidos, recupera serviços essenciais e reativa tarefas de atualização.</p><small class="windows-update-recommendation">Recomendado para o Chuck</small>';
+    const openUpdate = () => openWindowsUpdateRepair();
+    updateCard.addEventListener("click", openUpdate);
+    updateCard.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openUpdate(); }
+    });
+    cardsEl.appendChild(updateCard);
+    return;
+  }
+  if (activeSection === "sobre") {
+    dashboard.classList.add("contribution-view");
+    recoveryPanel.hidden = true;
+    cardsEl.innerHTML = `
+      <article class="contribution-panel about-panel">
+        <div class="contribution-copy">
+          <span class="eyebrow">Sobre o aplicativo</span>
+          <h2>QBoa Digital <span class="about-version">3.2.2</span></h2>
+          <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
+          <div class="about-meta">
+            <p><strong>Versão:</strong> 3.2.2</p>
+            <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
+            <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
+          </div>
+          <div class="contribution-actions">
+            <a class="contribution-link" href="https://github.com/bloodshinoda/qboa-digital" target="_blank" rel="noreferrer">Repositório no GitHub</a>
+            <button class="copy-pix-button" type="button" data-pix="00020126330014BR.GOV.BCB.PIX0111072603319765204000053039865802BR62070503***63041548">Copiar código Pix</button>
+          </div>
+          <p class="about-support">O QBoa Digital é um projeto independente. Contribuições ajudam a manter o desenvolvimento, os testes e a evolução do aplicativo.</p>
+          <p id="pix-copy-status" class="pix-copy-status" aria-live="polite"></p>
+        </div>
+        <div class="pix-block">
+          <img src="./data/pix-qrcode.png" alt="QR Code para contribuição via Pix" class="pix-qrcode" />
+          <strong>Apoie via Pix</strong>
+          <span>Escaneie o QR Code com o aplicativo do seu banco.</span>
+        </div>
+      </article>
+    `;
+    cardsEl.querySelector(".copy-pix-button").addEventListener("click", async (event) => {
+      const status = document.getElementById("pix-copy-status");
+      try {
+        await navigator.clipboard.writeText(event.currentTarget.dataset.pix);
+        status.textContent = "Código Pix copiado.";
+      } catch (error) {
+        status.textContent = "Não foi possível copiar automaticamente o código Pix.";
+      }
+    });
+    return;
+  }
+  dashboard.classList.remove("contribution-view");
+  recoveryPanel.hidden = false;
+  const section = structure.sections.find((item) => item.id === activeSection);
+  if (!section) return;
+
+  section.items.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.dataset.taskId = item.id;
+    card.innerHTML = `<h3>${item.name}</h3><p>${item.desc}</p>`;
+    if (item.risk) {
+      const risk = document.createElement("small");
+      risk.className = "risk-pill";
+      const riskLabel = item.risk === "safe" ? "🟢 Seguro" : item.risk === "moderate" ? "🟡 Moderado" : "🟠 Avançado";
+      risk.textContent = riskLabel;
+      card.appendChild(risk);
+    }
+    card.addEventListener("click", () => runTask(item, card));
+    cardsEl.appendChild(card);
+  });
+}
+
+function serviceStatusLabel(status) {
+  return ({ running: "Em execução", stopped: "Parado", startpending: "Iniciando", stoppending: "Parando", paused: "Pausado" })[String(status).toLowerCase()] || status;
+}
+
+const WINDOWS_SERVICE_DESCRIPTIONS = {
+  "phonesvc":"Serviço de telefonia",
+  "phone service":"Serviço de telefonia",
+  "dhcp":"Obtém endereços IP e configurações de rede automaticamente",
+  "dnscache":"Armazena consultas DNS em cache para acelerar a navegação",
+  "wuauserv":"Gerencia atualizações do Windows",
+  "bits":"Transfere arquivos em segundo plano, inclusive para atualizações",
+  "windefend":"Proteção antivírus do Microsoft Defender",
+  "audiosrv":"Gerencia o áudio do Windows",
+  "audioendpointbuilder":"Detecta e configura dispositivos de áudio",
+  "cryptsvc":"Serviços criptográficos e validação de assinaturas digitais",
+  "eventlog":"Registra eventos do Windows e dos aplicativos",
+  "spooler":"Gerencia a fila e os trabalhos de impressão",
+  "schedule":"Executa tarefas agendadas",
+  "winmgmt":"Infraestrutura de gerenciamento do Windows (WMI)",
+  "profsvc":"Carrega e gerencia perfis de usuário",
+  "usermanager":"Gerencia usuários e sessões",
+  "lanmanworkstation":"Conecta o computador a pastas e recursos compartilhados na rede",
+  "lanmanserver":"Compartilha arquivos e impressoras pela rede",
+  "power":"Gerencia planos e estados de energia",
+  "nlasvc":"Identifica redes conectadas e suas propriedades",
+  "netprofm":"Identifica propriedades e perfis de rede",
+  "wlan svc":"Gerencia conexões Wi-Fi",
+  "wlansvc":"Gerencia conexões Wi-Fi",
+  "wwansvc":"Gerencia conexões de banda larga móvel",
+  "bthserv":"Suporte básico a dispositivos Bluetooth",
+  "deviceassociationservice":"Emparelha dispositivos e periféricos",
+  "deviceinstall":"Gerencia a instalação de dispositivos",
+  "plugplay":"Detecta e configura dispositivos conectados",
+  "spooler":"Gerencia fila de impressão",
+  "fax":"Envia e recebe fax",
+  "themes":"Gerencia temas visuais do Windows",
+  "fontcache":"Otimiza o carregamento de fontes",
+  "sysmain":"Otimiza o desempenho e o carregamento de aplicativos",
+  "defragsvc":"Otimiza e desfragmenta unidades de armazenamento",
+  "vss":"Coordena cópias de sombra usadas por backup e restauração",
+  "wbengine":"Motor de backup do Windows",
+  "fhsvc":"Gerencia o Histórico de Arquivos",
+  "storsvc":"Gerencia recursos e configurações de armazenamento",
+  "vds":"Gerencia discos e volumes",
+  "msiserver":"Instala, repara e remove programas no formato MSI",
+  "installservice":"Infraestrutura de instalação da Microsoft Store",
+  "clipsvc":"Infraestrutura de licenciamento da Microsoft Store",
+  "appxs vc":"Infraestrutura de implantação de aplicativos da Store",
+  "appxsvc":"Infraestrutura de implantação de aplicativos da Store",
+  "state repository":"Armazena estado de aplicativos",
+  "staterepository":"Armazena estado de aplicativos",
+  "wscsvc":"Central de segurança e estado de proteção do Windows",
+  "securityhealthservice":"Mantém informações de segurança do Windows",
+  "sense":"Detecção e resposta avançada do Microsoft Defender",
+  "wdnisvc":"Inspeção de rede do Microsoft Defender",
+  "bdesvc":"Gerencia a criptografia de unidades com BitLocker",
+  "efs":"Criptografa arquivos em unidades NTFS",
+  "scardsvr":"Gerencia acesso a cartões inteligentes",
+  "vaultsvc":"Armazena credenciais e segredos do Windows",
+  "keyiso":"Isola chaves criptográficas e operações de autenticação",
+  "termservice":"Gerencia sessões de Área de Trabalho Remota",
+  "sessionenv":"Configura sessões de Área de Trabalho Remota",
+  "umrdpservice":"Redireciona dispositivos em sessões remotas",
+  "rasman":"Gerencia conexões VPN e de acesso remoto",
+  "rasauto":"Cria conexões de acesso remoto sob demanda",
+  "sstpsvc":"Suporte a conexões VPN SSTP",
+  "remote registry":"Permite gerenciamento remoto do Registro",
+  "remoteregistry":"Permite gerenciamento remoto do Registro",
+  "winrm":"Gerenciamento remoto do Windows via WS-Management",
+  "ssh-agent":"Armazena chaves SSH para autenticação",
+  "iphlpsvc":"Suporte à conectividade IPv6",
+  "sharedaccess":"Compartilha a conexão de Internet e o ponto de acesso móvel",
+  "icssvc":"Gerencia o ponto de acesso móvel",
+  "dnscache":"Armazena consultas DNS em cache",
+  "lmhosts":"Suporte NetBIOS sobre TCP/IP",
+  "netlogon":"Autentica usuários e computadores em domínios",
+  "fdrespub":"Publica o computador e seus recursos para descoberta na rede",
+  "fdphost":"Hospeda descoberta de dispositivos na rede",
+  "ssdpsrv":"Descobre dispositivos UPnP na rede",
+  "upnphost":"Hospeda dispositivos UPnP",
+  "webclient":"Acesso a arquivos e pastas via WebDAV",
+  "trkwks":"Mantém vínculos com arquivos em outros computadores",
+  "diagnosticshub.standardcollector.service":"Coleta dados de diagnóstico para ferramentas de desenvolvimento",
+  "dps":"Detecta e soluciona problemas do Windows",
+  "diagsvc":"Executa serviços de diagnóstico",
+  "wer svc":"Relatório de erros do Windows",
+  "wersvc":"Relata falhas de aplicativos e do Windows",
+  "diagtrack":"Coleta dados de diagnóstico e telemetria do Windows",
+  "w32time":"Sincroniza a data e a hora do sistema",
+  "tzautoupdate":"Atualiza automaticamente o fuso horário",
+  "camsvc":"Gerencia acesso de aplicativos a recursos do sistema",
+  "frame server":"Gerencia fluxos de câmera para aplicativos",
+  "frameserver":"Gerencia fluxos de câmera para aplicativos",
+  "lfsvc":"Gerencia recursos de localização geográfica",
+  "sensorservice":"Gerencia sensores do dispositivo",
+  "sensordataservice":"Fornece dados de sensores",
+  "tabletinputservice":"Teclado virtual, escrita manual e entrada por toque",
+  "hidserv":"Suporte a teclas especiais e dispositivos HID",
+  "bthavctpsvc":"Gerencia comandos e controles de áudio Bluetooth",
+  "phone svc":"Serviço de telefonia",
+  "smsrouter":"Encaminha mensagens para aplicativos compatíveis",
+  "tokenbroker":"Intermedeia tokens de autenticação de aplicativos",
+  "wlidsvc":"Login com conta Microsoft",
+  "licensemanager":"Gerencia licenças de aplicativos da Microsoft Store",
+  "push to install":"Permite instalação remota de aplicativos da Store",
+  "pushtoinstall":"Permite instalação remota de aplicativos da Store",
+  "xbl authmanager":"Autenticação para serviços Xbox",
+  "xblauthmanager":"Autenticação para serviços Xbox",
+  "xblgamesave":"Sincroniza salvamentos de jogos Xbox",
+  "xboxgipservice":"Gerencia periféricos Xbox",
+  "vmcompute":"Gerencia máquinas virtuais e contêineres",
+  "vmicguestinterface":"Comunicação entre máquina virtual Hyper-V e host",
+  "vmicheartbeat":"Informa ao host se a máquina virtual está ativa",
+  "vmickvpexchange":"Troca informações entre host e máquina virtual",
+  "vmicrdv":"Redireciona dispositivos em sessões Hyper-V",
+  "vmicshutdown":"Permite desligamento coordenado de máquinas virtuais",
+  "vmictimesync":"Sincroniza o relógio de máquinas virtuais",
+  "vmicvmsession":"Gerencia sessões de máquinas virtuais",
+  "vmicvss":"Coordena cópias de sombra em máquinas virtuais",
+  "hns":"Gerencia redes de contêineres e virtualização",
+  "wmiapsrv":"Adaptador de desempenho do WMI",
+  "pla":"Coleta dados de desempenho em conjuntos",
+  "perfhost":"Hospeda provedores de desempenho",
+  "retaildemo":"Controla o modo de demonstração de varejo",
+  "fax":"Envia e recebe fax",
+  "phone service":"Serviço de telefonia"
+};
+function serviceDescription(name) {
+  const key = String(name || "").trim().toLowerCase();
+  return WINDOWS_SERVICE_DESCRIPTIONS[key] || (key === "phoneservice" ? WINDOWS_SERVICE_DESCRIPTIONS.phonesvc : "");
+}
+
+function serviceStartTypeLabel(startType) {
+  return ({ automatic: "Automático", manual: "Manual", disabled: "Desativado", unknown: "Desconhecido" })[String(startType).toLowerCase()] || startType;
+}
+
+async function loadWindowsServices() {
+  const status = document.getElementById("service-inventory-status");
+  const refresh = document.getElementById("service-inventory-refresh");
+  refresh.disabled = true;
+  status.textContent = "Consultando serviços do Windows...";
+  try {
+    windowsServices = await Qboa.listWindowsServices();
+    status.textContent = `${windowsServices.length} serviço(s) encontrado(s). Serviços protegidos não podem ser parados, reiniciados ou desativados.`;
+    renderWindowsServices();
+  } catch (error) {
+    windowsServices = [];
+    renderWindowsServices();
+    status.textContent = String(error);
+  } finally {
+    refresh.disabled = false;
+  }
+}
+
+function renderWindowsServices() {
+  const body = document.getElementById("service-inventory-rows");
+  const filter = document.getElementById("service-inventory-filter").value.trim().toLocaleLowerCase();
+  const hideMicrosoft = document.getElementById("service-inventory-hide-microsoft").checked;
+  body.replaceChildren();
+  const filtered = windowsServices.filter((service) =>
+    (!hideMicrosoft || !service.is_microsoft) &&
+    (service.name.toLocaleLowerCase().includes(filter) ||
+     service.display_name.toLocaleLowerCase().includes(filter) ||
+     String(service.vendor || "").toLocaleLowerCase().includes(filter))
+  );
+  document.getElementById("service-inventory-status").textContent =
+    `${filtered.length} de ${windowsServices.length} serviço(s) exibido(s).` +
+    (hideMicrosoft ? " Serviços Microsoft ocultos." : "");
+  filtered.forEach((service) => {
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    const name = document.createElement("strong");
+    name.textContent = service.display_name;
+    const key = document.createElement("small");
+    key.textContent = service.name;
+    nameCell.append(name, key);
+    const identity = document.createElement("small");
+    identity.className = "service-vendor-label";
+    identity.textContent = service.vendor
+      ? `Fornecedor identificado: ${service.vendor}`
+      : service.classification === "microsoft_signed"
+        ? "Assinatura Microsoft válida"
+        : "Fornecedor não identificado · confirme antes de alterar";
+    identity.title = [
+      ...(service.identification_evidence || []),
+      service.executable_path || ""
+    ].filter(Boolean).join("\n");
+    nameCell.appendChild(identity);
+    const identityHint = service.vendor
+      ? `Fornecedor identificado: ${service.vendor}.`
+      : service.classification === "microsoft_signed"
+        ? "O executável tem assinatura Microsoft válida."
+        : `Fornecedor não identificado. Confira o executável antes de alterar. Caminho: ${service.executable_path || "não disponível"}.`;
+    if (service.protected) {
+      const protectedLabel = document.createElement("span");
+      protectedLabel.className = "service-protected-label";
+      protectedLabel.textContent = "Protegido";
+      nameCell.appendChild(protectedLabel);
+      nameCell.title = service.protection_reason || "Serviço crítico protegido pelo QBoa.";
+    }
+    const stateCell = document.createElement("td");
+    stateCell.textContent = serviceStatusLabel(service.status);
+    const startCell = document.createElement("td");
+    const startSelect = document.createElement("select");
+    startSelect.setAttribute("aria-label", `Inicialização de ${service.name}`);
+    [["automatic", "Automático"], ["manual", "Manual"], ["disabled", "Desativado"]].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      startSelect.appendChild(option);
+    });
+    startSelect.value = ["automatic", "manual", "disabled"].includes(service.start_type) ? service.start_type : "manual";
+    startSelect.disabled = service.start_type === "unknown";
+    startSelect.addEventListener("change", async () => {
+      const next = startSelect.value;
+      const old = service.start_type;
+      if (next === old) return;
+      if (next === "disabled" && service.protected) {
+        appendConsole(`Alteração bloqueada: ${service.name} é protegido pelo QBoa.`);
+        startSelect.value = old;
+        return;
+      }
+      if (!(await askConfirmation(
+        `Alterar a inicialização de ${service.display_name} de ${serviceStartTypeLabel(old)} para ${serviceStartTypeLabel(next)}?\n${identityHint}\nA configuração atual será consultada novamente pelo Windows durante a operação.`,
+        "Alterar serviço?"
+      ))) {
+        startSelect.value = old;
+        return;
+      }
+      startSelect.disabled = true;
+      try {
+        appendConsole(await Qboa.manageWindowsService(service.name, "set_start_type", next));
+        await loadWindowsServices();
+      } catch (error) {
+        appendConsole(String(error));
+        startSelect.value = old;
+      } finally {
+        startSelect.disabled = false;
+      }
+    });
+    startCell.appendChild(startSelect);
+    const actionsCell = document.createElement("td");
+    const addAction = (label, action, disabled, confirmation) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "service-action-button secondary-button";
+      button.textContent = label;
+      button.disabled = disabled;
+      button.addEventListener("click", async () => {
+        if (confirmation && !(await askConfirmation(
+          `${confirmation}\n${identityHint}\nConfirme que este serviço pode ser alterado no seu sistema.`,
+          `${label} serviço?`
+        ))) return;
+        button.disabled = true;
+        try {
+          appendConsole(await Qboa.manageWindowsService(service.name, action));
+          await loadWindowsServices();
+        } catch (error) {
+          appendConsole(String(error));
+        } finally {
+          button.disabled = false;
+        }
+      });
+      actionsCell.appendChild(button);
+    };
+    addAction("Iniciar", "start", service.status.toLowerCase() === "running", `Iniciar o serviço ${service.display_name}?`);
+    addAction("Parar", "stop", service.protected || service.status.toLowerCase() !== "running", `Parar o serviço ${service.display_name}?`);
+    addAction("Reiniciar", "restart", service.protected || service.status.toLowerCase() !== "running", `Reiniciar o serviço ${service.display_name}?`);
+    row.append(nameCell, stateCell, startCell, actionsCell);
+    body.appendChild(row);
+  });
+  if (!filtered.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 4;
+    cell.textContent = windowsServices.length ? "Nenhum serviço corresponde ao filtro." : "Nenhum serviço carregado.";
+    row.appendChild(cell);
+    body.appendChild(row);
+  }
+}
+
+
+const capabilityStatusLabels = {
+  detected: "Detectado / habilitado",
+  disabled: "Detectado, mas desabilitado",
+  registered_not_present: "Registrado, não presente",
+  not_detected: "Não detectado",
+  unknown: "Desconhecido",
+  not_applicable: "Não aplicável"
+};
+
+async function loadCapabilityInventory() {
+  const button = document.getElementById("capability-refresh-btn");
+  const status = document.getElementById("capability-status");
+  button.disabled = true;
+  status.textContent = "Coletando evidências do Windows…";
+  try {
+    const report = await Qboa.getCapabilityInventory();
+    renderCapabilityInventory(report);
+    status.textContent = `Inventário concluído: ${report.capabilities.length} capacidades avaliadas. A coleta não altera configurações.`;
+  } catch (error) {
+    status.textContent = `Não foi possível coletar o inventário: ${String(error)}`;
+    document.getElementById("capability-system").replaceChildren();
+    document.getElementById("capability-list").replaceChildren();
+    document.getElementById("capability-warnings").replaceChildren();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function copyCapabilitySummary() {
+  const status = document.getElementById("capability-copy-status");
+  const system = document.getElementById("capability-system");
+  const lines = Array.from(system.querySelectorAll("p")).map((item) => item.textContent.trim()).filter(Boolean);
+  if (!lines.length) {
+    status.textContent = "Colete o inventário antes de copiar o resumo.";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(lines.join("\n"));
+    status.textContent = "Resumo copiado para a área de transferência.";
+  } catch (error) {
+    status.textContent = "Não foi possível copiar automaticamente. Verifique a permissão da área de transferência.";
+  }
+}
+
+function renderCapabilityInventory(report) {
+  const system = document.getElementById("capability-system");
+  const list = document.getElementById("capability-list");
+  const warnings = document.getElementById("capability-warnings");
+  system.replaceChildren();
+  list.replaceChildren();
+  warnings.replaceChildren();
+  const summary = report.system || {};
+  const deviceTypeLabels = { desktop: "Desktop", mobile: "Notebook / dispositivo móvel", virtual_machine: "Máquina virtual", unknown: "Desconhecido" };
+  const confidenceLabels = { high: "alta", medium: "média", low: "baixa" };
+  const systemLines = [
+    [summary.os_name, summary.os_version ? `versão ${summary.os_version}` : null, summary.os_build ? `build ${summary.os_build}` : null].filter(Boolean).join(" · "),
+    summary.motherboard ? `Placa mãe: ${summary.motherboard}` : [summary.manufacturer, summary.model].filter(Boolean).join(" "),
+    summary.processor ? `Processador: ${summary.processor}` : null,
+    summary.memory ? `Memória: ${summary.memory}` : null,
+    summary.gpu ? `GPU: ${summary.gpu}` : null,
+    summary.architecture ? `Arquitetura: ${summary.architecture}` : null,
+    `Tipo de equipamento: ${deviceTypeLabels[summary.device_type] || deviceTypeLabels.unknown} (confiança ${confidenceLabels[summary.device_confidence] || "baixa"})`
+  ].filter(Boolean);
+  systemLines.forEach((line) => { const p = document.createElement("p"); p.textContent = line; system.appendChild(p); });
+  (summary.device_evidence || []).forEach((evidence) => { const p = document.createElement("p"); p.className = "device-evidence"; p.textContent = `Evidência: ${evidence}`; system.appendChild(p); });
+  (report.capabilities || []).filter((capability) => !(summary.device_type === "desktop" && summary.device_confidence === "high" && capability.id === "battery")).forEach((capability) => {
+    const article = document.createElement("article");
+    article.className = "capability-card";
+    const heading = document.createElement("div");
+    heading.className = "capability-card-heading";
+    const title = document.createElement("h3"); title.textContent = capability.label;
+    const badge = document.createElement("span"); badge.className = `capability-state state-${capability.status}`;
+    badge.textContent = capabilityStatusLabels[capability.status] || capability.status;
+    heading.append(title, badge);
+    const description = document.createElement("p"); description.textContent = capability.summary;
+    const confidence = document.createElement("small"); confidence.textContent = `Confiança: ${confidenceLabels[capability.confidence] || "não informada"} · Fonte: ${(capability.sources || []).join(", ") || "não informada"}`;
+    article.append(heading, description, confidence);
+    if ((capability.details || []).length) {
+      const details = document.createElement("details");
+      const disclosure = document.createElement("summary"); disclosure.textContent = "Ver evidências";
+      const evidence = document.createElement("ul");
+      capability.details.forEach((detail) => { const item = document.createElement("li"); item.textContent = detail; evidence.appendChild(item); });
+      details.append(disclosure, evidence); article.appendChild(details);
+    }
+    list.appendChild(article);
+  });
+  (report.warnings || []).forEach((warning) => { const item = document.createElement("li"); item.textContent = warning; warnings.appendChild(item); });
+}
+
+function humanizeLogMessage(message) {
+  const labels = {
+    "task-started": "Tarefa iniciada",
+    "task-output": "Etapa",
+    "task-progress": "Progresso",
+    "task-completed": "Tudo certo por aqui!",
+    "task-cancelled": "Tudo bem, parei por aqui.",
+    "task-error": "Opa! A tarefa encontrou um problema.",
+    "restore-point-created": "Ponto de restauração criado",
+    "restore-point-confirmation-required": "Só preciso confirmar uma coisinha",
+    "snapshot-started": "Preparando um ponto de segurança",
+    "restore-point-phase-started": "Criando ponto de restauração",
+    "restore-point-phase-completed": "Ponto de restauração criado",
+    "restore-point-phase-failed": "Não consegui criar o ponto de restauração",
+    "registry-operation-failed": "Falha ao limpar o histórico do Registro",
+    "task-executor-failed": "Não consegui terminar esta tarefa"
+  };
+  return String(message ?? "")
+    .replace(/\[(task-started|task-output|task-progress|task-completed|task-cancelled|task-error|snapshot-started|restore-point-phase-started|restore-point-phase-completed|restore-point-phase-failed|registry-operation-failed|task-executor-failed)\]/gi,
+      (match, key) => labels[key] || key)
+    .replace(/status=exit code: 0/gi, "resultado: concluído")
+    .replace(/exit code: 0/gi, "concluído");
+}
+
+function humanizeActivityMessage(message) {
+  return String(message ?? "")
+    .replace(/execuÃ§Ã£o/gi, "execução")
+    .replace(/nÃ£o/gi, "não")
+    .replace(/operaÃ§Ã£o/gi, "operação")
+    .replace(/informaÃ§Ã£o/gi, "informação")
+    .replace(/alteraÃ§Ãµes/gi, "alterações")
+    .replace(/concluÃ­da/gi, "concluída")
+    .replace(/concluÃ­do/gi, "concluído")
+    .replace(/â€”/g, "—")
+    .replace(/Deployment Image Servicing and Management tool/gi, "Ferramenta de Gerenciamento e Manutenção de Imagens do Windows (DISM)")
+    .replace(/The restore operation completed successfully\.?/gi, "A operação de restauração foi concluída com sucesso.")
+    .replace(/The operation completed successfully\.?/gi, "A operação foi concluída com sucesso.")
+    .replace(/Beginning system scan\. This process will take some time\./gi, "Iniciando a verificação do sistema. Este processo pode levar algum tempo.")
+    .replace(/Beginning verification phase of system scan\./gi, "Iniciando a etapa de verificação do sistema.")
+    .replace(/Windows Resource Protection did not find any integrity violations\./gi, "A Proteção de Recursos do Windows não encontrou violações de integridade.")
+    .replace(/Windows Resource Protection found corrupt files and successfully repaired them\./gi, "A Proteção de Recursos do Windows encontrou arquivos corrompidos e os reparou com sucesso.")
+    .replace(/Windows Resource Protection found corrupt files but was unable to fix some of them\./gi, "A Proteção de Recursos do Windows encontrou arquivos corrompidos, mas não conseguiu reparar alguns.");
+}
+
+function appendConsole(message) {
+  const line = humanizeActivityMessage(humanizeLogMessage(message)).trim();
+  if (!line) return;
+  const isDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(line);
+  const lines = consoleBuffer.split("\n");
+  const last = lines[lines.length - 1] || "";
+  const lastIsDismProgress = /\[[= >-]*\s*\d+(?:[.,]\d+)?%\s*\]?/.test(last);
+  if (isDismProgress && lastIsDismProgress) {
+    lines[lines.length - 1] = line;
+    consoleBuffer = lines.join("\n");
+  } else {
+    consoleBuffer = (consoleBuffer + "\n" + line).trim();
+  }
+  renderConsole();
+}
+function writeStatus(text) {
+  consoleBuffer = text;
+  renderConsole();
+}
+
+function restoreConsoleHeight() {
+  const output = document.getElementById("console-output");
+  const handle = document.getElementById("console-resize-handle");
+  if (!output || !handle) return;
+  const minimum = 110;
+  const maximum = () => Math.max(minimum, Math.floor(window.innerHeight * 0.6));
+  const saveHeight = () => { try { localStorage.setItem("qboa-console-height", String(Math.round(output.getBoundingClientRect().height))); } catch (_) { /* Preferência opcional. */ } };
+  const applyHeight = (height) => { const next = Math.max(minimum, Math.min(maximum(), Math.round(height))); output.style.height = next + "px"; handle.setAttribute("aria-valuenow", String(next)); handle.setAttribute("aria-valuemax", String(maximum())); };
+  try { const savedHeight = Number(localStorage.getItem("qboa-console-height")); if (Number.isFinite(savedHeight) && savedHeight >= minimum) applyHeight(savedHeight); } catch (_) { /* Painel continua redimensionável sem persistência. */ }
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return; event.preventDefault();
+    const startY = event.clientY; const startHeight = output.getBoundingClientRect().height; handle.setPointerCapture(event.pointerId);
+    const onMove = (moveEvent) => { if (moveEvent.pointerId === event.pointerId) applyHeight(startHeight + startY - moveEvent.clientY); };
+    const onEnd = (endEvent) => { if (endEvent.pointerId !== event.pointerId) return; handle.removeEventListener("pointermove", onMove); handle.removeEventListener("pointerup", onEnd); handle.removeEventListener("pointercancel", onEnd); saveHeight(); };
+    handle.addEventListener("pointermove", onMove); handle.addEventListener("pointerup", onEnd); handle.addEventListener("pointercancel", onEnd);
+  });
+  handle.addEventListener("keydown", (event) => { const current = output.getBoundingClientRect().height; if (event.key === "ArrowDown") { event.preventDefault(); applyHeight(current + 16); saveHeight(); } else if (event.key === "ArrowUp") { event.preventDefault(); applyHeight(current - 16); saveHeight(); } else if (event.key === "Home") { event.preventDefault(); applyHeight(minimum); saveHeight(); } else if (event.key === "End") { event.preventDefault(); applyHeight(maximum()); saveHeight(); } });
+  window.addEventListener("resize", () => applyHeight(output.getBoundingClientRect().height));
+}
+function renderConsole() {
+  const out = document.getElementById("console-output");
+  const content = [consoleBuffer, activityLabel ? `${activityLabel}${activityDots}` : ""]
+    .filter(Boolean)
+    .join("\n");
+  const lines = content.split("\n");
+  out.replaceChildren();
+  lines.forEach((line, index) => {
+    const item = document.createElement("span");
+    item.className = "console-line";
+    if (line === "RESUMO DA EXECUÇÃO") item.classList.add("service-summary-heading");
+    else if (/^DESABILITADOS \(/.test(line)) item.classList.add("service-summary-disabled");
+    else if (/^REATIVADOS \(/.test(line)) item.classList.add("service-summary-enabled");
+    else if (/^ALTERADOS PARA AUTOMÁTICO \(/.test(line)) item.classList.add("service-summary-enabled");
+    else if (/^ALTERADOS PARA MANUAL \(/.test(line)) item.classList.add("service-summary-manual");
+    else if (/^  - /.test(line) && lines.slice(0, index).reverse().find((prior) => /^(DESABILITADOS|REATIVADOS|ALTERADOS PARA AUTOMÁTICO|ALTERADOS PARA MANUAL) \(/.test(prior))) {
+      const section = lines.slice(0, index).reverse().find((prior) => /^(DESABILITADOS|REATIVADOS|ALTERADOS PARA AUTOMÁTICO|ALTERADOS PARA MANUAL) \(/.test(prior));
+      item.classList.add(section.startsWith("DESABILITADOS") ? "service-summary-disabled" : section.startsWith("REATIVADOS") || section.startsWith("ALTERADOS PARA AUTOMÁTICO") ? "service-summary-enabled" : "service-summary-manual");
+    }
+    item.textContent = line;
+    out.appendChild(item);
+    if (index < lines.length - 1) out.appendChild(document.createTextNode("\n"));
+  });
+  out.scrollTop = out.scrollHeight;
+  const copyButton = document.getElementById("copy-console-btn");
+  if (copyButton) copyButton.disabled = !consoleBuffer.trim();
+}
+
+function stopActivity() {
+  if (activityTimer) window.clearInterval(activityTimer);
+  activityTimer = null;
+  activityLabel = "";
+  activityDots = "";
+  renderConsole();
+}
+
+function startActivity(taskName) {
+  stopActivity();
+  activityLabel = `Executando ${taskName}`;
+  let dotCount = 0;
+  const update = () => {
+    activityDots = ".".repeat(dotCount % 4);
+    dotCount += 1;
+    renderConsole();
+  };
+  update();
+  activityTimer = window.setInterval(update, 500);
+}
+
+function isCleanupTask(taskId) {
+  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update", "limpeza_historico_navegadores"].includes(taskId);
+}
+
+function showExecutionToast(status, title, message) {
+  const toast = document.getElementById("execution-toast");
+  toast.className = `execution-toast ${status}`;
+  toast.replaceChildren();
+  const heading = document.createElement("strong"); heading.textContent = title;
+  const detail = document.createElement("span"); detail.textContent = message;
+  toast.append(heading, detail); toast.hidden = false;
+  if (executionToastTimer) window.clearTimeout(executionToastTimer);
+  executionToastTimer = window.setTimeout(() => { toast.hidden = true; executionToastTimer = null; }, 6500);
+}
+
+function formatCleanupBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / (1024 ** index);
+  return `${value.toLocaleString("pt-BR", { maximumFractionDigits: index >= 2 ? 2 : 1 })} ${units[index]}`;
+}
+
+function collectCleanupSummary() {
+  const summary = { files: 0, bytes: 0, registry: 0, failures: 0 };
+  executionOutput.forEach((raw) => {
+    const line = String(raw ?? "");
+    const metrics = line.match(/QBOA_METRICS\s+files=(\d+)\s+bytes=(\d+)\s+registry=(\d+)/i);
+    if (metrics) {
+      summary.files += Number(metrics[1]) || 0;
+      summary.bytes += Number(metrics[2]) || 0;
+      summary.registry += Number(metrics[3]) || 0;
+    }
+    const failureMatches = [...line.matchAll(/(\d+)\s+falha(?:s|\(s\))?/gi)];
+    failureMatches.forEach((match) => { summary.failures += Number(match[1]) || 0; });
+  });
+  return summary;
+}
+
+function formatCleanupDuration() {
+  if (!executionStartedAt) return "Não informado";
+  const seconds = Math.max(0, Math.round((Date.now() - executionStartedAt) / 1000));
+  if (seconds < 60) return `${seconds} s`;
+  return `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+}
+
+function showCleanupResult(taskId, status, detail = "") {
+  const successful = status === "success"; const cancelled = status === "cancelled";
+  const title = successful ? "Faxina concluída!" : cancelled ? "Tudo bem, parei por aqui." : "A faxina não terminou como esperado";
+  const modal = document.getElementById("execution-summary-modal");
+  const summary = collectCleanupSummary();
+  document.getElementById("execution-summary-title").textContent = title;
+  document.getElementById("execution-summary-task").textContent = taskDisplayName(taskId);
+  document.getElementById("execution-summary-status").textContent = successful
+    ? (summary.failures ? "A faxina terminou, mas alguns itens deram trabalho e não puderam ser tratados." : "Prontinho! A faxina foi concluída.")
+    : cancelled ? "A faxina foi interrompida antes de terminar."
+      : "Opa! Encontrei um problema e não consegui concluir a faxina.";
+  document.getElementById("execution-summary-files").textContent = summary.files.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-registry").textContent = summary.registry.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-space").textContent = formatCleanupBytes(summary.bytes);
+  document.getElementById("execution-summary-failures").textContent = summary.failures.toLocaleString("pt-BR");
+  document.getElementById("execution-summary-duration").textContent = formatCleanupDuration();
+  const statusIcon = document.getElementById("execution-summary-icon");
+  statusIcon.textContent = successful ? "✓" : cancelled ? "Ⅱ" : "!";
+  statusIcon.className = `execution-summary-icon ${successful ? "success" : cancelled ? "warning" : "error"}`;
+  modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  setCleanupSessionPhase("result", taskDisplayName(taskId));
+  showExecutionToast(successful ? "success" : cancelled ? "warning" : "error", title, taskDisplayName(taskId));
+}
+
+function closeExecutionSummary() {
+  const modal = document.getElementById("execution-summary-modal");
+  modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
+  closeCleanupSession();
+}
+
+function taskSuccessMessage(taskName) {
+  return `${taskName} concluída com sucesso.`;
+}
+
+function taskDisplayName(taskId) {
+  const task = structure?.sections
+    ?.flatMap((section) => section.items)
+    .find((item) => item.id === taskId);
+  return task?.name || taskId;
+}
+
+const PROGRESS_FLAVOR_BANK = {
+  preparation: ["Preparando o terreno para a faxina.", "Reunindo os utensílios da limpeza digital.", "Conferindo se a vassoura está em condições de uso.", "Calculando o tamanho da bagunça.", "Organizando a equipe de desocupação de arquivos."],
+  temporary: ["Desalojando arquivos que já perderam a validade.", "Removendo os entulhos da vida digital.", "Convencendo caches antigos a seguirem em frente.", "Passando a vassoura nos cantos esquecidos.", "Separando o lixo eletrônico do patrimônio histórico."],
+  browser: ["Lavando os bastidores da navegação.", "Eliminando as pegadas digitais acumuladas.", "Desentupindo os corredores da internet.", "Dando banho nos caches mais encardidos.", "Removendo lembranças que ninguém pediu para guardar."],
+  dism: ["Examinando as estruturas do Windows.", "Procurando rachaduras na arquitetura do sistema.", "Consultando os engenheiros da Microsoft.", "Reorganizando os tijolos digitais.", "Aplicando massa corrida nos componentes do Windows."],
+  resetbase: ["Removendo as últimas camadas de sujeira.", "Fazendo uma faxina sem direito a arrependimento.", "Desmontando o acúmulo histórico do Windows.", "Eliminando os vestígios das atualizações antigas.", "Passando QBoa nos componentes mais encardidos."],
+  sfc: ["Conferindo se todas as peças estão no lugar.", "Procurando componentes fora de conformidade.", "Verificando a certidão de nascimento dos arquivos.", "Investigando possíveis desvios de conduta.", "Conferindo se o Windows ainda tem salvação."],
+  blocked: ["Respeitando a privacidade dos arquivos ocupados.", "Alguns arquivos não quiseram sair de casa.", "Encontramos resistência. A negociação continua.", "Deixando os arquivos teimosos para a próxima.", "Não vamos arrombar a porta. Temos educação."],
+  diagnostic: ["Interrogando os componentes do equipamento.", "Medindo a temperatura das ideias.", "Procurando sinais de vida nos circuitos.", "Conferindo a saúde dos órgãos digitais.", "Verificando se o hardware está contando a verdade."],
+  finish: ["Recolhendo os materiais de limpeza.", "Conferindo se não esquecemos a vassoura.", "Finalizando os últimos detalhes da faxina.", "Guardando os produtos de limpeza.", "Registrando o antes e depois da operação."],
+  qboa: ["Aplicando uma dose generosa de QBoa digital.", "Desinfetando os caches com QBoa.", "Alvejando os vestígios da bagunça com QBoa.", "QBoa aplicado. Agora é deixar agir.", "Passando QBoa nos cantos mais encardidos do Windows."],
+  tithe: ["Calculando o dízimo dos componentes.", "Separando 10% da sujeira para a igreja do Windows.", "Recolhendo a contribuição obrigatória do sistema.", "O dízimo foi pago. Podemos prosseguir.", "A bênção foi concedida. Prosseguindo com a faxina."]
+};
+function progressFlavorCategory(taskId, stage) {
+  const text = String(stage || "").toLowerCase();
+  if (/resetbase|startcomponentcleanup/.test(text)) return "resetbase";
+  if (/\bsfc\b|scannow|integridade/.test(text)) return "sfc";
+  if (/\bdism\b|restorehealth|scanhealth|component store/.test(text)) return "dism";
+  if (/bloquead|em uso|erro 32|ocupad/.test(text)) return "blocked";
+  if (/navegador|browser|hist[oó]rico/.test(text) || taskId === "limpeza_historico_navegadores") return "browser";
+  if (/diagn[oó]stic|teste de|mem[oó]ria|processador|\bgpu\b|armazenamento/.test(text) || String(taskId || "").includes("diagnostic")) return "diagnostic";
+  if (/conclu|finaliz|encerr|resumo/.test(text)) return "finish";
+  if (/tempor|cache|arquivo|pasta|limp|remov|exclu/.test(text) || isCleanupTask(taskId)) return "temporary";
+  return "preparation";
+}
+function chooseProgressFlavor(taskId, stage) {
+  let category = progressFlavorCategory(taskId, stage);
+  if (taskId === "limpeza_pesada" && /resetbase|startcomponentcleanup/i.test(String(stage || "")) && Math.random() < 0.09) category = "tithe";
+  else if (String(taskId || "").startsWith("limpeza_") && Math.random() < 0.035) category = "qboa";
+  const options = PROGRESS_FLAVOR_BANK[category] || PROGRESS_FLAVOR_BANK.preparation;
+  const previous = progressFlavorLastIndex.get(category);
+  let index = Math.floor(Math.random() * options.length);
+  if (options.length > 1 && index === previous) index = (index + 1 + Math.floor(Math.random() * (options.length - 1))) % options.length;
+  progressFlavorLastIndex.set(category, index);
+  return options[index];
+}
+function renderProgressFlavor(taskId, stage) {
+  const flavor = document.getElementById("operation-progress-flavor");
+  if (!flavor) return;
+  const key = String(taskId || "preparacao") + "|" + String(stage || "preparacao");
+  if (key === lastProgressFlavorKey) return;
+  lastProgressFlavorKey = key;
+  flavor.textContent = chooseProgressFlavor(taskId, stage);
+  flavor.classList.remove("is-changing");
+  window.requestAnimationFrame(() => flavor.classList.add("is-changing"));
+}
+function setTaskbarProgress(progress) {
+  const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+  if (!currentWindow?.setProgressBar) return;
+  const state = Number.isFinite(progress) ? { status: "normal", progress: Math.max(0, Math.min(100, Math.round(progress))) } : { status: "indeterminate" };
+  void currentWindow.setProgressBar(state).catch((error) => console.debug("Indicador da barra de tarefas indisponível:", error));
+}
+function clearTaskbarProgress() {
+  const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+  if (!currentWindow?.setProgressBar) return;
+  void currentWindow.setProgressBar({ status: "none" }).catch((error) => console.debug("Não foi possível limpar o indicador da barra de tarefas:", error));
+}
+function updateOperationProgress(taskName, stage, progressValue) {
+  const task = document.getElementById("operation-progress-task");
+  const stageEl = document.getElementById("operation-progress-stage");
+  const bar = document.getElementById("operation-progress-bar");
+  const percentEl = document.getElementById("operation-progress-percent");
+  if (!task || !stageEl || !bar || !percentEl) return;
+  if (taskName) task.textContent = taskName;
+  if (stage) stageEl.textContent = stage;
+  renderProgressFlavor(activeTaskId, stage || currentOperationStage);
+  const source = String(progressValue ?? stage ?? "");
+  const match = source.match(/(?:^|\s)(\d{1,3}(?:[.,]\d+)?)\s*%/);
+  if (match) {
+    currentOperationProgress = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
+    bar.classList.add("determinate"); bar.style.width = currentOperationProgress + "%";
+    percentEl.textContent = Math.round(currentOperationProgress) + "%";
+    setTaskbarProgress(currentOperationProgress);
+  } else if (currentOperationProgress !== null) {
+    bar.classList.add("determinate"); bar.style.width = currentOperationProgress + "%";
+    percentEl.textContent = Math.round(currentOperationProgress) + "%";
+    setTaskbarProgress(currentOperationProgress);
+  } else {
+    bar.classList.remove("determinate"); bar.style.width = "";
+    percentEl.textContent = "Em andamento";
+    setTaskbarProgress(null);
+  }
+}
+function showRunningOperationPopup(requestedName = "") {
+  const modal = document.getElementById("running-operation-modal");
+  document.getElementById("running-operation-task").textContent = currentOperationName || (activeTaskId ? taskDisplayName(activeTaskId) : "Uma operação está sendo iniciada.");
+  document.getElementById("running-operation-stage").textContent = currentOperationStage || "O QBoa está processando a operação. Aguarde antes de iniciar outra tarefa.";
+  document.getElementById("running-operation-requested").textContent = requestedName ? `Solicitação bloqueada: ${requestedName}.` : "Uma nova operação não será iniciada enquanto esta estiver ativa.";
+  modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  document.getElementById("running-operation-close").focus();
+}
+function closeRunningOperationPopup() {
+  const modal = document.getElementById("running-operation-modal");
+  modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
+}
+function operationIsBusy(requestedName = "") {
+  if (!(activeTaskId || launchPending)) return false;
+  showRunningOperationPopup(requestedName); return true;
+}
+
+function requiresConfirmation(item) {
+  if (!item || !item.risk) return false;
+  return item.risk === "moderate" || item.risk === "advanced";
+}
+
+function showRiskModal(item, cardEl) {
+  pendingTask = { item, cardEl };
+  const modal = document.getElementById("risk-modal");
+  const message = document.getElementById("risk-message");
+
+  const riskText = item.risk === "advanced" ? "avançada" : "moderada";
+  message.textContent = `Esta operação é ${riskText} e altera configurações do Windows. Um ponto de restauração será criado quando possível. Alterações reversíveis serão registradas pelo Qboa.`;
+
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  if (isCleanupTask(item?.id)) setCleanupSessionPhase("preparing", item.name);
+}
+
+function closeRiskModal() {
+  const modal = document.getElementById("risk-modal");
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  pendingTask = null;
+  if (cleanupSessionPhase === "closed" || cleanupSessionPhase === "result" || cleanupSessionPhase === "ready") return;
+  if (launchPending || (isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
+  else if (activeTaskId) setCleanupSessionPhase("running");
+  else closeCleanupSession();
+}
+
+function askConfirmation(message, title = "Vamos nessa?", confirmLabel = "Continuar", cancelLabel = "Cancelar") {
+  if (cleanupSessionPhase !== "closed" || isCleanupTask(activeTaskId)) setCleanupSessionPhase("preparing", cleanupSessionTaskName || currentOperationName);
+  const modal = document.getElementById("confirmation-modal");
+  const titleElement = document.getElementById("confirmation-title");
+  const messageElement = document.getElementById("confirmation-message");
+  const confirmButton = document.getElementById("confirmation-confirm");
+  const cancelButton = document.getElementById("confirmation-cancel");
+
+  if (pendingConfirmationResolver) {
+    pendingConfirmationResolver(false);
+    pendingConfirmationResolver = null;
+  }
+
+  titleElement.textContent = title;
+  messageElement.textContent = message;
+  confirmButton.textContent = confirmLabel;
+  cancelButton.textContent = cancelLabel;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  if (cleanupSessionPhase !== "closed" || isCleanupTask(activeTaskId)) setCleanupSessionPhase("preparing", cleanupSessionTaskName || currentOperationName);
+  confirmButton.focus();
+
+  return new Promise((resolve) => {
+    pendingConfirmationResolver = resolve;
+  });
+}
+
+function closeConfirmationModal(confirmed = false) {
+  const modal = document.getElementById("confirmation-modal");
+  if (modal.classList.contains("hidden")) return;
+
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  const resolve = pendingConfirmationResolver;
+  pendingConfirmationResolver = null;
+  if (resolve) resolve(confirmed);
+  if (cleanupSessionPhase === "closed" || cleanupSessionPhase === "result") return;
+  if (launchPending || (isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
+  else if (activeTaskId) setCleanupSessionPhase("running");
+  else closeCleanupSession();
+}
+
+async function prepareBrowserCleanupIfNeeded() {
+  if (browserCleanupDecision !== null) return;
+  try {
+    const runningBrowsers = await Qboa.getRunningBrowsers();
+    if (runningBrowsers.length) {
+      const names = [...new Set(runningBrowsers)].map((name) => ({
+        chrome: "Google Chrome", msedge: "Microsoft Edge", brave: "Brave", vivaldi: "Vivaldi", opera: "Opera", firefox: "Mozilla Firefox"
+      }[name.toLowerCase()] || name)).join(", ");
+      const closeRunning = await askConfirmation(
+        `Estes navegadores estão abertos: ${names}.\n\nSe autorizar, o QBoa vai fechá-los antes de limpar os dados selecionados. Salve seu trabalho antes de continuar. Se recusar, os dados dos navegadores serão preservados.`,
+        "Fechar navegadores abertos?",
+        "Fechar Navegadores",
+        "Não Fechar"
+      );
+      await Qboa.prepareBrowserCleanup(closeRunning);
+      browserCleanupDecision = closeRunning;
+      appendConsole(closeRunning
+        ? "Navegadores autorizados para fechamento; a limpeza selecionada poderá continuar."
+        : "Você optou por manter os navegadores abertos; os dados deles serão preservados.");
+    } else {
+      await Qboa.prepareBrowserCleanup(true);
+      browserCleanupDecision = true;
+    }
+  } catch (error) {
+    appendConsole(`Não foi possível preparar a limpeza dos navegadores: ${String(error)}`);
+    await Qboa.prepareBrowserCleanup(false);
+    browserCleanupDecision = false;
+  }
+}
+
+
+async function executeTask(item, cardEl) {
+  const cleanup = isCleanupTask(item?.id);
+  if (cleanup) {
+    cleanupExecutionStarted = false;
+    setCleanupSessionPhase("preparing", item.name);
+  }
+  if (!eventListenersReady) {
+    appendConsole("Não foi possível iniciar a operação porque o acompanhamento em tempo real não está disponível.");
+    if (cleanup) closeCleanupSession();
+    return false;
+  }
+  if (operationIsBusy(item?.name)) return false;
+
+  launchPending = true;
+  currentOperationProgress = null;
+  lastProgressFlavorKey = "";
+  currentOperationName = item.name;
+  currentOperationStage = "Preparando a operação…";
+  syncExecutionControls();
+
+  if (cleanup) {
+    const shutdownToggle = document.getElementById("shutdown-on-complete");
+    if (shutdownToggle) shutdownToggle.checked = false;
+    try {
+      await Qboa.setShutdownOnComplete(false);
+    } catch (error) {
+      appendConsole("Não foi possível limpar a opção de desligamento da sessão anterior: " + String(error));
+    }
+    if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
+      await prepareBrowserCleanupIfNeeded();
+    }
+    let resetBaseAuthorized = false;
+    if (item.id === "limpeza_pesada") {
+      const resetBaseRequired = await Qboa.prepareCleanup(item.id);
+      if (resetBaseRequired) {
+        resetBaseAuthorized = await askConfirmation(
+          "A limpeza pesada executará DISM /StartComponentCleanup /ResetBase. Depois disso, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada não começará.",
+          "Operação irreversível: DISM /ResetBase",
+          "Sim, executar /ResetBase",
+          "Cancelar limpeza pesada"
+        );
+        if (!resetBaseAuthorized) {
+          appendConsole("Limpeza pesada cancelada na preparação: /ResetBase não autorizado. Nenhuma etapa de limpeza foi iniciada.");
+          activeTaskId = null; activeExecutionId = null; launchPending = false;
+          currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
+          const shutdownToggle = document.getElementById("shutdown-on-complete");
+          if (shutdownToggle) shutdownToggle.checked = false;
+          try { await Qboa.setShutdownOnComplete(false); } catch (error) {
+            appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
+          }
+          closeCleanupSession();
+          return false;
+        }
+      } else {
+        appendConsole("Compatibilidade: ambiente restritivo ou não classificável; /ResetBase será omitido para preservar a reversibilidade.");
+      }
+    }
+    activeTaskId = item.id;
+    preparedCleanupTask = { item, cardEl, resetBaseAuthorized };
+    launchPending = false;
+    currentOperationStage = "Aguardando autorização para iniciar.";
+    setCleanupSessionPhase("ready", item.name);
+    syncExecutionControls();
+    appendConsole("Preparação concluída. Aguardando o comando Iniciar.");
+    return true;
+  }
+
+  if (cardEl) cardEl.classList.add("running");
+  activeTaskId = item.id;
+  currentOperationName = item.name;
+  currentOperationStage = "Solicitando início ao mecanismo…";
+  updateOperationProgress(currentOperationName, currentOperationStage, null);
+  writeStatus(`> Bora cuidar de "${item.name}"...`);
+  startActivity(item.name);
+  closeRiskModal();
+  const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
+
+  try {
+    const result = await Qboa.runTask(item.id, shutdownOnComplete, false);
     if (activeTaskId === item.id) {
       activeExecutionId = result.execution_id || activeExecutionId;
       launchPending = false;
@@ -1362,7 +2761,7 @@ async function executeTask(item, cardEl) {
 async function startPreparedCleanup() {
   const prepared = preparedCleanupTask;
   if (!prepared || cleanupSessionPhase !== "ready" || !activeTaskId) return false;
-  const { item, cardEl } = prepared;
+  const { item, cardEl, resetBaseAuthorized = false } = prepared;
   preparedCleanupTask = null;
   launchPending = true;
   cleanupExecutionStarted = false;
@@ -1377,7 +2776,7 @@ async function startPreparedCleanup() {
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
 
   try {
-    const result = await Qboa.runTask(item.id, shutdownOnComplete);
+    const result = await Qboa.runTask(item.id, shutdownOnComplete, resetBaseAuthorized);
     if (activeTaskId === item.id) {
       activeExecutionId = result.execution_id || activeExecutionId;
       launchPending = false;
