@@ -110,8 +110,8 @@ function setCleanupSessionPhase(phase, taskName = "") {
   shell.querySelectorAll("[data-session-step]").forEach((step) => {
     const stepPhase = step.dataset.sessionStep;
     const order = { preparing: 0, running: 1, result: 2 };
-    step.classList.toggle("active", stepPhase === (phase === "ready" ? "preparing" : phase));
-    step.classList.toggle("complete", order[stepPhase] < (phase === "ready" ? 0 : order[phase]));
+    step.classList.toggle("active", stepPhase === (["ready", "starting"].includes(phase) ? "preparing" : phase));
+    step.classList.toggle("complete", order[stepPhase] < (["ready", "starting"].includes(phase) ? 0 : order[phase]));
   });
   if (phase === "running") updateOperationProgress(cleanupSessionTaskName || currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", currentOperationProgress);
 }
