@@ -139,6 +139,10 @@ const Qboa = {
     return invoke("run_task", { taskId, shutdownOnComplete });
   },
 
+  async setShutdownOnComplete(enabled) {
+    return invoke("set_shutdown_on_complete", { enabled });
+  },
+
   async respondRestorePointFailure(executionId, proceed) {
     return invoke("respond_restore_point_failure", { executionId, proceed });
   },
@@ -3614,6 +3618,20 @@ async function registerEvents() {
     } finally {
       confirmButton.disabled = false;
       closeRiskModal();
+    }
+  });
+
+  document.getElementById("shutdown-on-complete").addEventListener("change", async (event) => {
+    const checkbox = event.currentTarget;
+    const enabled = checkbox.checked;
+    try {
+      await Qboa.setShutdownOnComplete(enabled);
+      appendConsole(enabled
+        ? "Desligamento automático ativado para o término bem-sucedido da tarefa."
+        : "Desligamento automático desativado.");
+    } catch (error) {
+      checkbox.checked = !enabled;
+      appendConsole("Não foi possível atualizar a opção de desligamento: " + String(error));
     }
   });
 
