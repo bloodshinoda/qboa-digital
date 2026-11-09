@@ -1302,3 +1302,60 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .cleanup-preparation-actions { display:flex; justify-content:flex-end; gap:10px; padding-top:4px; }
 .cleanup-preparation-actions[hidden] { display:none !important; }
 @media(max-width:600px) { .cleanup-preparation-actions { flex-direction:column-reverse; } .cleanup-preparation-actions button { width:100%; } }
+
+
+/* O registro acompanha a sessão modal: clicável, copiável e redimensionável durante a execução. */
+.cleanup-session-modal .cleanup-session-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.cleanup-session-modal .console {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  margin-top: auto;
+  padding: 0 14px;
+  border: 1px solid rgba(74, 222, 128, .24);
+  border-top: 3px solid transparent;
+  border-image: var(--rainbow) 1;
+  border-radius: 10px;
+  background: #101512;
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, .24);
+  overflow: hidden;
+  pointer-events: auto;
+}
+.cleanup-session-modal .console-title,
+.cleanup-session-modal .console-actions,
+.cleanup-session-modal #console-resize-handle,
+.cleanup-session-modal #console-output {
+  pointer-events: auto;
+}
+.cleanup-session-modal .console[open] {
+  padding-bottom: 12px;
+}
+.cleanup-session-modal .console-actions {
+  right: 14px;
+}
+.cleanup-session-modal #console-output {
+  max-height: 40vh;
+}
+.cleanup-session-modal #console-resize-handle {
+  touch-action: none;
+  cursor: ns-resize;
+}
+@media (max-width: 600px) {
+  .cleanup-session-modal .console {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+  .cleanup-session-modal .console-actions {
+    right: 10px;
+  }
+  .cleanup-session-modal #console-output {
+    max-height: 34vh;
+  }
+}
