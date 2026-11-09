@@ -136,7 +136,7 @@ Write-Output 'Recuperação local concluída. Políticas corporativas ou de gere
 
 #[cfg(test)]
 mod tests {
-    use super::ENABLE_SCRIPT;
+    use super::{Command, ENABLE_SCRIPT};
 
     #[test]
     fn repair_removes_only_known_local_blocking_policy_values() {
