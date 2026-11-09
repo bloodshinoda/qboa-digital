@@ -1,73 +1,95 @@
-# Higiene do repositório — linha 3.2.1
+# Higiene do repositório — auditoria F1
 
-**Referência:** QBoa Digital 3.2.1  
-**Data da revisão:** 2026-11-04  
-**Branch de trabalho:** `main`
+**Data da revisão:** 2026-11-09  
+**Referência da linha estável:** QBoa Digital 3.2.2  
+**Referência da linha de trabalho:** `formula-1/f1-01-cleanup-progress`  
+**Commit F1 auditado:** `82ccf54d9c34e63e9385872156271033d2383d80`  
+**Base observada:** `main` em `714a87092e3a808fcb6211da56bad8554282f386`
 
-Este documento registra a organização do repositório após a estabilização da linha 3.2.1. Não altera o escopo funcional do aplicativo.
+Este documento registra uma fotografia do repositório e os resultados da auditoria estática. Não substitui a validação funcional no Windows nem autoriza refatorações fora do escopo aprovado.
 
-## CI e automação
+## Estado de branches
 
-`.github/workflows/windows-build.yml` é o workflow canônico para a linha principal. Ele executa em pushes para `main`, pull requests para `main`, execução manual e tags `v*`.
+A listagem remota de 2026-11-09 contém nove branches:
 
-O fluxo canônico cobre:
-
-- instalação reproduzível das dependências JavaScript com `npm ci`;
-- toolchain Rust estável para Windows MSVC;
-- verificação de formatação Rust;
-- testes Rust com `--locked --all-targets`, respeitando `Cargo.lock`;
-- self-test do coletor de armazenamento, executando as oito medições em arquivo temporário descartável;
-- build Windows;
-- geração dos artefatos instalador NSIS e portátil como executáveis individuais;
-- criação de release em rascunho quando uma tag `v*` é publicada.
-
-Os workflows legados `windows-ci.yml`, `qboa-windows-artifacts.yml` e `qboa-memory-test.yml` foram removidos da branch principal porque repetiam verificações/builds ou apontavam para branches antigas de funcionalidades já incorporadas. O histórico dos arquivos permanece disponível no Git.
-
-**Atenção:** o workflow de release continua reagindo a tags `v*`. Antes de mover ou recriar uma tag existente, confirme que a automação não criará um rascunho duplicado. A divergência histórica da tag `v3.2.1` foi conscientemente deixada sem correção nesta revisão, pois a próxima linha de versão será 3.3.
-
-## Branches
-
-A listagem remota conferida em 2026-11-04 contém somente duas branches:
-
-| Branch | Situação | Orientação |
+| Branch | Situação observada | Orientação |
 |---|---|---|
-| `main` | Linha principal | Única linha ativa de integração e CI. |
-| `feat/matriz-servicos-coletor` | Pesquisa isolada | Preservada deliberadamente; não integrar em bloco nem reabrir o PR #9 sem revisão específica. |
+| `main` | Linha estável, protegida | Preservar como referência pública |
+| `formula-1/f1-01-cleanup-progress` | Linha ativa F1; 87 commits à frente de main no snapshot | Preservar; PR #28 permanece aberto |
+| `feat/matriz-servicos-coletor` | Pesquisa isolada; quatro commits exclusivos e grande divergência | Preservar como fonte de pesquisa; não fazer merge direto |
+| `feat/windows-update-chuck` | Implementação anterior do Windows Update | PR #29 encerrado como substituído pela F1; branch preservada |
+| `feat/3.2.2-ui-resize-taskbar-progress` | Trabalho de interface anterior | PR #26 encerrado como substituído pelo PR #27, já integrado; branch preservada |
+| `ajustezinhos/3.2.2-progresso-e-frases-qboa` | Trabalho incorporado ao PR #27 | Histórico preservado |
+| `docs/f0-baseline-3.2.1` | Documentação incorporada à linha principal | Histórico preservado |
+| `docs/readme-modos-limpeza` | Documentação incorporada à linha principal | Histórico preservado |
+| `fix/f1-eventos-logs-atividade-ptbr` | Trabalho incorporado ao PR #25 | Histórico preservado |
 
-As demais branches antigas foram excluídas do remoto após a revisão de 3.2.1. A documentação e os recursos já incorporados permanecem no histórico de `main`; a exclusão das referências não remove commits do histórico.
+Branches antigas não foram removidas nesta revisão: o histórico e os commits exclusivos foram preservados enquanto se confirma a ausência de conteúdo ainda útil. A exclusão de referências remotas deve ser uma operação separada, depois da conferência final dos PRs e commits.
 
-### Branch preservada: `feat/matriz-servicos-coletor`
+## Pull requests
 
-A comparação com `main` em 2026-11-04 encontrou quatro commits exclusivos nessa branch, com quatro arquivos adicionados:
+| PR | Estado após a revisão | Decisão |
+|---|---|---|
+| #28 — contratos comuns F1 | Aberto, draft | Manter em revisão; não integrar até fechar as lacunas de contrato e preparação |
+| #29 — Windows Update | Fechado, não mergeado | Substituído pela implementação mais recente validada na F1 |
+| #26 — resize/taskbar | Fechado, não mergeado | Substituído pelo PR #27, já integrado |
+| #27 — progresso, resize e mensagens 3.2.2 | Integrado | Mantido |
+| #23, #24 e #25 | Integrados | Mantidos |
+| #9 — matriz de serviços | Fechado, não mergeado | Pesquisa preservada na branch correspondente |
 
-- `scripts/service-baselines/Collect-ServiceBaseline.ps1`: coleta metadados de serviços Windows.
-- `scripts/service-baselines/README.md`: procedimento, matriz de ambientes e critérios de proveniência.
-- `scripts/service-baselines/merge_service_baselines.py`: consolidação dos dados coletados.
-- `scripts/service-baselines/test_merge_service_baselines.py`: testes do consolidador.
+## CI e distribuição
 
-A branch está 4 commits à frente e 304 atrás de `main`, portanto divergiu consideravelmente da linha atual. Ela deve ser tratada como fonte de pesquisa seletiva, não como candidata a merge direto. O PR #9 permanece fechado.
+`.github/workflows/windows-build.yml` é o workflow canônico observado. A execução F1 de 2026-11-09, run [42695994662](https://github.com/bloodshinoda/qboa-digital/actions/runs/42695994662), concluiu com sucesso o job Windows: verificação de sintaxe JavaScript, self-test do coletor de armazenamento, rustfmt, testes Rust, instalador e pacote portátil.
 
+A etapa `prepare-draft-release` foi ignorada, conforme esperado para uma execução de branch e não de tag.
 
-## Dependências e licenças
+O fluxo usa `npm ci`, `Cargo.lock` e testes Rust com `--locked --all-targets`. Os artefatos Windows são instalador NSIS e executável portátil individual.
 
-- `package-lock.json` e `src-tauri/Cargo.lock` são mantidos no repositório.
-- A instalação do frontend no CI usa `npm ci`.
-- Os testes Rust no CI usam `--locked` para impedir atualização implícita do lockfile.
-- `THIRD_PARTY_NOTICES.md` registra a dependência LibreHardwareMonitorLib 0.9.6 e sua licença MPL-2.0.
+## Achados técnicos da auditoria F1
 
-Esta revisão não substitui uma auditoria completa das licenças transitivas de todas as dependências. Essa verificação deve ser feita antes de introduzir novos componentes distribuídos com o aplicativo.
+### Prioridade alta
 
-## Documentação de referência
+- O frontend oferece o estado “Pronto para iniciar”, mas o executor ainda solicita confirmação de falha do ponto de restauração durante a execução.
+- A confirmação do ResetBase também permanece dentro do executor. Isso não corresponde integralmente ao contrato de confirmações antecipadas.
+- Tipos de eventos e confirmações em `operation_contracts.rs` ainda não governam todos os caminhos reais.
+- O resultado estruturado da operação é criado, mas parte do fluxo ainda descarta esse retorno; métricas finais dependem de mensagens/texto.
 
-- [README](../README.md): visão geral, arquitetura, operações e desenvolvimento.
-- [CHANGELOG](../CHANGELOG.md): histórico das versões.
-- [Contrato do laudo 3.2](contrato-laudo-diagnostico-3.2.md): formato e persistência dos diagnósticos.
-- [Matriz P0 Windows](p0-windows-validation.md): roteiro de validação manual em VM descartável.
-- [Identificação de serviços Windows](identificacao-servicos-windows.md): critérios e evidências de identificação.
+### Prioridade média
+
+- Duas funções em `windows_update.rs` que aparentam ser testes não possuem atributo `#[test]`; portanto, não são executadas por `cargo test`.
+- Metadados de pacote ainda identificam a build F1 como 3.2.2. Antes de distribuir builds experimentais, adotar identificador interno sem criar versão pública.
+- O workflow não valida explicitamente a correspondência entre a versão da tag e a versão dos metadados do pacote.
+- A CI não executa Clippy nem testes comportamentais de frontend.
+- O build do monitor térmico depende de toolchain .NET externa e baixa o instalador PawnIO durante o build, com verificação SHA-256.
+
+### Robustez
+
+- Existem chamadas `unwrap()` em caminhos de execução e acesso a locks compartilhados. Revisar por contexto; não substituir mecanicamente.
+- `main.rs` e `main.js` permanecem grandes. A extração modular deve ser planejada como etapa arquitetural própria, com testes de caracterização.
+
+## Segurança e dependências
+
+- O workflow observado usa permissões restritas para o fluxo normal.
+- O reparo do Windows Update exige elevação e restringe a alteração a políticas locais conhecidas.
+- O instalador PawnIO tem hash SHA-256 verificado antes do uso.
+- `Cargo.lock` e `package-lock.json` estão versionados.
+- `THIRD_PARTY_NOTICES.md` registra LibreHardwareMonitorLib 0.9.6 e MPL-2.0.
+
+A revisão foi estática e não constitui auditoria exaustiva de licenças transitivas, cadeia de suprimentos ou regras de proteção do GitHub.
+
+## Próximas ações
+
+1. Antecipar para a preparação as decisões sobre ponto de restauração e ResetBase, preservando o fluxo fire-and-forget.
+2. Conectar eventos, confirmações, resultados e métricas estruturados aos caminhos reais.
+3. Corrigir os testes Windows Update sem `#[test]`.
+4. Definir identificação interna de build experimental e validar tags contra metadados.
+5. Atualizar a fotografia deste inventário após a próxima rodada de integração.
+6. Só então revisar a remoção das branches históricas já incorporadas.
 
 ## Limites desta revisão
 
-- Não houve alteração funcional nos motores de limpeza, serviços ou diagnóstico.
-- As branches antigas classificadas como incorporadas, substituídas ou abandonadas foram removidas do remoto; somente `main` e `feat/matriz-servicos-coletor` permanecem.
-- Não foi executada uma nova validação manual do aplicativo no Windows nesta etapa.
-- O CI deve validar os commits desta revisão antes de considerar a higiene concluída.
+- Nenhuma branch foi apagada e nenhum histórico foi reescrito.
+- PRs #26 e #29 foram encerrados como substituídos, sem merge.
+- PR #28 permanece aberto e sem merge.
+- Nenhuma release pública ou tag foi criada, movida ou removida.
+- A build F1 passou no CI e o mantenedor confirmou a validação funcional desta rodada.
