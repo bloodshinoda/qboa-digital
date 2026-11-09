@@ -105,7 +105,7 @@ foreach ($name in @('CryptSvc', 'BITS', 'wuauserv')) {
     }
     $messages.Add("Serviço essencial disponível: $name.")
   } catch {
-    throw "Não foi possível iniciar o serviço essencial $name: $($_.Exception.Message)"
+    throw "Não foi possível iniciar o serviço essencial ${name}: $($_.Exception.Message)"
   }
 }
 
@@ -123,7 +123,7 @@ foreach ($taskPath in @('\Microsoft\Windows\WindowsUpdate\', '\Microsoft\Windows
       $messages.Add("Tarefas de atualização verificadas em $taskPath.")
     }
   } catch {
-    $warnings.Add("Não foi possível consultar as tarefas em $taskPath: $($_.Exception.Message)")
+    $warnings.Add("Não foi possível consultar as tarefas em ${taskPath}: $($_.Exception.Message)")
   }
 }
 
@@ -154,6 +154,13 @@ mod tests {
     }
 
     #[test]
+    fn repair_delimits_interpolated_powershell_variables() {
+        assert!(ENABLE_SCRIPT.contains("${name}:"));
+        assert!(ENABLE_SCRIPT.contains("${taskPath}:"));
+        assert!(!ENABLE_SCRIPT.contains("$name:"));
+        assert!(!ENABLE_SCRIPT.contains("$taskPath:"));
+    }
+
     fn repair_reports_policy_management_limitations() {
         assert!(ENABLE_SCRIPT.contains("Políticas corporativas ou de gerenciamento"));
     }
