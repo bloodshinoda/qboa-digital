@@ -126,7 +126,6 @@ function closeCleanupSession() {
   cleanupSessionPlaceholders.forEach((placeholder, element) => {
     if (placeholder.parentNode) placeholder.parentNode.insertBefore(element, placeholder.nextSibling);
   });
-  const toolbar = document.querySelector(".toolbar");
   if (toolbar) toolbar.hidden = false;
   cleanupSessionPhase = "closed";
   cleanupSessionTaskName = "";
