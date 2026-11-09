@@ -1275,3 +1275,38 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   .cleanup-session-modal #operation-progress .operation-progress-track { grid-column: 1 / -1; grid-row: 2; }
   .cleanup-session-modal .toolbar { align-items: stretch; flex-wrap: wrap; }
 }
+
+
+/* O registro fica ancorado no rodapé da sessão, separado do conteúdo operacional. */
+.cleanup-preparation-options {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(74, 222, 128, .24);
+  border-radius: 10px;
+  background: rgba(74, 222, 128, .055);
+}
+.cleanup-preparation-options[hidden] { display: none !important; }
+.cleanup-preparation-options .shutdown-option { font-size: .88rem; }
+.cleanup-session-footer {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+}
+.cleanup-session-footer .console {
+  padding: 0 12px;
+  border-top: 0;
+  background: rgba(0, 0, 0, .22);
+  border-radius: 0 0 8px 8px;
+}
+.cleanup-session-footer .console-title { padding: 10px 0; }
+.cleanup-session-footer .console-actions { right: 12px; top: 4px; }
+.cleanup-session-footer #console-output { height: 132px; max-height: 28vh; }
+.cleanup-session-modal .cleanup-session-dialog { gap: 14px; }
+@media (max-width: 600px) {
+  .cleanup-session-footer .console { padding: 0 8px; }
+  .cleanup-session-footer .console-actions { right: 8px; }
+  .cleanup-session-footer #console-output { height: 112px; max-height: 24vh; }
+}
