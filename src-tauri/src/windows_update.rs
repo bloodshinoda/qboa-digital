@@ -45,6 +45,8 @@ pub(crate) fn repair() -> Result<String, String> {
 
 #[cfg(any(windows, test))]
 const ENABLE_SCRIPT: &str = r#"
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $ErrorActionPreference = 'Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -182,6 +184,11 @@ mod tests {
             "O script de recuperação contém erro de sintaxe: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    fn repair_sets_utf8_output_encoding() {
+        assert!(ENABLE_SCRIPT.contains("[Console]::OutputEncoding"));
+        assert!(ENABLE_SCRIPT.contains("$OutputEncoding"));
     }
 
     fn repair_reports_policy_management_limitations() {
