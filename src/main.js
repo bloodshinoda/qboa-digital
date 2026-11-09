@@ -120,6 +120,9 @@ function closeCleanupSession() {
   if (!shell) return;
   shell.classList.add("hidden");
   shell.setAttribute("aria-hidden", "true");
+  const toolbar = document.querySelector(".toolbar");
+  const shutdownOption = document.querySelector(".shutdown-option");
+  if (toolbar && shutdownOption && shutdownOption.parentNode !== toolbar) toolbar.insertBefore(shutdownOption, toolbar.firstChild);
   cleanupSessionPlaceholders.forEach((placeholder, element) => {
     if (placeholder.parentNode) placeholder.parentNode.insertBefore(element, placeholder.nextSibling);
   });
