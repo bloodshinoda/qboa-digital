@@ -1164,7 +1164,7 @@ function showRiskModal(item, cardEl) {
 
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
-  setCleanupSessionPhase("preparing", item?.name || "Preparando a tarefa");
+  if (isCleanupTask(item?.id)) setCleanupSessionPhase("preparing", item.name);
 }
 
 function closeRiskModal() {
@@ -1172,14 +1172,14 @@ function closeRiskModal() {
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
   pendingTask = null;
-  if (cleanupSessionPhase === "result") return;
-  if (launchPending || (cleanupSessionPhase !== "closed" && isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
+  if (cleanupSessionPhase === "closed" || cleanupSessionPhase === "result") return;
+  if (launchPending || (isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
   else if (activeTaskId) setCleanupSessionPhase("running");
   else closeCleanupSession();
 }
 
 function askConfirmation(message, title = "Vamos nessa?", confirmLabel = "Continuar", cancelLabel = "Cancelar") {
-  setCleanupSessionPhase("preparing", cleanupSessionTaskName || currentOperationName);
+  if (cleanupSessionPhase !== "closed" || isCleanupTask(activeTaskId)) setCleanupSessionPhase("preparing", cleanupSessionTaskName || currentOperationName);
   const modal = document.getElementById("confirmation-modal");
   const titleElement = document.getElementById("confirmation-title");
   const messageElement = document.getElementById("confirmation-message");
@@ -1197,7 +1197,7 @@ function askConfirmation(message, title = "Vamos nessa?", confirmLabel = "Contin
   cancelButton.textContent = cancelLabel;
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
-  setCleanupSessionPhase("preparing", cleanupSessionTaskName || currentOperationName);
+  if (cleanupSessionPhase !== "closed" || isCleanupTask(activeTaskId)) setCleanupSessionPhase("preparing", cleanupSessionTaskName || currentOperationName);
   confirmButton.focus();
 
   return new Promise((resolve) => {
@@ -1214,8 +1214,8 @@ function closeConfirmationModal(confirmed = false) {
   const resolve = pendingConfirmationResolver;
   pendingConfirmationResolver = null;
   if (resolve) resolve(confirmed);
-  if (cleanupSessionPhase === "result") return;
-  if (launchPending || (cleanupSessionPhase !== "closed" && isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
+  if (cleanupSessionPhase === "closed" || cleanupSessionPhase === "result") return;
+  if (launchPending || (isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
   else if (activeTaskId) setCleanupSessionPhase("running");
   else closeCleanupSession();
 }
