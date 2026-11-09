@@ -1071,9 +1071,13 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O DISM /ResetBase será omitido para preservar a possibilidade de reverter atualizações.");
             }
-            if !conservative_repair && !reset_base_authorized {
+            if let Err(error) = validate_reset_base_authorization(
+                &task.id,
+                conservative_repair,
+                reset_base_authorized,
+            ) {
                 on_output("[Preparação] /ResetBase não autorizado; a limpeza pesada será cancelada antes de começar.");
-                return Err("Limpeza pesada cancelada pelo usuário durante a preparação: o DISM /ResetBase exige autorização explícita.".to_string());
+                return Err(error);
             }
             on_output("[Etapa 1/9] Limpando temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
@@ -1258,12 +1262,10 @@ async fn run_task(
         .resolve(&task_id)
         .cloned()
         .ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
-    if task_id == "limpeza_pesada"
-        && !system_compat::detect().map(|a| a.use_conservative_repair).unwrap_or(true)
-        && !reset_base_authorized
-    {
-        return Err("A limpeza pesada exige autorização prévia para o DISM /ResetBase.".to_string());
-    }
+    let conservative_repair = system_compat::detect()
+        .map(|assessment| assessment.use_conservative_repair)
+        .unwrap_or(true);
+    validate_reset_base_authorization(&task_id, conservative_repair, reset_base_authorized)?;
     let execution = start_task(app, task.clone(), shutdown_on_complete, reset_base_authorized)?;
     let result = task_result(&task, &execution.execution_id);
     Ok(result)
