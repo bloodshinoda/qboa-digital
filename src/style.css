@@ -1289,24 +1289,4 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 }
 .cleanup-preparation-options[hidden] { display: none !important; }
 .cleanup-preparation-options .shutdown-option { font-size: .88rem; }
-.cleanup-session-footer {
-  flex: 0 0 auto;
-  min-width: 0;
-  margin-top: 2px;
-  border-top: 1px solid rgba(255, 255, 255, .12);
-}
-.cleanup-session-footer .console {
-  padding: 0 12px;
-  border-top: 0;
-  background: rgba(0, 0, 0, .22);
-  border-radius: 0 0 8px 8px;
-}
-.cleanup-session-footer .console-title { padding: 10px 0; }
-.cleanup-session-footer .console-actions { right: 12px; top: 4px; }
-.cleanup-session-footer #console-output { height: 132px; max-height: 28vh; }
 .cleanup-session-modal .cleanup-session-dialog { gap: 14px; }
-@media (max-width: 600px) {
-  .cleanup-session-footer .console { padding: 0 8px; }
-  .cleanup-session-footer .console-actions { right: 8px; }
-  .cleanup-session-footer #console-output { height: 112px; max-height: 24vh; }
-}
