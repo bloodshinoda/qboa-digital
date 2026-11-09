@@ -1155,8 +1155,9 @@ function closeRiskModal() {
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
   pendingTask = null;
-  if (activeTaskId) setCleanupSessionPhase("running");
-  else if (launchPending) setCleanupSessionPhase("preparing");
+  if (cleanupSessionPhase === "result") return;
+  if (launchPending) setCleanupSessionPhase("preparing");
+  else if (activeTaskId) setCleanupSessionPhase("running");
   else closeCleanupSession();
 }
 
@@ -1196,8 +1197,9 @@ function closeConfirmationModal(confirmed = false) {
   const resolve = pendingConfirmationResolver;
   pendingConfirmationResolver = null;
   if (resolve) resolve(confirmed);
-  if (activeTaskId) setCleanupSessionPhase("running");
-  else if (launchPending) setCleanupSessionPhase("preparing");
+  if (cleanupSessionPhase === "result") return;
+  if (launchPending) setCleanupSessionPhase("preparing");
+  else if (activeTaskId) setCleanupSessionPhase("running");
   else closeCleanupSession();
 }
 
@@ -1235,6 +1237,7 @@ async function executeTask(item, cardEl) {
   if (isCleanupTask(item?.id)) setCleanupSessionPhase("preparing", item.name);
   if (!eventListenersReady) {
     appendConsole("Não foi possível iniciar a operação porque o acompanhamento em tempo real não está disponível.");
+    if (isCleanupTask(item?.id)) closeCleanupSession();
     return false;
   }
   if (operationIsBusy(item?.name)) return false;
@@ -1266,6 +1269,7 @@ async function executeTask(item, cardEl) {
     appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
     activeTaskId = null; activeExecutionId = null; launchPending = false; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
+    if (isCleanupTask(item?.id)) closeCleanupSession();
     return false;
   }
 }
