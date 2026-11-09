@@ -539,6 +539,9 @@ button {
 
 .console {
   position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  margin-top: auto;
   background: #111;
   border-top: 3px solid transparent;
   border-image: var(--rainbow) 1;
