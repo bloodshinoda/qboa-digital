@@ -1065,6 +1065,13 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O DISM /ResetBase será omitido para preservar a possibilidade de reverter atualizações.");
             }
+            let reset_base_authorized = !conservative_repair && confirm_reset_base(
+                "A próxima etapa executará DISM /StartComponentCleanup /ResetBase. Depois dela, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada será cancelada antes de qualquer etapa de limpeza. Deseja executar o /ResetBase?"
+            );
+            if !conservative_repair && !reset_base_authorized {
+                on_output("[Preparação] /ResetBase não autorizado; a limpeza pesada será cancelada antes de começar.");
+                return Err("Limpeza pesada cancelada pelo usuário durante a preparação: o DISM /ResetBase exige autorização explícita.".to_string());
+            }
             on_output("[Etapa 1/9] Limpando temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
@@ -1102,10 +1109,8 @@ fn execute_task(
             let part_5 = if conservative_repair {
                 on_output("[Etapa 8/9] /ResetBase omitido: o ambiente foi classificado como modificado/restritivo.");
                 "DISM /ResetBase omitido por compatibilidade; as atualizações continuam reversíveis.".to_string()
-            } else if confirm_reset_base(
-                "A próxima etapa executará DISM /StartComponentCleanup /ResetBase. Depois dela, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada será cancelada antes desta operação. Deseja executar o /ResetBase?"
-            ) {
-                on_output("[Etapa 8/9] Executando DISM StartComponentCleanup /ResetBase após confirmação explícita...");
+            } else if reset_base_authorized {
+                on_output("[Etapa 8/9] Executando DISM StartComponentCleanup /ResetBase após autorização explícita na preparação...");
                 run_system_command(
                     "dism",
                     &[
@@ -1119,8 +1124,7 @@ fn execute_task(
                     is_cancelled,
                 )?
             } else {
-                on_output("[Etapa 8/9] Usuário não autorizou o /ResetBase; cancelando a limpeza pesada antes da operação irreversível.");
-                return Err("Limpeza pesada cancelada: o DISM /ResetBase exige autorização explícita.".to_string());
+                unreachable!("a autorização do /ResetBase foi validada antes da primeira etapa");
             };
             on_output("[Etapa 9/9] Verificando arquivos protegidos com SFC...");
             let part_7 =
@@ -1302,21 +1306,6 @@ fn start_task(
                 .finish_execution(&execution_id_for_spawn, "failed");
             return;
         }
-        write_execution_log(
-            &execution_id_for_spawn,
-            &format!("task-started task_id={task_id_for_spawn}"),
-        );
-        emit_event(
-            &app_for_spawn,
-            "task-started",
-            &task_id_for_spawn,
-            &execution_id_for_spawn,
-            &task_name,
-            true,
-            None,
-            &task_risk_for_spawn,
-        );
-
         let snapshot_location = if task_for_spawn.reversible
             || task_for_spawn.executor == task_registry::ExecutorType::Registry
         {
@@ -1491,6 +1480,21 @@ fn start_task(
         } else {
             None
         };
+
+        write_execution_log(
+            &execution_id_for_spawn,
+            &format!("task-started task_id={task_id_for_spawn}"),
+        );
+        emit_event(
+            &app_for_spawn,
+            "task-started",
+            &task_id_for_spawn,
+            &execution_id_for_spawn,
+            &task_name,
+            true,
+            None,
+            &task_risk_for_spawn,
+        );
 
         if let Err(error) = record_cleanup_progress(
             &cleanup_lifecycle,
@@ -1734,6 +1738,12 @@ fn start_task(
                 .lock()
                 .unwrap()
                 .remove(&execution_id_for_spawn);
+            if !proceed {
+                safety_state()
+                    .lock()
+                    .unwrap()
+                    .cancel_execution(&execution_id_for_spawn);
+            }
             if proceed {
                 if let Err(error) = transition_cleanup_lifecycle(
                     &cleanup_lifecycle,
