@@ -12,7 +12,7 @@ Todas as mudanças relevantes do QBoa Digital são registradas neste arquivo.
 - Atualiza a versão exibida na aba Sobre e os metadados do aplicativo para 3.2.2.
 
 ### Validação
-- Aguardando CI e testes funcionais no Windows para esta atualização.
+- CI e testes funcionais no Windows concluídos com sucesso para a linha 3.2.2.
 
 ## [3.2.1] — 2026-11-04
 
