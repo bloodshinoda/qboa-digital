@@ -780,6 +780,10 @@ fn run_system_command(
     run_command(command_name, args, execution_id, on_output, is_cancelled)
 }
 
+fn should_schedule_shutdown(enabled: bool, execution_status: &str) -> bool {
+    enabled && matches!(execution_status, "completed" | "partial")
+}
+
 #[cfg(target_os = "windows")]
 fn schedule_shutdown() -> Result<(), String> {
     Command::new("shutdown")
@@ -1930,7 +1934,10 @@ fn start_task(
                     &task_risk_for_spawn,
                 );
 
-                if SHUTDOWN_ON_COMPLETE.load(Ordering::Relaxed) {
+                if should_schedule_shutdown(
+                    SHUTDOWN_ON_COMPLETE.load(Ordering::Relaxed),
+                    result_status,
+                ) {
                     match schedule_shutdown() {
                         Ok(()) => emit_event(
                             &app_for_spawn,
@@ -2885,6 +2892,15 @@ async fn undo_service_profile_changes() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desligamento_depende_da_opcao_atual_e_de_resultado_nao_cancelado() {
+        assert!(should_schedule_shutdown(true, "completed"));
+        assert!(should_schedule_shutdown(true, "partial"));
+        assert!(!should_schedule_shutdown(false, "completed"));
+        assert!(!should_schedule_shutdown(true, "cancelled"));
+        assert!(!should_schedule_shutdown(true, "failed"));
+    }
 
     #[test]
     fn known_tasks_are_resolved() {
