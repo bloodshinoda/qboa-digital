@@ -43,6 +43,7 @@ let gpuInventorySnapshot = null;
 
 let cleanupSessionPhase = "closed";
 let cleanupSessionTaskName = "";
+let cleanupSessionPlaceholders = new Map();
 
 function ensureCleanupSessionModal() {
   if (document.getElementById("cleanup-session-modal")) return;
@@ -55,7 +56,10 @@ function ensureCleanupSessionModal() {
   const content = shell.querySelector("#cleanup-session-content");
   ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal", "toolbar"].forEach((id) => {
     const element = id === "toolbar" ? document.querySelector(".toolbar") : document.getElementById(id);
-    if (element) content.appendChild(element);
+    if (!element || !element.parentNode) return;
+    const placeholder = document.createComment("QBoa cleanup session: " + id);
+    element.parentNode.insertBefore(placeholder, element);
+    cleanupSessionPlaceholders.set(element, placeholder);
   });
   shell.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && cleanupSessionPhase === "result") closeExecutionSummary();
@@ -75,6 +79,10 @@ function setCleanupSessionPhase(phase, taskName = "") {
   const progress = document.getElementById("operation-progress");
   const summary = document.getElementById("execution-summary-modal");
   const toolbar = document.querySelector(".toolbar");
+  const content = document.getElementById("cleanup-session-content");
+  cleanupSessionPlaceholders.forEach((_placeholder, element) => {
+    if (element.parentNode !== content) content.appendChild(element);
+  });
   const preparationPromptOpen = !risk?.classList.contains("hidden") || !confirmation?.classList.contains("hidden");
   shell.classList.remove("hidden");
   shell.setAttribute("aria-hidden", "false");
@@ -102,8 +110,14 @@ function closeCleanupSession() {
   if (!shell) return;
   shell.classList.add("hidden");
   shell.setAttribute("aria-hidden", "true");
+  cleanupSessionPlaceholders.forEach((placeholder, element) => {
+    if (placeholder.parentNode) placeholder.parentNode.insertBefore(element, placeholder.nextSibling);
+  });
+  const toolbar = document.querySelector(".toolbar");
+  if (toolbar) toolbar.hidden = false;
   cleanupSessionPhase = "closed";
   cleanupSessionTaskName = "";
+  syncExecutionControls();
 }
 
 const Qboa = {
@@ -332,14 +346,15 @@ function renderTabs() {
 
 function syncExecutionControls() {
   const running = Boolean(activeTaskId || launchPending);
+  const inCleanupSession = cleanupSessionPhase !== "closed";
   const cancelButton = document.getElementById("cancel-task-btn");
   const toolbar = document.querySelector(".toolbar");
-  cancelButton.hidden = !activeTaskId || cleanupSessionPhase !== "running";
-  cancelButton.disabled = !activeTaskId || cleanupSessionPhase !== "running";
-  if (toolbar) toolbar.hidden = cleanupSessionPhase !== "running";
+  cancelButton.hidden = !activeTaskId || (inCleanupSession && cleanupSessionPhase !== "running");
+  cancelButton.disabled = !activeTaskId || (inCleanupSession && cleanupSessionPhase !== "running");
+  if (toolbar && inCleanupSession) toolbar.hidden = cleanupSessionPhase !== "running";
   const progress = document.getElementById("operation-progress");
-  if (progress) progress.hidden = !running || cleanupSessionPhase !== "running";
-  if (running && cleanupSessionPhase === "running") updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
+  if (progress) progress.hidden = !running || (inCleanupSession && cleanupSessionPhase !== "running");
+  if (running && (!inCleanupSession || cleanupSessionPhase === "running")) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
   else if (!running) clearTaskbarProgress();
 }
 
@@ -3468,6 +3483,7 @@ async function registerEvents() {
       }
       document.querySelector(`[data-task-id="${payload.task_id}"]`)?.classList.remove("running");
       if (activeTaskId === payload.task_id) activeTaskId = null;
+      launchPending = false;
       if (!payload.execution_id || payload.execution_id === activeExecutionId) activeExecutionId = null;
       currentOperationName = "";
       currentOperationStage = "";
