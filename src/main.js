@@ -254,6 +254,10 @@ const Qboa = {
     return invoke("cancel_memory_test", { sessionId });
   },
 
+  async repairWindowsUpdate() {
+    return invoke("repair_windows_update");
+  },
+
   async listWindowsServices() { return invoke("list_windows_services"); },
 
   async manageWindowsService(name, action, startType = null) { return invoke("manage_windows_service", { name, action, startType }); },
@@ -410,6 +414,19 @@ function renderCards() {
       });
       cardsEl.appendChild(card);
     });
+
+    const updateCard = document.createElement("article");
+    updateCard.className = "card windows-update-card";
+    updateCard.tabIndex = 0;
+    updateCard.setAttribute("role", "button");
+    updateCard.setAttribute("aria-label", "Windows Update: restaurar o funcionamento das atualizações");
+    updateCard.innerHTML = '<h3>Windows Update</h3><p>Repara bloqueios locais conhecidos, recupera serviços essenciais e reativa tarefas de atualização.</p><small class="windows-update-recommendation">Recomendado para o Chuck</small>';
+    const openUpdate = () => openWindowsUpdateRepair();
+    updateCard.addEventListener("click", openUpdate);
+    updateCard.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openUpdate(); }
+    });
+    cardsEl.appendChild(updateCard);
     return;
   }
   if (activeSection === "sobre") {
@@ -2395,6 +2412,28 @@ async function refreshStorageDisks(preserveSelection = true) {
   } finally {
     refreshButton.disabled = false;
   }
+}
+
+
+function openWindowsUpdateRepair() {
+  const confirmed = askConfirmation(
+    "O QBoa vai remover somente políticas locais conhecidas por bloquear atualizações, reconfigurar os serviços essenciais e reativar as tarefas do Windows Update. Políticas impostas por domínio ou gerenciamento corporativo podem ser reaplicadas pelo próprio ambiente. Deseja continuar?",
+    "Chuck, esta é a sua chance de se redimir",
+    "Restaurar Windows Update",
+    "Cancelar"
+  );
+  Promise.resolve(confirmed).then(async (accepted) => {
+    if (!accepted) return;
+    try {
+      appendConsole("Iniciando a recuperação do Windows Update…");
+      const result = await Qboa.repairWindowsUpdate();
+      appendConsole(result);
+      appendConsole("Recuperação concluída. Abra Configurações > Windows Update e procure atualizações para confirmar o funcionamento.");
+    } catch (error) {
+      appendConsole("Falha ao recuperar o Windows Update: " + String(error));
+      await askConfirmation(String(error), "Não foi possível concluir", "Concluído", "Fechar");
+    }
+  });
 }
 
 function openDiagnosticModal(target = null, mode = "quick") {
