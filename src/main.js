@@ -1139,7 +1139,6 @@ function requiresConfirmation(item) {
 
 function showRiskModal(item, cardEl) {
   pendingTask = { item, cardEl };
-  setCleanupSessionPhase("preparing", item?.name || "Preparando a tarefa");
   const modal = document.getElementById("risk-modal");
   const message = document.getElementById("risk-message");
 
@@ -1148,6 +1147,7 @@ function showRiskModal(item, cardEl) {
 
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
+  setCleanupSessionPhase("preparing", item?.name || "Preparando a tarefa");
 }
 
 function closeRiskModal() {
@@ -1155,6 +1155,9 @@ function closeRiskModal() {
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
   pendingTask = null;
+  if (activeTaskId) setCleanupSessionPhase("running");
+  else if (launchPending) setCleanupSessionPhase("preparing");
+  else closeCleanupSession();
 }
 
 function askConfirmation(message, title = "Vamos nessa?", confirmLabel = "Continuar", cancelLabel = "Cancelar") {
