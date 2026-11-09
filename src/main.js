@@ -41,6 +41,71 @@ let cpuTestSamples = [];
 let gpuTestSessionSnapshot = null;
 let gpuInventorySnapshot = null;
 
+let cleanupSessionPhase = "closed";
+let cleanupSessionTaskName = "";
+
+function ensureCleanupSessionModal() {
+  if (document.getElementById("cleanup-session-modal")) return;
+  const shell = document.createElement("div");
+  shell.id = "cleanup-session-modal";
+  shell.className = "cleanup-session-modal hidden";
+  shell.setAttribute("aria-hidden", "true");
+  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div class="cleanup-session-content" id="cleanup-session-content"></div></section>';
+  document.body.appendChild(shell);
+  const content = shell.querySelector("#cleanup-session-content");
+  ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal", "toolbar"].forEach((id) => {
+    const element = id === "toolbar" ? document.querySelector(".toolbar") : document.getElementById(id);
+    if (element) content.appendChild(element);
+  });
+  shell.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && cleanupSessionPhase === "result") closeExecutionSummary();
+  });
+}
+
+function setCleanupSessionPhase(phase, taskName = "") {
+  ensureCleanupSessionModal();
+  cleanupSessionPhase = phase;
+  if (taskName) cleanupSessionTaskName = taskName;
+  const shell = document.getElementById("cleanup-session-modal");
+  const title = document.getElementById("cleanup-session-title");
+  const description = document.getElementById("cleanup-session-description");
+  const intro = document.getElementById("cleanup-preparation-intro");
+  const risk = document.getElementById("risk-modal");
+  const confirmation = document.getElementById("confirmation-modal");
+  const progress = document.getElementById("operation-progress");
+  const summary = document.getElementById("execution-summary-modal");
+  const toolbar = document.querySelector(".toolbar");
+  const preparationPromptOpen = !risk?.classList.contains("hidden") || !confirmation?.classList.contains("hidden");
+  shell.classList.remove("hidden");
+  shell.setAttribute("aria-hidden", "false");
+  shell.dataset.phase = phase;
+  title.textContent = phase === "preparing" ? "Preparando a faxina" : phase === "running" ? "Mãos à obra!" : "Como ficou a faxina";
+  description.textContent = phase === "preparing" ? (preparationPromptOpen ? "Precisamos da sua decisão antes de continuar." : "Vamos conferir tudo antes de começar.") : phase === "running" ? (cleanupSessionTaskName || "A limpeza está em andamento.") : "A sessão terminou. Confira o resumo abaixo.";
+  intro.hidden = phase !== "preparing" || preparationPromptOpen;
+  if (progress) progress.hidden = phase !== "running";
+  if (summary) {
+    summary.classList.toggle("hidden", phase !== "result");
+    summary.setAttribute("aria-hidden", phase !== "result" ? "true" : "false");
+  }
+  if (toolbar) toolbar.hidden = phase !== "running";
+  shell.querySelectorAll("[data-session-step]").forEach((step) => {
+    const stepPhase = step.dataset.sessionStep;
+    const order = { preparing: 0, running: 1, result: 2 };
+    step.classList.toggle("active", stepPhase === phase);
+    step.classList.toggle("complete", order[stepPhase] < order[phase]);
+  });
+  if (phase === "running") updateOperationProgress(cleanupSessionTaskName || currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", currentOperationProgress);
+}
+
+function closeCleanupSession() {
+  const shell = document.getElementById("cleanup-session-modal");
+  if (!shell) return;
+  shell.classList.add("hidden");
+  shell.setAttribute("aria-hidden", "true");
+  cleanupSessionPhase = "closed";
+  cleanupSessionTaskName = "";
+}
+
 const Qboa = {
   async analyze() {
     return invoke("get_tasks");
@@ -268,13 +333,14 @@ function renderTabs() {
 function syncExecutionControls() {
   const running = Boolean(activeTaskId || launchPending);
   const cancelButton = document.getElementById("cancel-task-btn");
-
-  cancelButton.hidden = !activeTaskId;
-  cancelButton.disabled = !activeTaskId;
+  const toolbar = document.querySelector(".toolbar");
+  cancelButton.hidden = !activeTaskId || cleanupSessionPhase !== "running";
+  cancelButton.disabled = !activeTaskId || cleanupSessionPhase !== "running";
+  if (toolbar) toolbar.hidden = cleanupSessionPhase !== "running";
   const progress = document.getElementById("operation-progress");
-  if (progress) progress.hidden = !running;
-  if (running) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
-  else clearTaskbarProgress();
+  if (progress) progress.hidden = !running || cleanupSessionPhase !== "running";
+  if (running && cleanupSessionPhase === "running") updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
+  else if (!running) clearTaskbarProgress();
 }
 
 function renderCards() {
@@ -945,12 +1011,14 @@ function showCleanupResult(taskId, status, detail = "") {
   statusIcon.textContent = successful ? "✓" : cancelled ? "Ⅱ" : "!";
   statusIcon.className = `execution-summary-icon ${successful ? "success" : cancelled ? "warning" : "error"}`;
   modal.classList.remove("hidden"); modal.setAttribute("aria-hidden", "false");
+  setCleanupSessionPhase("result", taskDisplayName(taskId));
   showExecutionToast(successful ? "success" : cancelled ? "warning" : "error", title, taskDisplayName(taskId));
 }
 
 function closeExecutionSummary() {
   const modal = document.getElementById("execution-summary-modal");
   modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true");
+  closeCleanupSession();
 }
 
 function taskSuccessMessage(taskName) {
@@ -1071,6 +1139,7 @@ function requiresConfirmation(item) {
 
 function showRiskModal(item, cardEl) {
   pendingTask = { item, cardEl };
+  setCleanupSessionPhase("preparing", item?.name || "Preparando a tarefa");
   const modal = document.getElementById("risk-modal");
   const message = document.getElementById("risk-message");
 
@@ -1089,6 +1158,7 @@ function closeRiskModal() {
 }
 
 function askConfirmation(message, title = "Vamos nessa?", confirmLabel = "Continuar", cancelLabel = "Cancelar") {
+  setCleanupSessionPhase("preparing", cleanupSessionTaskName || currentOperationName);
   const modal = document.getElementById("confirmation-modal");
   const titleElement = document.getElementById("confirmation-title");
   const messageElement = document.getElementById("confirmation-message");
@@ -1106,6 +1176,7 @@ function askConfirmation(message, title = "Vamos nessa?", confirmLabel = "Contin
   cancelButton.textContent = cancelLabel;
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
+  setCleanupSessionPhase("preparing", cleanupSessionTaskName || currentOperationName);
   confirmButton.focus();
 
   return new Promise((resolve) => {
@@ -1122,6 +1193,9 @@ function closeConfirmationModal(confirmed = false) {
   const resolve = pendingConfirmationResolver;
   pendingConfirmationResolver = null;
   if (resolve) resolve(confirmed);
+  if (activeTaskId) setCleanupSessionPhase("running");
+  else if (launchPending) setCleanupSessionPhase("preparing");
+  else closeCleanupSession();
 }
 
 async function prepareBrowserCleanupIfNeeded() {
@@ -1155,6 +1229,7 @@ async function prepareBrowserCleanupIfNeeded() {
 }
 
 async function executeTask(item, cardEl) {
+  if (isCleanupTask(item?.id)) setCleanupSessionPhase("preparing", item.name);
   if (!eventListenersReady) {
     appendConsole("Não foi possível iniciar a operação porque o acompanhamento em tempo real não está disponível.");
     return false;
@@ -3316,11 +3391,13 @@ async function registerEvents() {
       if (payload.event === "task-error" && payload.message) appendConsole(`Falha ao iniciar ${taskDisplayName(payload.task_id)}: ${payload.message}`);
       return;
     } else if (payload.execution_id !== activeExecutionId || payload.task_id !== activeTaskId) {
-      return;
+      if (launchPending && activeTaskId === payload.task_id) activeExecutionId = payload.execution_id;
+      else return;
     }
     if (payload.event === "task-started") {
       executionOutput = []; executionStartedAt = Date.now(); activeTaskId = payload.task_id; activeExecutionId = payload.execution_id; launchPending = false; currentOperationProgress = null; lastProgressFlavorKey = "";
       currentOperationName = taskDisplayName(payload.task_id);
+      if (isCleanupTask(payload.task_id)) setCleanupSessionPhase("running", currentOperationName);
       currentOperationStage = "Iniciando etapa…"; updateOperationProgress(currentOperationName, currentOperationStage, payload.progress); syncExecutionControls();
       startActivity(taskDisplayName(payload.task_id));
       appendConsole(`Tarefa iniciada: ${taskDisplayName(payload.task_id)}.`);
@@ -3402,6 +3479,7 @@ async function registerEvents() {
 }
 
 (async function init() {
+  ensureCleanupSessionModal();
   restoreConsoleHeight();
   await loadStructure();
   syncExecutionControls();
