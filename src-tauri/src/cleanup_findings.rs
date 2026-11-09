@@ -101,6 +101,7 @@ pub(crate) trait CleanupFindingBackend {
     fn shortcuts(
         &mut self,
         is_cancelled: &dyn Fn() -> bool,
+        on_progress: &mut dyn FnMut(String),
     ) -> Result<Vec<ShortcutObservation>, String>;
     fn associations(&mut self) -> Result<Vec<AssociationObservation>, String>;
     fn uninstall_entries(&mut self) -> Result<Vec<UninstallObservation>, String>;
@@ -156,7 +157,16 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
     profile: &str,
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<CleanupExecutionReport, String> {
-    let detected = detect_actions_with_cancel(backend, is_cancelled)?;
+    cleanup_profile_with_progress(backend, profile, is_cancelled, &mut |_| {})
+}
+
+pub(crate) fn cleanup_profile_with_progress<B: CleanupFindingBackend>(
+    backend: &mut B,
+    profile: &str,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &mut dyn FnMut(String),
+) -> Result<CleanupExecutionReport, String> {
+    let detected = detect_actions_with_cancel(backend, is_cancelled, on_progress)?;
     let mut report = CleanupExecutionReport::default();
     for candidate in detected {
         if is_cancelled() {
@@ -206,19 +216,20 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
 fn detect_actions<B: CleanupFindingBackend>(
     backend: &mut B,
 ) -> Result<Vec<DetectedFinding>, String> {
-    detect_actions_with_cancel(backend, &|| false)
+    detect_actions_with_cancel(backend, &|| false, &mut |_| {})
 }
 
 fn detect_actions_with_cancel<B: CleanupFindingBackend>(
     backend: &mut B,
     is_cancelled: &dyn Fn() -> bool,
+    on_progress: &mut dyn FnMut(String),
 ) -> Result<Vec<DetectedFinding>, String> {
     if is_cancelled() {
         return Err("Tarefa cancelada pelo usuário antes da varredura integrada.".to_string());
     }
     let mut findings = Vec::new();
 
-    for shortcut in backend.shortcuts(is_cancelled)? {
+    for shortcut in backend.shortcuts(is_cancelled, on_progress)? {
         if is_cancelled() {
             return Err(
                 "Tarefa cancelada pelo usuário durante a verificação de atalhos.".to_string(),
@@ -1001,7 +1012,9 @@ mod tests {
         fn shortcuts(
             &mut self,
             _is_cancelled: &dyn Fn() -> bool,
+            on_progress: &mut dyn FnMut(String),
         ) -> Result<Vec<ShortcutObservation>, String> {
+            on_progress(format!("Varredura de atalhos: {} encontrado(s) no backend de teste.", self.shortcuts.len()));
             Ok(self.shortcuts.clone())
         }
 
