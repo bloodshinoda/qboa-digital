@@ -1016,13 +1016,6 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[cfg(target_os = "windows")]
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ShortcutResponse {
-    state: String,
-}
-
-#[cfg(target_os = "windows")]
-#[derive(Deserialize)]
 struct WindowsAssociation {
     extension: String,
     source: String,
@@ -1336,6 +1329,29 @@ mod tests {
             .deleted
             .iter()
             .any(|action| matches!(action, FindingAction::DeleteUninstallEntry { .. })));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cancelamento_interrompe_o_powershell_em_execucao() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let signal = Arc::clone(&cancelled);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            signal.store(true, Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let result = run_powershell_cancelable(
+            "Start-Sleep -Seconds 20",
+            &|| cancelled.load(Ordering::SeqCst),
+            Duration::from_secs(25),
+        );
+        assert!(result.unwrap_err().contains("cancelada"));
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 
     #[cfg(target_os = "windows")]
