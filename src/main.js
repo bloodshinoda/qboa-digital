@@ -92,15 +92,15 @@ function setCleanupSessionPhase(phase, taskName = "") {
     const target = phase === "running" ? toolbar : preparationOptions;
     if (target && shutdownOption.parentNode !== target) target.appendChild(shutdownOption);
   }
-  preparationOptions.hidden = !["preparing", "ready"].includes(phase);
+  preparationOptions.hidden = !["preparing", "ready", "starting"].includes(phase);
   if (preparationActions) preparationActions.hidden = phase !== "ready";
   const preparationPromptOpen = !risk?.classList.contains("hidden") || !confirmation?.classList.contains("hidden");
   shell.classList.remove("hidden");
   shell.setAttribute("aria-hidden", "false");
   shell.dataset.phase = phase;
-  title.textContent = phase === "preparing" ? "Preparando a faxina" : phase === "ready" ? "Pronto para iniciar" : phase === "running" ? "Mãos à obra!" : "Como ficou a faxina";
-  description.textContent = phase === "preparing" ? (preparationPromptOpen ? "Precisamos da sua decisão antes de continuar." : "Vamos conferir tudo antes de começar.") : phase === "ready" ? "Tudo conferido. Quando quiser, inicie a limpeza; nenhuma etapa de limpeza começou ainda." : phase === "running" ? (cleanupSessionTaskName || "A limpeza está em andamento.") : "A sessão terminou. Confira o resumo abaixo.";
-  intro.hidden = phase !== "preparing" || preparationPromptOpen;
+  title.textContent = phase === "preparing" ? "Preparando a faxina" : phase === "ready" ? "Pronto para iniciar" : phase === "starting" ? "Preparando a proteção" : phase === "running" ? "Mãos à obra!" : "Como ficou a faxina";
+  description.textContent = phase === "preparing" ? (preparationPromptOpen ? "Precisamos da sua decisão antes de continuar." : "Vamos conferir tudo antes de começar.") : phase === "ready" ? "Tudo conferido. Quando quiser, inicie a limpeza; nenhuma etapa de limpeza começou ainda." : phase === "starting" ? "O QBoa está preparando a proteção do sistema. A limpeza ainda não começou." : phase === "running" ? (cleanupSessionTaskName || "A limpeza está em andamento.") : "A sessão terminou. Confira o resumo abaixo.";
+  intro.hidden = !["preparing", "starting"].includes(phase) || preparationPromptOpen;
   if (progress) progress.hidden = phase !== "running";
   if (summary) {
     summary.classList.toggle("hidden", phase !== "result");
@@ -1368,7 +1368,7 @@ async function startPreparedCleanup() {
   cleanupExecutionStarted = false;
   currentOperationName = item.name;
   currentOperationStage = "Solicitando início ao mecanismo…";
-  setCleanupSessionPhase("running", item.name);
+  setCleanupSessionPhase("starting", item.name);
   syncExecutionControls();
   if (cardEl) cardEl.classList.add("running");
   updateOperationProgress(item.name, currentOperationStage, null);
