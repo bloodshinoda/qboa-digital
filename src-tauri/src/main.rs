@@ -1219,7 +1219,9 @@ fn validate_reset_base_authorization(
     authorized: bool,
 ) -> Result<(), String> {
     if reset_base_confirmation_required(task_id, conservative_repair) && !authorized {
-        return Err("A limpeza pesada exige autorização prévia para o DISM /ResetBase.".to_string());
+        return Err(
+            "A limpeza pesada exige autorização prévia para o DISM /ResetBase.".to_string(),
+        );
     }
     Ok(())
 }
