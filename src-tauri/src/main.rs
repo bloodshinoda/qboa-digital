@@ -1222,6 +1222,17 @@ async fn respond_reset_base_confirmation(
 }
 
 #[tauri::command]
+async fn prepare_cleanup(task_id: String) -> Result<bool, String> {
+    if task_id != "limpeza_pesada" {
+        return Ok(false);
+    }
+    // Falha na classificação deve preservar a reversibilidade e, portanto, omitir o ResetBase.
+    Ok(!system_compat::detect()
+        .map(|assessment| assessment.use_conservative_repair)
+        .unwrap_or(true))
+}
+
+#[tauri::command]
 async fn set_shutdown_on_complete(enabled: bool) -> Result<(), String> {
     SHUTDOWN_ON_COMPLETE.store(enabled, Ordering::Relaxed);
     Ok(())
@@ -2970,6 +2981,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             finish_startup,
             get_tasks,
+            prepare_cleanup,
             run_task,
             set_shutdown_on_complete,
             respond_restore_point_failure,
