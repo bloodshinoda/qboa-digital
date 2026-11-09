@@ -2836,7 +2836,6 @@ async fn manage_windows_service(
     service_manager::manage_service(&name, &action, start_type.as_deref())
 }
 
-
 #[tauri::command]
 async fn repair_windows_update() -> Result<String, String> {
     windows_update::repair()
