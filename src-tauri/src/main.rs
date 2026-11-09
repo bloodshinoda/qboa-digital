@@ -52,6 +52,7 @@ struct TaskResult {
 type EventPayload = operation_contracts::CleanupEventEnvelope;
 
 static BROWSER_CLEANUP_ENABLED: AtomicBool = AtomicBool::new(true);
+static SHUTDOWN_ON_COMPLETE: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "windows")]
 static STORAGE_SCRIPT_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1219,6 +1220,12 @@ async fn respond_reset_base_confirmation(
 }
 
 #[tauri::command]
+async fn set_shutdown_on_complete(enabled: bool) -> Result<(), String> {
+    SHUTDOWN_ON_COMPLETE.store(enabled, Ordering::Relaxed);
+    Ok(())
+}
+
+#[tauri::command]
 async fn run_task(
     app: AppHandle,
     task_id: String,
@@ -1255,6 +1262,7 @@ fn start_task(
     let _start_guard = operation_start_gate()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    SHUTDOWN_ON_COMPLETE.store(shutdown_on_complete, Ordering::Relaxed);
     if memory_test::session::is_active() {
         return Err(
             "O teste de integridade da RAM está em andamento. Aguarde ou cancele a sessão antes de iniciar outra tarefa."
@@ -1922,7 +1930,7 @@ fn start_task(
                     &task_risk_for_spawn,
                 );
 
-                if shutdown_on_complete {
+                if SHUTDOWN_ON_COMPLETE.load(Ordering::Relaxed) {
                     match schedule_shutdown() {
                         Ok(()) => emit_event(
                             &app_for_spawn,
@@ -2997,6 +3005,7 @@ fn main() {
             finish_startup,
             get_tasks,
             run_task,
+            set_shutdown_on_complete,
             respond_restore_point_failure,
             respond_reset_base_confirmation,
             get_running_browsers,
