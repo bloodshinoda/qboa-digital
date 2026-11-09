@@ -466,7 +466,9 @@ impl CleanupFindingBackend for WindowsCleanupFindingBackend {
         let mut seen = std::collections::HashSet::new();
         for root in roots {
             if is_cancelled() {
-                return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
+                );
             }
             match std::fs::metadata(&root) {
                 Ok(metadata) if metadata.is_dir() => {}
@@ -481,17 +483,27 @@ impl CleanupFindingBackend for WindowsCleanupFindingBackend {
         }
 
         let total = paths.len();
-        on_progress(format!("Varredura de atalhos: {total} encontrado(s); inspeção em lotes iniciada."));
+        on_progress(format!(
+            "Varredura de atalhos: {total} encontrado(s); inspeção em lotes iniciada."
+        ));
         let mut observations = Vec::with_capacity(total);
         let mut valid_header_paths = Vec::new();
         for path in paths {
             if is_cancelled() {
-                return Err("Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string());
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string(),
+                );
             }
             match std::fs::read(&path) {
                 Ok(bytes) if shortcut_header_is_valid(&bytes) => valid_header_paths.push(path),
-                Ok(_) => observations.push(ShortcutObservation { path, state: ShortcutState::InvalidLink }),
-                Err(_) => observations.push(ShortcutObservation { path, state: ShortcutState::Uncertain }),
+                Ok(_) => observations.push(ShortcutObservation {
+                    path,
+                    state: ShortcutState::InvalidLink,
+                }),
+                Err(_) => observations.push(ShortcutObservation {
+                    path,
+                    state: ShortcutState::Uncertain,
+                }),
             }
         }
 
@@ -499,7 +511,9 @@ impl CleanupFindingBackend for WindowsCleanupFindingBackend {
         let total_to_inspect = valid_header_paths.len();
         for (index, batch) in valid_header_paths.chunks(BATCH_SIZE).enumerate() {
             if is_cancelled() {
-                return Err("Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string());
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string(),
+                );
             }
             let batch_paths = batch.to_vec();
             match inspect_shortcuts_batch(&batch_paths, is_cancelled) {
@@ -722,7 +736,9 @@ fn collect_shortcut_paths(
 ) -> Result<(), String> {
     use std::os::windows::fs::MetadataExt;
     if is_cancelled() {
-        return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
+        return Err(
+            "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
+        );
     }
     let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -733,22 +749,33 @@ fn collect_shortcut_paths(
     };
     for entry in entries {
         if is_cancelled() {
-            return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
+            return Err(
+                "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
+            );
         }
         let Ok(entry) = entry else { continue };
         let path = entry.path();
-        let Ok(metadata) = std::fs::symlink_metadata(&path) else { continue };
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
         // Não atravessa links simbólicos, junctions ou outros reparse points.
-        if metadata.file_attributes() & 0x400 != 0 { continue; }
+        if metadata.file_attributes() & 0x400 != 0 {
+            continue;
+        }
         if metadata.is_dir() {
             collect_shortcut_paths(&path, seen, paths, is_cancelled, on_progress)?;
         } else if metadata.is_file()
-            && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("lnk"))
+            && path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("lnk"))
             && seen.insert(path.clone())
         {
             paths.push(path);
             if paths.len() % 50 == 0 {
-                on_progress(format!("Varredura de atalhos: {} encontrado(s)...", paths.len()));
+                on_progress(format!(
+                    "Varredura de atalhos: {} encontrado(s)...",
+                    paths.len()
+                ));
             }
         }
     }
@@ -776,22 +803,30 @@ fn inspect_shortcuts_batch(
     paths: &[PathBuf],
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<Vec<ShortcutObservation>, String> {
-    let values: Vec<String> = paths.iter().map(|path| path.to_string_lossy().into_owned()).collect();
+    let values: Vec<String> = paths
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
     let encoded = base64_encode(&serde_json::to_vec(&values).map_err(|error| error.to_string())?);
     let script = format!(
         r#"$ErrorActionPreference='Stop';$paths=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))|ConvertFrom-Json;$shell=New-Object -ComObject WScript.Shell;$results=foreach($p in $paths){{try{{$link=$shell.CreateShortcut([string]$p);$target=[Environment]::ExpandEnvironmentVariables([string]$link.TargetPath);$state=if(!$target -or ![IO.Path]::IsPathRooted($target)){{'uncertain'}}elseif(Test-Path -LiteralPath $target){{'valid'}}else{{'broken'}}}}catch{{$state='uncertain'}};[pscustomobject]@{{path=[string]$p;state=$state}}}};ConvertTo-Json -InputObject @($results) -Compress"#
     );
-    let output = run_powershell_cancelable(&script, is_cancelled, std::time::Duration::from_secs(12))?;
-    let responses: Vec<ShortcutBatchResponse> = serde_json::from_str(output.trim_start_matches('\u{feff}'))
-        .map_err(|error| format!("Resposta da inspeção em lote inválida: {error}"))?;
-    Ok(responses.into_iter().map(|item| ShortcutObservation {
-        path: PathBuf::from(item.path),
-        state: match item.state.as_str() {
-            "valid" => ShortcutState::Valid,
-            "broken" => ShortcutState::BrokenTarget,
-            _ => ShortcutState::Uncertain,
-        },
-    }).collect())
+    let output =
+        run_powershell_cancelable(&script, is_cancelled, std::time::Duration::from_secs(12))?;
+    let responses: Vec<ShortcutBatchResponse> =
+        serde_json::from_str(output.trim_start_matches('\u{feff}'))
+            .map_err(|error| format!("Resposta da inspeção em lote inválida: {error}"))?;
+    Ok(responses
+        .into_iter()
+        .map(|item| ShortcutObservation {
+            path: PathBuf::from(item.path),
+            state: match item.state.as_str() {
+                "valid" => ShortcutState::Valid,
+                "broken" => ShortcutState::BrokenTarget,
+                _ => ShortcutState::Uncertain,
+            },
+        })
+        .collect())
 }
 
 #[cfg(target_os = "windows")]
@@ -906,30 +941,54 @@ fn run_powershell_cancelable(
     use std::time::Instant;
     let utf16: Vec<u16> = format!(
         "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
-    ).encode_utf16().collect();
-    let encoded = base64_encode(&utf16.into_iter().flat_map(u16::to_le_bytes).collect::<Vec<_>>());
+    ).encode_utf16()
+    .collect();
+    let encoded = base64_encode(
+        &utf16
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
     let mut command = Command::new("powershell");
-    command.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &encoded]);
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        &encoded,
+    ]);
     command.creation_flags(0x08000000);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|error| format!("Não foi possível iniciar a inspeção em lote: {error}"))?;
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Não foi possível iniciar a inspeção em lote: {error}"))?;
     let started = Instant::now();
     loop {
         if is_cancelled() {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string());
+            return Err(
+                "Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string(),
+            );
         }
         if started.elapsed() >= timeout {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("Lote excedeu 12 segundos; atalhos preservados como inconclusivos.".to_string());
+            return Err(
+                "Lote excedeu 12 segundos; atalhos preservados como inconclusivos.".to_string(),
+            );
         }
         match child.try_wait() {
             Ok(Some(_)) => {
-                let output = child.wait_with_output().map_err(|error| error.to_string())?;
+                let output = child
+                    .wait_with_output()
+                    .map_err(|error| error.to_string())?;
                 if !output.status.success() {
-                    return Err(format!("PowerShell retornou erro: {}", String::from_utf8_lossy(&output.stderr)));
+                    return Err(format!(
+                        "PowerShell retornou erro: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
                 }
                 return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }
@@ -1105,7 +1164,10 @@ mod tests {
             _is_cancelled: &dyn Fn() -> bool,
             on_progress: &mut dyn FnMut(String),
         ) -> Result<Vec<ShortcutObservation>, String> {
-            on_progress(format!("Varredura de atalhos: {} encontrado(s) no backend de teste.", self.shortcuts.len()));
+            on_progress(format!(
+                "Varredura de atalhos: {} encontrado(s) no backend de teste.",
+                self.shortcuts.len()
+            ));
             Ok(self.shortcuts.clone())
         }
 
