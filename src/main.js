@@ -148,8 +148,12 @@ const Qboa = {
     return invoke("prepare_browser_cleanup", { closeRunning });
   },
 
-  async runTask(taskId, shutdownOnComplete) {
-    return invoke("run_task", { taskId, shutdownOnComplete });
+  async prepareCleanup(taskId) {
+    return invoke("prepare_cleanup", { taskId });
+  },
+
+  async runTask(taskId, shutdownOnComplete, resetBaseAuthorized = false) {
+    return invoke("run_task", { taskId, shutdownOnComplete, resetBaseAuthorized });
   },
 
   async setShutdownOnComplete(enabled) {
@@ -160,9 +164,6 @@ const Qboa = {
     return invoke("respond_restore_point_failure", { executionId, proceed });
   },
 
-  async respondResetBaseConfirmation(executionId, proceed) {
-    return invoke("respond_reset_base_confirmation", { executionId, proceed });
-  },
 
   async getSessionHistory() {
     return invoke("get_session_history");
@@ -1316,8 +1317,42 @@ async function executeTask(item, cardEl) {
     if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
       await prepareBrowserCleanupIfNeeded();
     }
+    let resetBaseAuthorized = false;
+    if (item.id === "limpeza_pesada") {
+      let resetBaseRequired;
+      try { resetBaseRequired = await Qboa.prepareCleanup(item.id); }
+      catch (error) {
+        appendConsole("Não foi possível verificar a necessidade do /ResetBase. A limpeza pesada não será liberada: " + String(error));
+        activeTaskId = null; activeExecutionId = null; launchPending = false;
+        currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
+        closeCleanupSession();
+        return false;
+      }
+      if (resetBaseRequired) {
+        resetBaseAuthorized = await askConfirmation(
+          "A limpeza pesada executará DISM /StartComponentCleanup /ResetBase. Depois disso, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada não começará.",
+          "Operação irreversível: DISM /ResetBase",
+          "Sim, executar /ResetBase",
+          "Cancelar limpeza pesada"
+        );
+        if (!resetBaseAuthorized) {
+          appendConsole("Limpeza pesada cancelada na preparação: /ResetBase não autorizado. Nenhuma etapa de limpeza foi iniciada.");
+          activeTaskId = null; activeExecutionId = null; launchPending = false;
+          currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
+          const shutdownToggle = document.getElementById("shutdown-on-complete");
+          if (shutdownToggle) shutdownToggle.checked = false;
+          try { await Qboa.setShutdownOnComplete(false); } catch (error) {
+            appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
+          }
+          closeCleanupSession();
+          return false;
+        }
+      } else {
+        appendConsole("Compatibilidade: ambiente restritivo ou não classificável; /ResetBase será omitido para preservar a reversibilidade.");
+      }
+    }
     activeTaskId = item.id;
-    preparedCleanupTask = { item, cardEl };
+    preparedCleanupTask = { item, cardEl, resetBaseAuthorized };
     launchPending = false;
     currentOperationStage = "Aguardando autorização para iniciar.";
     setCleanupSessionPhase("ready", item.name);
@@ -1337,7 +1372,7 @@ async function executeTask(item, cardEl) {
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
 
   try {
-    const result = await Qboa.runTask(item.id, shutdownOnComplete);
+    const result = await Qboa.runTask(item.id, shutdownOnComplete, false);
     if (activeTaskId === item.id) {
       activeExecutionId = result.execution_id || activeExecutionId;
       launchPending = false;
@@ -1362,7 +1397,7 @@ async function executeTask(item, cardEl) {
 async function startPreparedCleanup() {
   const prepared = preparedCleanupTask;
   if (!prepared || cleanupSessionPhase !== "ready" || !activeTaskId) return false;
-  const { item, cardEl } = prepared;
+  const { item, cardEl, resetBaseAuthorized = false } = prepared;
   preparedCleanupTask = null;
   launchPending = true;
   cleanupExecutionStarted = false;
@@ -1377,7 +1412,7 @@ async function startPreparedCleanup() {
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
 
   try {
-    const result = await Qboa.runTask(item.id, shutdownOnComplete);
+    const result = await Qboa.runTask(item.id, shutdownOnComplete, resetBaseAuthorized);
     if (activeTaskId === item.id) {
       activeExecutionId = result.execution_id || activeExecutionId;
       launchPending = false;
@@ -3600,23 +3635,6 @@ async function registerEvents() {
         }
       })();
     }
-
-    if (payload.event === "reset-base-confirmation-required") {
-      void (async () => {
-        const proceed = await askConfirmation(
-          payload.message || "O DISM /ResetBase impede a desinstalação das atualizações já instaladas. Se não autorizar, a limpeza pesada será cancelada.",
-          "Operação irreversível: DISM /ResetBase",
-          "Sim, executar /ResetBase",
-          "Cancelar limpeza pesada"
-        );
-        try {
-          await Qboa.respondResetBaseConfirmation(payload.execution_id, proceed);
-        } catch (error) {
-          appendConsole(`Não foi possível responder à confirmação do /ResetBase: ${String(error)}`);
-        }
-      })();
-    }
-
 
     if (payload.event === "task-progress" && payload.message) {
       currentOperationStage = payload.message;

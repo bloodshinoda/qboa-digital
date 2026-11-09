@@ -113,14 +113,6 @@ fn restore_point_responses() -> &'static Mutex<std::collections::HashMap<String,
     RESTORE_POINT_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
-static RESET_BASE_RESPONSES: std::sync::OnceLock<
-    Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>>,
-> = std::sync::OnceLock::new();
-
-fn reset_base_responses() -> &'static Mutex<std::collections::HashMap<String, mpsc::Sender<bool>>> {
-    RESET_BASE_RESPONSES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-}
-
 fn safety_state() -> &'static Arc<Mutex<SafetyManager>> {
     SAFETY_STATE.get_or_init(|| Arc::new(Mutex::new(SafetyManager::new())))
 }
@@ -1031,7 +1023,7 @@ fn execute_task(
     on_output: &mut dyn FnMut(&str),
     is_cancelled: &dyn Fn() -> bool,
     apply_registry: &mut dyn FnMut(&str) -> Result<u64, String>,
-    confirm_reset_base: &mut dyn FnMut(&str) -> bool,
+    reset_base_authorized: bool,
 ) -> Result<String, String> {
     if is_cancelled() {
         return Err("Tudo bem, a tarefa foi interrompida a seu pedido.".to_string());
@@ -1071,12 +1063,13 @@ fn execute_task(
             if conservative_repair {
                 on_output("[Compatibilidade] Ambiente modificado/restritivo detectado. O DISM /ResetBase será omitido para preservar a possibilidade de reverter atualizações.");
             }
-            let reset_base_authorized = !conservative_repair && confirm_reset_base(
-                "A próxima etapa executará DISM /StartComponentCleanup /ResetBase. Depois dela, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada será cancelada antes de qualquer etapa de limpeza. Deseja executar o /ResetBase?"
-            );
-            if !conservative_repair && !reset_base_authorized {
+            if let Err(error) = validate_reset_base_authorization(
+                &task.id,
+                conservative_repair,
+                reset_base_authorized,
+            ) {
                 on_output("[Preparação] /ResetBase não autorizado; a limpeza pesada será cancelada antes de começar.");
-                return Err("Limpeza pesada cancelada pelo usuário durante a preparação: o DISM /ResetBase exige autorização explícita.".to_string());
+                return Err(error);
             }
             on_output("[Etapa 1/9] Limpando temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
@@ -1207,21 +1200,23 @@ async fn respond_restore_point_failure(execution_id: String, proceed: bool) -> R
         .map_err(|_| "Não foi possível enviar a resposta para a tarefa.".to_string())
 }
 
+fn reset_base_confirmation_required(task_id: &str, conservative_repair: bool) -> bool {
+    task_id == "limpeza_pesada" && !conservative_repair
+}
+
+fn validate_reset_base_authorization(task_id: &str, conservative_repair: bool, authorized: bool) -> Result<(), String> {
+    if reset_base_confirmation_required(task_id, conservative_repair) && !authorized {
+        return Err("A limpeza pesada exige autorização prévia para o DISM /ResetBase.".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
-async fn respond_reset_base_confirmation(
-    execution_id: String,
-    proceed: bool,
-) -> Result<(), String> {
-    let sender = reset_base_responses()
-        .lock()
-        .unwrap()
-        .remove(&execution_id)
-        .ok_or_else(|| {
-            "A confirmação do DISM /ResetBase expirou ou não está mais pendente.".to_string()
-        })?;
-    sender
-        .send(proceed)
-        .map_err(|_| "Não foi possível enviar a resposta da confirmação do /ResetBase.".to_string())
+async fn prepare_cleanup(task_id: String) -> Result<bool, String> {
+    let conservative_repair = system_compat::detect()
+        .map(|assessment| assessment.use_conservative_repair)
+        .unwrap_or(true);
+    Ok(reset_base_confirmation_required(&task_id, conservative_repair))
 }
 
 #[tauri::command]
@@ -1235,13 +1230,18 @@ async fn run_task(
     app: AppHandle,
     task_id: String,
     shutdown_on_complete: bool,
+    reset_base_authorized: bool,
 ) -> Result<TaskResult, String> {
     let registry = TaskRegistry::try_new()?;
     let task = registry
         .resolve(&task_id)
         .cloned()
         .ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
-    let execution = start_task(app, task.clone(), shutdown_on_complete)?;
+    let conservative_repair = system_compat::detect()
+        .map(|assessment| assessment.use_conservative_repair)
+        .unwrap_or(true);
+    validate_reset_base_authorization(&task_id, conservative_repair, reset_base_authorized)?;
+    let execution = start_task(app, task.clone(), shutdown_on_complete, reset_base_authorized)?;
     let result = task_result(&task, &execution.execution_id);
     Ok(result)
 }
@@ -1263,6 +1263,7 @@ fn start_task(
     app: AppHandle,
     task: Task,
     shutdown_on_complete: bool,
+    reset_base_authorized: bool,
 ) -> Result<safety::ExecutionHandle, String> {
     let _start_guard = operation_start_gate()
         .lock()
@@ -1711,66 +1712,6 @@ fn start_task(
             }
         };
 
-        let mut confirm_reset_base = |message: &str| {
-            let (sender, receiver) = mpsc::channel();
-            reset_base_responses()
-                .lock()
-                .unwrap()
-                .insert(execution_id_for_spawn.clone(), sender);
-            if let Err(error) = transition_cleanup_lifecycle(
-                &cleanup_lifecycle,
-                operation_contracts::CleanupExecutionState::AwaitingConfirmation,
-            ) {
-                write_execution_log(
-                    &execution_id_for_spawn,
-                    &format!("cleanup-contract-confirmation-failed error={error}"),
-                );
-            }
-            emit_event(
-                &app_for_spawn,
-                "reset-base-confirmation-required",
-                &task_id_for_spawn,
-                &execution_id_for_spawn,
-                message,
-                false,
-                None,
-                &task_risk_for_spawn,
-            );
-            let proceed = match receive_confirmation(&receiver, Duration::from_secs(300)) {
-                ConfirmationWait::Answered(response) => response,
-                ConfirmationWait::TimedOut => {
-                    write_execution_log(
-                        &execution_id_for_spawn,
-                        "confirmation-timeout tipo=reset-base; decisão=cancelar",
-                    );
-                    false
-                }
-                ConfirmationWait::Disconnected => false,
-            };
-            reset_base_responses()
-                .lock()
-                .unwrap()
-                .remove(&execution_id_for_spawn);
-            if !proceed {
-                safety_state()
-                    .lock()
-                    .unwrap()
-                    .cancel_execution(&execution_id_for_spawn);
-            }
-            if proceed {
-                if let Err(error) = transition_cleanup_lifecycle(
-                    &cleanup_lifecycle,
-                    operation_contracts::CleanupExecutionState::Running,
-                ) {
-                    write_execution_log(
-                        &execution_id_for_spawn,
-                        &format!("cleanup-contract-resume-failed error={error}"),
-                    );
-                }
-            }
-            proceed
-        };
-
         let execution_started = Instant::now();
         let execution = execute_task(
             &task_for_spawn,
@@ -1778,9 +1719,8 @@ fn start_task(
             &mut on_output,
             &is_cancelled,
             &mut apply_registry,
-            &mut confirm_reset_base,
+            reset_base_authorized,
         );
-        drop(confirm_reset_base);
         drop(apply_registry);
         drop(on_output);
         match execution {
@@ -2316,7 +2256,7 @@ async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, St
 
     tauri::async_runtime::spawn(async move {
         for task in tasks {
-            if let Err(error) = start_task(app.clone(), task.clone(), false) {
+            if let Err(error) = start_task(app.clone(), task.clone(), false, false) {
                 emit_event(
                     &app,
                     "task-error",
@@ -2909,6 +2849,19 @@ mod tests {
     }
 
     #[test]
+    fn reset_base_confirmation_is_required_before_heavy_cleanup_is_released() {
+        assert!(reset_base_confirmation_required("limpeza_pesada", false));
+        assert!(!reset_base_confirmation_required("limpeza_pesada", true));
+        assert!(!reset_base_confirmation_required("limpeza_media", false));
+    }
+
+    #[test]
+    fn heavy_cleanup_fails_closed_without_reset_base_authorization() {
+        assert!(validate_reset_base_authorization("limpeza_pesada", false, false).is_err());
+        assert!(validate_reset_base_authorization("limpeza_pesada", false, true).is_ok());
+        assert!(validate_reset_base_authorization("limpeza_pesada", true, false).is_ok());
+    }
+    #[test]
     fn known_tasks_are_resolved() {
         assert!(resolve_task("limpeza_leve").unwrap().is_some());
         assert!(resolve_task("desengordurar_telemetria").unwrap().is_some());
@@ -3026,10 +2979,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             finish_startup,
             get_tasks,
+            prepare_cleanup,
             run_task,
             set_shutdown_on_complete,
             respond_restore_point_failure,
-            respond_reset_base_confirmation,
             get_running_browsers,
             prepare_browser_cleanup,
             cancel_task,
