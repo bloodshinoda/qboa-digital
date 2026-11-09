@@ -336,7 +336,9 @@ mod tests {
         let registered = vec!["Debian".to_string()];
         let capability = classify_wsl(Some("Disabled"), &registered, &[]);
         assert_eq!(capability.status, CapabilityStatus::Detected);
-        assert!(capability.summary.contains("nenhuma distribuição está em execução"));
+        assert!(capability
+            .summary
+            .contains("nenhuma distribuição está em execução"));
     }
 
     #[test]
