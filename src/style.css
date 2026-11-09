@@ -1298,3 +1298,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 /* Recurso de recuperação do Windows Update — mantido junto ao diagnóstico. */
 .windows-update-card { display:flex; flex-direction:column; min-height:142px; }
 .windows-update-recommendation { display:block; margin-top:auto; padding-top:14px; color:#c7e8d4; font-size:.68rem; letter-spacing:.07em; text-transform:uppercase; }
+
+.cleanup-preparation-actions { display:flex; justify-content:flex-end; gap:10px; padding-top:4px; }
+.cleanup-preparation-actions[hidden] { display:none !important; }
+@media(max-width:600px) { .cleanup-preparation-actions { flex-direction:column-reverse; } .cleanup-preparation-actions button { width:100%; } }

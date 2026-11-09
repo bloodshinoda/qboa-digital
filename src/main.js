@@ -44,6 +44,7 @@ let gpuInventorySnapshot = null;
 let cleanupSessionPhase = "closed";
 let cleanupSessionTaskName = "";
 let cleanupExecutionStarted = false;
+let preparedCleanupTask = null;
 let cleanupSessionPlaceholders = new Map();
 
 function ensureCleanupSessionModal() {
@@ -52,7 +53,7 @@ function ensureCleanupSessionModal() {
   shell.id = "cleanup-session-modal";
   shell.className = "cleanup-session-modal hidden";
   shell.setAttribute("aria-hidden", "true");
-  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div class="cleanup-session-content" id="cleanup-session-content"></div></section>';
+  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div id="cleanup-preparation-actions" class="cleanup-preparation-actions" hidden><button id="cleanup-preparation-cancel" class="secondary-button" type="button">Cancelar</button><button id="cleanup-preparation-start" class="primary-button" type="button">Iniciar</button></div><div class="cleanup-session-content" id="cleanup-session-content"></div></section>';
   document.body.appendChild(shell);
   const content = shell.querySelector("#cleanup-session-content");
   ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal", "toolbar"].forEach((id) => {
@@ -82,6 +83,7 @@ function setCleanupSessionPhase(phase, taskName = "") {
   const toolbar = document.querySelector(".toolbar");
   const content = document.getElementById("cleanup-session-content");
   const preparationOptions = document.getElementById("cleanup-preparation-options");
+  const preparationActions = document.getElementById("cleanup-preparation-actions");
   const shutdownOption = document.querySelector(".shutdown-option");
   cleanupSessionPlaceholders.forEach((_placeholder, element) => {
     if (element.parentNode !== content) content.appendChild(element);
@@ -90,13 +92,14 @@ function setCleanupSessionPhase(phase, taskName = "") {
     const target = phase === "running" ? toolbar : preparationOptions;
     if (target && shutdownOption.parentNode !== target) target.appendChild(shutdownOption);
   }
-  preparationOptions.hidden = phase !== "preparing";
+  preparationOptions.hidden = !["preparing", "ready"].includes(phase);
+  if (preparationActions) preparationActions.hidden = phase !== "ready";
   const preparationPromptOpen = !risk?.classList.contains("hidden") || !confirmation?.classList.contains("hidden");
   shell.classList.remove("hidden");
   shell.setAttribute("aria-hidden", "false");
   shell.dataset.phase = phase;
-  title.textContent = phase === "preparing" ? "Preparando a faxina" : phase === "running" ? "Mãos à obra!" : "Como ficou a faxina";
-  description.textContent = phase === "preparing" ? (preparationPromptOpen ? "Precisamos da sua decisão antes de continuar." : "Vamos conferir tudo antes de começar.") : phase === "running" ? (cleanupSessionTaskName || "A limpeza está em andamento.") : "A sessão terminou. Confira o resumo abaixo.";
+  title.textContent = phase === "preparing" ? "Preparando a faxina" : phase === "ready" ? "Pronto para iniciar" : phase === "running" ? "Mãos à obra!" : "Como ficou a faxina";
+  description.textContent = phase === "preparing" ? (preparationPromptOpen ? "Precisamos da sua decisão antes de continuar." : "Vamos conferir tudo antes de começar.") : phase === "ready" ? "Tudo conferido. Quando quiser, inicie a limpeza; nenhuma etapa de limpeza começou ainda." : phase === "running" ? (cleanupSessionTaskName || "A limpeza está em andamento.") : "A sessão terminou. Confira o resumo abaixo.";
   intro.hidden = phase !== "preparing" || preparationPromptOpen;
   if (progress) progress.hidden = phase !== "running";
   if (summary) {
@@ -107,8 +110,8 @@ function setCleanupSessionPhase(phase, taskName = "") {
   shell.querySelectorAll("[data-session-step]").forEach((step) => {
     const stepPhase = step.dataset.sessionStep;
     const order = { preparing: 0, running: 1, result: 2 };
-    step.classList.toggle("active", stepPhase === phase);
-    step.classList.toggle("complete", order[stepPhase] < order[phase]);
+    step.classList.toggle("active", stepPhase === (phase === "ready" ? "preparing" : phase));
+    step.classList.toggle("complete", order[stepPhase] < (phase === "ready" ? 0 : order[phase]));
   });
   if (phase === "running") updateOperationProgress(cleanupSessionTaskName || currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", currentOperationProgress);
 }
@@ -1203,7 +1206,7 @@ function closeRiskModal() {
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
   pendingTask = null;
-  if (cleanupSessionPhase === "closed" || cleanupSessionPhase === "result") return;
+  if (cleanupSessionPhase === "closed" || cleanupSessionPhase === "result" || cleanupSessionPhase === "ready") return;
   if (launchPending || (isCleanupTask(activeTaskId) && !cleanupExecutionStarted)) setCleanupSessionPhase("preparing");
   else if (activeTaskId) setCleanupSessionPhase("running");
   else closeCleanupSession();
@@ -1281,24 +1284,52 @@ async function prepareBrowserCleanupIfNeeded() {
   }
 }
 
+
 async function executeTask(item, cardEl) {
-  if (isCleanupTask(item?.id)) {
+  const cleanup = isCleanupTask(item?.id);
+  if (cleanup) {
     cleanupExecutionStarted = false;
     setCleanupSessionPhase("preparing", item.name);
   }
   if (!eventListenersReady) {
     appendConsole("Não foi possível iniciar a operação porque o acompanhamento em tempo real não está disponível.");
-    if (isCleanupTask(item?.id)) closeCleanupSession();
+    if (cleanup) closeCleanupSession();
     return false;
   }
   if (operationIsBusy(item?.name)) return false;
-  launchPending = true; currentOperationProgress = null; lastProgressFlavorKey = ""; currentOperationName = item.name; currentOperationStage = "Preparando a operação…"; syncExecutionControls();
-  if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
-    await prepareBrowserCleanupIfNeeded();
+
+  launchPending = true;
+  currentOperationProgress = null;
+  lastProgressFlavorKey = "";
+  currentOperationName = item.name;
+  currentOperationStage = "Preparando a operação…";
+  syncExecutionControls();
+
+  if (cleanup) {
+    const shutdownToggle = document.getElementById("shutdown-on-complete");
+    if (shutdownToggle) shutdownToggle.checked = false;
+    try {
+      await Qboa.setShutdownOnComplete(false);
+    } catch (error) {
+      appendConsole("Não foi possível limpar a opção de desligamento da sessão anterior: " + String(error));
+    }
+    if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
+      await prepareBrowserCleanupIfNeeded();
+    }
+    activeTaskId = item.id;
+    preparedCleanupTask = { item, cardEl };
+    launchPending = false;
+    currentOperationStage = "Aguardando autorização para iniciar.";
+    setCleanupSessionPhase("ready", item.name);
+    syncExecutionControls();
+    appendConsole("Preparação concluída. Aguardando o comando Iniciar.");
+    return true;
   }
+
   if (cardEl) cardEl.classList.add("running");
   activeTaskId = item.id;
-  currentOperationName = item.name; currentOperationStage = "Solicitando início ao mecanismo…";
+  currentOperationName = item.name;
+  currentOperationStage = "Solicitando início ao mecanismo…";
   updateOperationProgress(currentOperationName, currentOperationStage, null);
   writeStatus(`> Bora cuidar de "${item.name}"...`);
   startActivity(item.name);
@@ -1316,13 +1347,83 @@ async function executeTask(item, cardEl) {
     return true;
   } catch (err) {
     stopActivity();
-    if (isCleanupTask(item.id)) browserCleanupDecision = null;
     appendConsole(`Erro ao chamar o backend: ${err}`);
     if (cardEl) cardEl.classList.remove("running");
-    activeTaskId = null; activeExecutionId = null; launchPending = false; currentOperationName = ""; currentOperationStage = ""; syncExecutionControls();
-    if (isCleanupTask(item?.id)) closeCleanupSession();
+    activeTaskId = null;
+    activeExecutionId = null;
+    launchPending = false;
+    currentOperationName = "";
+    currentOperationStage = "";
+    syncExecutionControls();
     return false;
   }
+}
+
+async function startPreparedCleanup() {
+  const prepared = preparedCleanupTask;
+  if (!prepared || cleanupSessionPhase !== "ready" || !activeTaskId) return false;
+  const { item, cardEl } = prepared;
+  preparedCleanupTask = null;
+  launchPending = true;
+  cleanupExecutionStarted = false;
+  currentOperationName = item.name;
+  currentOperationStage = "Solicitando início ao mecanismo…";
+  setCleanupSessionPhase("running", item.name);
+  syncExecutionControls();
+  if (cardEl) cardEl.classList.add("running");
+  updateOperationProgress(item.name, currentOperationStage, null);
+  writeStatus(`> Bora cuidar de "${item.name}"...`);
+  startActivity(item.name);
+  const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
+
+  try {
+    const result = await Qboa.runTask(item.id, shutdownOnComplete);
+    if (activeTaskId === item.id) {
+      activeExecutionId = result.execution_id || activeExecutionId;
+      launchPending = false;
+      currentOperationStage = "Mãos à obra! Aguardando o andamento da tarefa…";
+      syncExecutionControls();
+    }
+    return true;
+  } catch (error) {
+    stopActivity();
+    browserCleanupDecision = null;
+    appendConsole("Erro ao chamar o backend: " + String(error));
+    if (cardEl) cardEl.classList.remove("running");
+    activeTaskId = null;
+    activeExecutionId = null;
+    launchPending = false;
+    currentOperationName = "";
+    currentOperationStage = "";
+    cleanupExecutionStarted = false;
+    syncExecutionControls();
+    closeCleanupSession();
+    return false;
+  }
+}
+
+async function cancelPreparedCleanup() {
+  const prepared = preparedCleanupTask;
+  if (!prepared || cleanupSessionPhase !== "ready") return;
+  preparedCleanupTask = null;
+  if (prepared.cardEl) prepared.cardEl.classList.remove("running");
+  browserCleanupDecision = null;
+  activeTaskId = null;
+  activeExecutionId = null;
+  launchPending = false;
+  currentOperationName = "";
+  currentOperationStage = "";
+  currentOperationProgress = null;
+  cleanupExecutionStarted = false;
+  const shutdownToggle = document.getElementById("shutdown-on-complete");
+  if (shutdownToggle) shutdownToggle.checked = false;
+  try {
+    await Qboa.setShutdownOnComplete(false);
+  } catch (error) {
+    appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
+  }
+  appendConsole("Preparação cancelada. Nenhuma etapa de limpeza foi iniciada.");
+  closeCleanupSession();
 }
 
 async function runTask(item, cardEl) {
@@ -3598,6 +3699,9 @@ async function registerEvents() {
       appendConsole(String(error));
     }
   });
+
+  document.getElementById("cleanup-preparation-start").addEventListener("click", () => { void startPreparedCleanup(); });
+  document.getElementById("cleanup-preparation-cancel").addEventListener("click", () => { void cancelPreparedCleanup(); });
 
   document.getElementById("risk-cancel").addEventListener("click", () => {
     closeRiskModal();
