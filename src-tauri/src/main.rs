@@ -1221,15 +1221,23 @@ async fn respond_reset_base_confirmation(
         .map_err(|_| "Não foi possível enviar a resposta da confirmação do /ResetBase.".to_string())
 }
 
+fn reset_base_confirmation_required(task_id: &str, conservative_repair: bool) -> bool {
+    task_id == "limpeza_pesada" && !conservative_repair
+}
+
+fn validate_reset_base_authorization(task_id: &str, conservative_repair: bool, authorized: bool) -> Result<(), String> {
+    if reset_base_confirmation_required(task_id, conservative_repair) && !authorized {
+        return Err("A limpeza pesada exige autorização prévia para o DISM /ResetBase.".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn prepare_cleanup(task_id: String) -> Result<bool, String> {
-    if task_id != "limpeza_pesada" {
-        return Ok(false);
-    }
-    // Falha na classificação deve preservar a reversibilidade e, portanto, omitir o ResetBase.
-    Ok(!system_compat::detect()
+    let conservative_repair = system_compat::detect()
         .map(|assessment| assessment.use_conservative_repair)
-        .unwrap_or(true))
+        .unwrap_or(true);
+    Ok(reset_base_confirmation_required(&task_id, conservative_repair))
 }
 
 #[tauri::command]
@@ -2863,6 +2871,19 @@ mod tests {
         assert!(!should_schedule_shutdown(true, "failed"));
     }
 
+    #[test]
+    fn reset_base_confirmation_is_required_before_heavy_cleanup_is_released() {
+        assert!(reset_base_confirmation_required("limpeza_pesada", false));
+        assert!(!reset_base_confirmation_required("limpeza_pesada", true));
+        assert!(!reset_base_confirmation_required("limpeza_media", false));
+    }
+
+    #[test]
+    fn heavy_cleanup_fails_closed_without_reset_base_authorization() {
+        assert!(validate_reset_base_authorization("limpeza_pesada", false, false).is_err());
+        assert!(validate_reset_base_authorization("limpeza_pesada", false, true).is_ok());
+        assert!(validate_reset_base_authorization("limpeza_pesada", true, false).is_ok());
+    }
     #[test]
     fn known_tasks_are_resolved() {
         assert!(resolve_task("limpeza_leve").unwrap().is_some());
