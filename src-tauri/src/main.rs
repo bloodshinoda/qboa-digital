@@ -840,7 +840,13 @@ fn apply_cleanup_findings(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<cleanup_findings::CleanupExecutionReport, String> {
     let mut backend = cleanup_findings::WindowsCleanupFindingBackend;
-    match cleanup_findings::cleanup_profile(&mut backend, profile, is_cancelled) {
+    let mut report_progress = |message: String| on_output(&message);
+    match cleanup_findings::cleanup_profile_with_progress(
+        &mut backend,
+        profile,
+        is_cancelled,
+        &mut report_progress,
+    ) {
         Ok(report) => {
             on_output(&format!(
                 "Varredura integrada ({profile}): {} arquivos removidos, {} entradas de Registro excluídas, {} falha(s).",
