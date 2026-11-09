@@ -698,7 +698,14 @@ ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
                 {
                     return Err("Caminho de atalho fora dos locais permitidos.".to_string());
                 }
-                match inspect_shortcut(path)? {
+                let mut observations =
+                    inspect_shortcuts_batch(std::slice::from_ref(path), &|| false)?;
+                let state = observations
+                    .pop()
+                    .filter(|observation| observation.path == *path)
+                    .map(|observation| observation.state)
+                    .unwrap_or(ShortcutState::Uncertain);
+                match state {
                     ShortcutState::BrokenTarget | ShortcutState::InvalidLink => {}
                     ShortcutState::Valid | ShortcutState::Uncertain => {
                         return Err("O atalho não está confirmado como inválido.".to_string())
