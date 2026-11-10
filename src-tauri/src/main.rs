@@ -1098,16 +1098,8 @@ fn execute_task(
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
             on_output("[Etapa 5/9] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
             let findings = apply_cleanup_findings("deep", on_output, is_cancelled)?;
-            on_output("[Etapa 6/9] Verificando a integridade da imagem do Windows...");
+            on_output("[Etapa 6/8] Reparando a imagem do Windows com DISM RestoreHealth...");
             let part_4 = run_system_command(
-                "dism",
-                &["/Online", "/Cleanup-Image", "/ScanHealth"],
-                execution_id,
-                on_output,
-                is_cancelled,
-            )?;
-            on_output("[Etapa 7/9] Reparando a imagem do Windows com DISM RestoreHealth...");
-            let part_6 = run_system_command(
                 "dism",
                 &["/Online", "/Cleanup-Image", "/RestoreHealth"],
                 execution_id,
@@ -1115,10 +1107,10 @@ fn execute_task(
                 is_cancelled,
             )?;
             let part_5 = if conservative_repair {
-                on_output("[Etapa 8/9] /ResetBase omitido: o ambiente foi classificado como modificado/restritivo.");
+                on_output("[Etapa 7/8] /ResetBase omitido: o ambiente foi classificado como modificado/restritivo.");
                 "DISM /ResetBase omitido por compatibilidade; as atualizações continuam reversíveis.".to_string()
             } else if reset_base_authorized {
-                on_output("[Etapa 8/9] Executando DISM StartComponentCleanup /ResetBase após autorização explícita na preparação...");
+                on_output("[Etapa 7/8] Executando DISM StartComponentCleanup /ResetBase após autorização explícita na preparação...");
                 run_system_command(
                     "dism",
                     &[
@@ -1134,11 +1126,11 @@ fn execute_task(
             } else {
                 unreachable!("a autorização do /ResetBase foi validada antes da primeira etapa");
             };
-            on_output("[Etapa 9/9] Verificando arquivos protegidos com SFC...");
-            let part_7 =
+            on_output("[Etapa 8/8] Verificando arquivos protegidos com SFC...");
+            let part_6 =
                 run_system_command("sfc", &["/scannow"], execution_id, on_output, is_cancelled)?;
             Ok(format!(
-                "{part_1}\n{part_adobe}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}\n{part_7}",
+                "{part_1}\n{part_adobe}\n{part_2}\n{part_3}\n{}\n{part_4}\n{part_5}\n{part_6}",
                 findings_summary(&findings)
             ))
         }
