@@ -456,6 +456,7 @@ function renderCards() {
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
             <p><strong>Versão:</strong> 3.2.2</p>
+            <p><strong>Build:</strong> <span class="about-build-number">Local</span></p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
           </div>
@@ -473,6 +474,9 @@ function renderCards() {
         </div>
       </article>
     `;
+    const buildLabel = cardsEl.querySelector(".about-build-number");
+    const buildNumber = String(window.QBOA_BUILD_NUMBER || "Local");
+    if (buildLabel) buildLabel.textContent = buildNumber === "Local" ? "Local" : `#${buildNumber}`;
     cardsEl.querySelector(".copy-pix-button").addEventListener("click", async (event) => {
       const status = document.getElementById("pix-copy-status");
       try {
@@ -1138,7 +1142,16 @@ function renderProgressFlavor(taskId, stage, forceRotation = false) {
   const key = String(taskId || "preparacao") + "|" + String(stage || "preparacao");
   if (!forceRotation && key === lastProgressFlavorKey) return;
   lastProgressFlavorKey = key;
-  flavor.textContent = chooseProgressFlavor(taskId, stage);
+  const phrase = chooseProgressFlavor(taskId, stage);
+  const fragment = document.createDocumentFragment();
+  Array.from(phrase).forEach((character, index) => {
+    const letter = document.createElement("span");
+    letter.className = "operation-progress-letter";
+    letter.style.setProperty("--letter-index", String(Math.min(index, 24)));
+    letter.textContent = character === " " ? "\u00a0" : character;
+    fragment.appendChild(letter);
+  });
+  flavor.replaceChildren(fragment);
   flavor.classList.remove("is-changing");
   window.requestAnimationFrame(() => flavor.classList.add("is-changing"));
 }
@@ -3760,6 +3773,13 @@ async function registerEvents() {
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.shiftKey && event.code === "KeyI") {
+      event.preventDefault();
+      event.stopPropagation();
+      const currentWebview = window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow?.();
+      currentWebview?.openDevtools?.();
+      return;
+    }
     if (event.key !== "Escape") return;
     const confirmationModal = document.getElementById("confirmation-modal");
     const riskModal = document.getElementById("risk-modal");
