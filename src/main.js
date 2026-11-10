@@ -1139,7 +1139,12 @@ function chooseProgressFlavor(taskId, stage) {
 function renderProgressFlavor(taskId, stage, forceRotation = false) {
   const flavor = document.getElementById("operation-progress-flavor");
   if (!flavor) return;
-  const key = String(taskId || "preparacao") + "|" + String(stage || "preparacao");
+  // Progresso percentual pode mudar a cada atualização; a frase só muda por estágio.
+  const stableStage = String(stage || "preparacao")
+    .replace(/\b\d+(?:[.,]\d+)?\s*%\b/g, "")
+    .replace(/\b(?:\d+(?:[.,]\d+)?\s*\/\s*\d+(?:[.,]\d+)?)\b/g, "")
+    .replace(/\s+/g, " ").trim();
+  const key = String(taskId || "preparacao") + "|" + stableStage;
   if (!forceRotation && key === lastProgressFlavorKey) return;
   lastProgressFlavorKey = key;
   const phrase = chooseProgressFlavor(taskId, stage);
@@ -3773,12 +3778,6 @@ async function registerEvents() {
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.ctrlKey && event.shiftKey && event.code === "KeyI") {
-      event.preventDefault();
-      event.stopPropagation();
-      void window.__TAURI__?.core?.invoke?.("open_devtools")?.catch((error) => console.warn("Não foi possível abrir o inspetor:", error));
-      return;
-    }
     if (event.key !== "Escape") return;
     const confirmationModal = document.getElementById("confirmation-modal");
     const riskModal = document.getElementById("risk-modal");
