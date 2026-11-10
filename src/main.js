@@ -3776,8 +3776,7 @@ async function registerEvents() {
     if (event.ctrlKey && event.shiftKey && event.code === "KeyI") {
       event.preventDefault();
       event.stopPropagation();
-      const currentWebview = window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow?.();
-      currentWebview?.openDevtools?.();
+      void window.__TAURI__?.core?.invoke?.("open_devtools")?.catch((error) => console.warn("Não foi possível abrir o inspetor:", error));
       return;
     }
     if (event.key !== "Escape") return;
