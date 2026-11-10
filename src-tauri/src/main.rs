@@ -2974,11 +2974,20 @@ mod tests {
 
 #[tauri::command]
 fn open_devtools(app: AppHandle) -> Result<(), String> {
-    let main_window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "A janela principal do QBoa não foi encontrada.".to_string())?;
-    main_window.open_devtools();
-    Ok(())
+    #[cfg(feature = "devtools")]
+    {
+        let main_window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "A janela principal do QBoa não foi encontrada.".to_string())?;
+        main_window.open_devtools();
+        return Ok(());
+    }
+
+    #[cfg(not(feature = "devtools"))]
+    {
+        let _ = app;
+        Err("O inspetor está disponível somente em builds de desenvolvimento.".to_string())
+    }
 }
 
 #[tauri::command]
