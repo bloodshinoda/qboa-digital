@@ -2973,6 +2973,15 @@ mod tests {
 }
 
 #[tauri::command]
+fn open_devtools(app: AppHandle) -> Result<(), String> {
+    let main_window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "A janela principal do QBoa não foi encontrada.".to_string())?;
+    main_window.open_devtools();
+    Ok(())
+}
+
+#[tauri::command]
 fn finish_startup(app: AppHandle) -> Result<(), String> {
     let main_window = app
         .get_webview_window("main")
@@ -2992,6 +3001,7 @@ fn finish_startup(app: AppHandle) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            open_devtools,
             finish_startup,
             get_tasks,
             prepare_cleanup,
