@@ -3777,6 +3777,16 @@ async function registerEvents() {
       closeRiskModal();
     }
   });
+  // O inspetor existe somente no servidor local de desenvolvimento.
+  // Builds empacotados usam file:// e nunca interceptam este atalho.
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    document.addEventListener("keydown", (event) => {
+      if (!(event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "i")) return;
+      event.preventDefault();
+      invoke("open_devtools").catch((error) => console.error("Não foi possível abrir o inspetor:", error));
+    });
+  }
+
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     const confirmationModal = document.getElementById("confirmation-modal");
