@@ -139,7 +139,7 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.8fr);
   gap: 18px;
-  padding: 20px 24px;
+  padding: 20px 24px 0;
   background: var(--qboa-panel-strong);
   overflow: auto;
 }
@@ -544,6 +544,8 @@ button {
   width: 100%;
   margin-top: auto;
   background: #111;
+  border-top: 3px solid transparent;
+  border-image: var(--rainbow) 1;
   padding: 0 24px;
   min-height: 42px;
   overflow: hidden;
@@ -871,7 +873,7 @@ button.copy-pix-button:hover:not(:disabled) {
 .execution-summary-duration { display:flex; justify-content:space-between; gap:12px; margin:16px 0 0; padding-top:14px; border-top:1px solid rgba(255,255,255,.1); color:var(--qboa-muted,#b8bdc2); font-size:.9rem; }
 .execution-summary-duration strong { color:var(--qboa-text,#f4f4f4); }
 .execution-summary-actions { display:flex; justify-content:flex-end; margin-top:16px; }
-.execution-toast { position:fixed; right:20px; bottom:20px; z-index:1600; display:grid; gap:4px; width:min(360px,calc(100vw - 32px)); padding:14px 16px; border:1px solid rgba(74,222,128,.35); border-left:4px solid #4ade80; border-radius:10px; background:rgba(0,0,0,.84); color:#f4f4f4; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); box-shadow:0 16px 42px rgba(0,0,0,.58); }
+.execution-toast { position:fixed; right:20px; bottom:20px; z-index:2100; display:grid; gap:4px; width:min(360px,calc(100vw - 32px)); padding:14px 16px; border:1px solid rgba(74,222,128,.35); border-left:4px solid #4ade80; border-radius:10px; background:rgba(0,0,0,.84); color:#f4f4f4; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); box-shadow:0 16px 42px rgba(0,0,0,.58); }
 .execution-toast[hidden] { display:none; } .execution-toast span { font-size:.85rem; color:#c9ced2; } .execution-toast.error { border-left-color:#ff7777; } .execution-toast.warning { border-left-color:#f6c66a; }
 @media(max-width:600px) { .execution-summary-modal { padding:8px; } .execution-summary-dialog { padding:16px; } .execution-summary-header { flex-direction:column; } .execution-summary-grid { grid-template-columns:1fr 1fr; gap:8px; } .execution-summary-metric { padding:12px; } .execution-summary-metric strong { font-size:1.2rem; } }
 
@@ -1129,12 +1131,15 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 /* Alça acessível para redimensionar o Registro de Atividades por arraste. */
 .console-resize-handle { display:flex; align-items:center; justify-content:center; height:10px; margin:0 0 4px; cursor:ns-resize; touch-action:none; user-select:none; outline-offset:2px; }
 .console-resize-handle::after { content:""; width:52px; height:3px; border-radius:999px; background:rgba(255,255,255,.28); transition:width .15s ease, background .15s ease; }
-.console-resize-handle:hover::after,.console-resize-handle:focus-visible::after { width:76px; background:#4ade80; }
+.console-resize-handle:hover::after,.console-resize-handle:focus-visible::after { width:76px; background:rgba(255,255,255,.68); }
 .operation-progress { grid-template-rows:auto auto; }
 .operation-progress-flavor { grid-column:1 / -1; margin:1px 0 0; color:#b8d9c3; font-size:.82rem; line-height:1.35; text-align:center; opacity:.88; }
 .operation-progress-flavor.is-changing { animation:qboa-flavor-arrive .34s ease both; }
+.operation-progress-letter { display:inline-block; white-space:pre; }
+.operation-progress-flavor.is-changing .operation-progress-letter { animation:qboa-letter-wave .72s cubic-bezier(.2,.7,.25,1) both; animation-delay:calc(var(--letter-index, 0) * 12ms); }
 @keyframes qboa-flavor-arrive { from { opacity:0; transform:translateY(4px); } to { opacity:.88; transform:translateY(0); } }
-@media (prefers-reduced-motion: reduce) { .operation-progress-flavor.is-changing { animation:none; } .console-resize-handle::after { transition:none; } }
+@keyframes qboa-letter-wave { 0% { transform:translate3d(-1px,3px,0) rotate(-.5deg); } 38% { transform:translate3d(1px,-2px,0) rotate(.35deg); } 70% { transform:translate3d(-.5px,1px,0); } 100% { transform:translate3d(0,0,0); } }
+@media (prefers-reduced-motion: reduce) { .operation-progress-flavor.is-changing, .operation-progress-flavor.is-changing .operation-progress-letter { animation:none; } .console-resize-handle::after { transition:none; } }
 @media(max-width:600px) { .operation-progress-flavor { grid-column:1 / -1; grid-row:3; } }
 
 
