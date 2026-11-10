@@ -18,6 +18,7 @@ let executionToastTimer = null;
 let activityLabel = "";
 let activityDots = "";
 let activityTimer = null;
+let progressFlavorTimer = null;
 let currentOperationProgress = null;
 let lastProgressFlavorKey = "";
 const progressFlavorLastIndex = new Map();
@@ -113,7 +114,18 @@ function setCleanupSessionPhase(phase, taskName = "") {
     step.classList.toggle("active", stepPhase === (["ready", "starting"].includes(phase) ? "preparing" : phase));
     step.classList.toggle("complete", order[stepPhase] < (["ready", "starting"].includes(phase) ? 0 : order[phase]));
   });
-  if (phase === "running") updateOperationProgress(cleanupSessionTaskName || currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", currentOperationProgress);
+  if (phase === "running") {
+    updateOperationProgress(cleanupSessionTaskName || currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", currentOperationProgress);
+    if (progressFlavorTimer === null) {
+      progressFlavorTimer = window.setInterval(() => {
+        if (cleanupSessionPhase !== "running" || !activeTaskId) return;
+        renderProgressFlavor(activeTaskId, currentOperationStage || "Preparando a faxina…", true);
+      }, 9000);
+    }
+  } else if (progressFlavorTimer !== null) {
+    window.clearInterval(progressFlavorTimer);
+    progressFlavorTimer = null;
+  }
 }
 
 function closeCleanupSession() {
@@ -1120,11 +1132,11 @@ function chooseProgressFlavor(taskId, stage) {
   progressFlavorLastIndex.set(category, index);
   return options[index];
 }
-function renderProgressFlavor(taskId, stage) {
+function renderProgressFlavor(taskId, stage, forceRotation = false) {
   const flavor = document.getElementById("operation-progress-flavor");
   if (!flavor) return;
   const key = String(taskId || "preparacao") + "|" + String(stage || "preparacao");
-  if (key === lastProgressFlavorKey) return;
+  if (!forceRotation && key === lastProgressFlavorKey) return;
   lastProgressFlavorKey = key;
   flavor.textContent = chooseProgressFlavor(taskId, stage);
   flavor.classList.remove("is-changing");
