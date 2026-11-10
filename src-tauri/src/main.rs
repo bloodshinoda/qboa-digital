@@ -1080,7 +1080,7 @@ fn execute_task(
                 on_output("[Preparação] /ResetBase não autorizado; a limpeza pesada será cancelada antes de começar.");
                 return Err(error);
             }
-            on_output("[Etapa 1/9] Limpando temporários, caches básicos e lixeira...");
+            on_output("[Etapa 1/8] Limpando temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
                 &task.id,
                 execution_id,
@@ -1088,15 +1088,15 @@ fn execute_task(
                 is_cancelled,
                 apply_registry,
             )?;
-            on_output("[Etapa 2/9] Limpando caches Adobe regeneráveis conhecidos...");
+            on_output("[Etapa 2/8] Limpando caches Adobe regeneráveis conhecidos...");
             let part_adobe = cleanup_engine::cleanup_adobe_caches(on_output, is_cancelled)?;
             on_output(
-                "[Etapa 3/9] Limpando Prefetch, temporários avançados e relatórios de falha...",
+                "[Etapa 3/8] Limpando Prefetch, temporários avançados e relatórios de falha...",
             );
             let part_2 = cleanup_heavy_temp(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 4/9] Processando o cache de downloads do Windows Update...");
+            on_output("[Etapa 4/8] Processando o cache de downloads do Windows Update...");
             let part_3 = cleanup_windows_update(execution_id, on_output, is_cancelled)?;
-            on_output("[Etapa 5/9] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
+            on_output("[Etapa 5/8] Removendo atalhos quebrados, associações inválidas e entradas órfãs confirmadas...");
             let findings = apply_cleanup_findings("deep", on_output, is_cancelled)?;
             on_output("[Etapa 6/8] Reparando a imagem do Windows com DISM RestoreHealth...");
             let part_4 = run_system_command(
