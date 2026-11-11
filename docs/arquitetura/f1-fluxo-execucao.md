@@ -53,6 +53,30 @@ O cancelamento deve ter estado visível (Solicitando parada…) e impedir clique
 - Falhas parciais de itens ocupados devem ser distinguidas de falhas de etapa.
 - O resumo final deve corresponder às métricas efetivamente persistidas pelo executor.
 
+## Progresso global das operações
+
+O percentual exibido representa a operação inteira, nunca o percentual isolado da etapa atual.
+
+- O progresso começa em 0% e só chega a 100% quando o executor conclui a operação.
+- Cada etapa recebe um peso; a troca de etapa consolida o peso da etapa anterior.
+- DISM RestoreHealth, DISM ResetBase e SFC usam o percentual real da ferramenta somente dentro do peso reservado àquela etapa.
+- Etapas sem percentual próprio avançam por conclusão: o peso é consolidado quando a próxima etapa começa.
+- O percentual global é monotônico: nenhuma atualização posterior pode fazê-lo regredir.
+- Cancelamento e falha preservam o último percentual alcançado; não simulam conclusão.
+- Diagnósticos mantêm seus ciclos de progresso independentes.
+
+Pesos atuais:
+
+| Operação | Etapa | Peso |
+| --- | --- | ---: |
+| Limpeza média | Cada uma das 4 etapas | 25% |
+| Limpeza pesada | Etapas 1 a 5 | 6% cada |
+| Limpeza pesada | DISM RestoreHealth | 35% |
+| Limpeza pesada | DISM ResetBase | 15% |
+| Limpeza pesada | SFC | 20% |
+
+A soma dos pesos de cada operação é 100%. Se ResetBase for omitido por compatibilidade, sua etapa é concluída imediatamente e o peso é consolidado na transição para SFC.
+
 ## Invariantes de segurança
 
 - Nenhuma operação destrutiva ou irreversível começa antes da autorização correspondente.
