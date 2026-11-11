@@ -1117,13 +1117,16 @@ fn execute_task(
         return Err("Tudo bem, a tarefa foi interrompida a seu pedido.".to_string());
     }
     match task.id.as_str() {
-        "limpeza_leve" => cleanup_standard(
-            &task.id,
-            execution_id,
-            on_output,
-            is_cancelled,
-            apply_registry,
-        ),
+        "limpeza_leve" => {
+            on_output("[Etapa 1/1] Limpando temporários, caches básicos, histórico recente e lixeira...");
+            cleanup_standard(
+                &task.id,
+                execution_id,
+                on_output,
+                is_cancelled,
+                apply_registry,
+            )
+        }
         "limpeza_media" => {
             on_output("[Etapa 1/4] Executando a limpeza segura de temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
