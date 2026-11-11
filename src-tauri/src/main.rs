@@ -1118,7 +1118,9 @@ fn execute_task(
     }
     match task.id.as_str() {
         "limpeza_leve" => {
-            on_output("[Etapa 1/1] Limpando temporários, caches básicos, histórico recente e lixeira...");
+            on_output(
+                "[Etapa 1/1] Limpando temporários, caches básicos, histórico recente e lixeira...",
+            );
             cleanup_standard(
                 &task.id,
                 execution_id,
@@ -1809,12 +1811,9 @@ fn start_task(
                                     || normalized_description.contains("sfc")
                                     || normalized_description.contains("integridade");
                                 dism_stage_label = description.trim_end_matches("...").to_string();
-                                let percent = cleanup_progress::cleanup_progress_percent(
-                                    current,
-                                    total,
-                                    0.0,
-                                )
-                                .max(last_cleanup_percent);
+                                let percent =
+                                    cleanup_progress::cleanup_progress_percent(current, total, 0.0)
+                                        .max(last_cleanup_percent);
                                 last_cleanup_percent = percent;
                                 let friendly = description.trim_end_matches("...");
                                 if let Err(error) = record_cleanup_progress(
@@ -1854,10 +1853,9 @@ fn start_task(
                     if rounded >= tool_percent {
                         tool_percent = rounded;
                         if let Some((current, total)) = cleanup_step {
-                            let overall = cleanup_progress::cleanup_progress_percent(
-                                current, total, value,
-                            )
-                            .max(last_cleanup_percent);
+                            let overall =
+                                cleanup_progress::cleanup_progress_percent(current, total, value)
+                                    .max(last_cleanup_percent);
                             last_cleanup_percent = overall;
 
                             if let Err(error) = record_cleanup_progress(
