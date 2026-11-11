@@ -104,6 +104,18 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
 - Melhorias na interface, na apresentação das informações e na área **Sobre**.
 - Distribuição organizada em instalador e versão portátil.
 
+### Origem do projeto — QBoa Digital 1.0
+
+- Primeira versão do QBoa: o início do projeto como ferramenta para executar tarefas práticas de manutenção do Windows.
+- A proposta original era direta e funcional, construída em torno de scripts e operações acionadas pelo próprio usuário.
+- Esta versão marca o ponto de partida da história do QBoa Digital.
+
+### QBoa Digital 2.0 — evolução da ferramenta BAT
+
+- Segunda geração da ferramenta original, ainda baseada em arquivos BAT.
+- Continuidade e ampliação da proposta de reunir rotinas práticas de manutenção do Windows em um conjunto de ferramentas.
+- Serviu como base funcional e conceitual para a reestruturação que daria origem ao aplicativo desktop da linha 3.x.
+
 ### Destaques da versão 3.0
 
 - Primeira versão estável da nova geração desktop do QBoa Digital.
