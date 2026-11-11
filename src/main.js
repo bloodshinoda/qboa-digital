@@ -41,14 +41,40 @@ let cpuInventorySnapshot = null;
 let cpuTestSamples = [];
 let gpuTestSessionSnapshot = null;
 let gpuInventorySnapshot = null;
-const diagnosticActivityReasons = new Set();
+const diagnosticActivityTargets = new Map();
+
+function diagnosticActivityTarget(reason) {
+  if (reason.startsWith("inventory:cpu")) return document.querySelector("#cpu-test-panel .cpu-inventory-panel");
+  if (reason.startsWith("inventory:gpu")) return document.querySelector("#gpu-test-panel .cpu-inventory-panel");
+  if (reason.startsWith("inventory:memory")) return document.getElementById("memory-inventory-panel");
+  if (reason.startsWith("inventory:storage")) return document.getElementById("storage-disk-picker");
+  if (reason.startsWith("starting:cpu")) return document.getElementById("cpu-test-result");
+  if (reason.startsWith("starting:gpu")) return document.getElementById("gpu-test-result");
+  if (reason.startsWith("starting:memory")) return document.getElementById("memory-test-result");
+  if (reason.startsWith("run:")) return document.getElementById("diagnostic-status");
+  // Sessões com gráfico ou barra de progresso já têm feedback visual próprio.
+  return null;
+}
+
+function refreshDiagnosticActivityTarget(target) {
+  if (!target) return;
+  const active = [...diagnosticActivityTargets.values()].some((element) => element === target);
+  target.classList.add("qboa-activity-target");
+  target.dataset.activity = active ? "working" : "idle";
+}
 
 function setDiagnosticActivity(reason, active) {
-  if (active) diagnosticActivityReasons.add(reason);
-  else diagnosticActivityReasons.delete(reason);
-  const dialog = document.querySelector("#diagnostic-modal .diagnostic-dialog");
-  if (!dialog) return;
-  dialog.dataset.activity = diagnosticActivityReasons.size ? "working" : "idle";
+  const previousTarget = diagnosticActivityTargets.get(reason);
+  if (active) {
+    const target = diagnosticActivityTarget(reason);
+    if (target) diagnosticActivityTargets.set(reason, target);
+    else diagnosticActivityTargets.delete(reason);
+  } else {
+    diagnosticActivityTargets.delete(reason);
+  }
+  if (previousTarget) refreshDiagnosticActivityTarget(previousTarget);
+  const currentTarget = diagnosticActivityTargets.get(reason);
+  if (currentTarget && currentTarget !== previousTarget) refreshDiagnosticActivityTarget(currentTarget);
 }
 
 let cleanupSessionPhase = "closed";
@@ -63,7 +89,7 @@ function ensureCleanupSessionModal() {
   shell.id = "cleanup-session-modal";
   shell.className = "cleanup-session-modal hidden";
   shell.setAttribute("aria-hidden", "true");
-  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de manutenção</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div id="cleanup-preparation-actions" class="cleanup-preparation-actions" hidden><button id="cleanup-preparation-cancel" class="secondary-button" type="button">Cancelar</button><button id="cleanup-preparation-start" class="primary-button" type="button">Iniciar</button></div><div class="cleanup-session-content" id="cleanup-session-content"></div><div class="toolbar" hidden><button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Parar tarefa</button></div></section>';
+  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de manutenção</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro qboa-activity-target"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div id="cleanup-preparation-actions" class="cleanup-preparation-actions" hidden><button id="cleanup-preparation-cancel" class="secondary-button" type="button">Cancelar</button><button id="cleanup-preparation-start" class="primary-button" type="button">Iniciar</button></div><div class="cleanup-session-content" id="cleanup-session-content"></div><div class="toolbar" hidden><button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Parar tarefa</button></div></section>';
   document.body.appendChild(shell);
   const content = shell.querySelector("#cleanup-session-content");
   ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal"].forEach((id) => {
@@ -105,9 +131,9 @@ function setCleanupSessionPhase(phase, taskName = "") {
   preparationOptions.hidden = !["preparing", "ready", "starting"].includes(phase);
   if (preparationActions) preparationActions.hidden = phase !== "ready";
   const preparationPromptOpen = !risk?.classList.contains("hidden") || !confirmation?.classList.contains("hidden");
-  const dialog = shell.querySelector(".cleanup-session-dialog");
-  if (dialog) dialog.dataset.activity =
-    (phase === "starting" || phase === "running" || (phase === "preparing" && !preparationPromptOpen))
+  const preparationActivity = document.getElementById("cleanup-preparation-intro");
+  if (preparationActivity) preparationActivity.dataset.activity =
+    (phase === "starting" || (phase === "preparing" && !preparationPromptOpen))
       ? "working" : "idle";
   shell.classList.remove("hidden");
   shell.setAttribute("aria-hidden", "false");
