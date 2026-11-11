@@ -1159,7 +1159,7 @@ function progressFlavorStageKey(taskId, stage) {
   const category = progressFlavorCategory(taskId, rawStage);
   const step = rawStage.match(/\b(?:etapa|passo)\s*(\d+)\s*(?:\/|de)\s*(\d+)\b/i);
   const stableStage = rawStage
-    .replace(/\b\d+(?:[.,]\d+)?\s*%\b/g, "")
+    .replace(/\b\d+(?:[.,]\d+)?\s*%/g, "")
     .replace(/\b(?:\d+(?:[.,]\d+)?\s*\/\s*\d+(?:[.,]\d+)?)\b/g, "")
     .replace(/\s+/g, " ").trim();
   // A descrição pode acompanhar cada avanço; a identidade da etapa não.
