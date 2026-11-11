@@ -1351,6 +1351,7 @@ async function executeTask(item, cardEl) {
   if (operationIsBusy(item?.name)) return false;
 
   launchPending = true;
+  if (cleanup) activeTaskId = item.id;
   currentOperationProgress = null;
   lastProgressFlavorKey = "";
   currentOperationName = item.name;
