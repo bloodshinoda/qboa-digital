@@ -117,13 +117,10 @@ function setCleanupSessionPhase(phase, taskName = "") {
   if (phase === "running") {
     updateOperationProgress(cleanupSessionTaskName || currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", currentOperationProgress);
     if (progressFlavorTimer === null) {
-      progressFlavorTimer = window.setInterval(() => {
-        if (cleanupSessionPhase !== "running" || !activeTaskId) return;
-        renderProgressFlavor(activeTaskId, currentOperationStage || "Preparando a faxina…", true);
-      }, 9000);
+      scheduleProgressFlavorRotation();
     }
   } else if (progressFlavorTimer !== null) {
-    window.clearInterval(progressFlavorTimer);
+    window.clearTimeout(progressFlavorTimer);
     progressFlavorTimer = null;
   }
 }
@@ -1157,16 +1154,36 @@ function chooseProgressFlavor(taskId, stage) {
   progressFlavorLastIndex.set(category, index);
   return options[index];
 }
+function progressFlavorStageKey(taskId, stage) {
+  const rawStage = String(stage || "preparacao");
+  const category = progressFlavorCategory(taskId, rawStage);
+  const step = rawStage.match(/\\b(?:etapa|passo)\\s*(\\d+)\\s*(?:\\/|de)\\s*(\\d+)\\b/i);
+  const stableStage = rawStage
+    .replace(/\\b\\d+(?:[.,]\\d+)?\\s*%\\b/g, "")
+    .replace(/\\b(?:\\d+(?:[.,]\\d+)?\\s*\\/\\s*\\d+(?:[.,]\\d+)?)\\b/g, "")
+    .replace(/\\s+/g, " ").trim();
+  // A descrição pode acompanhar cada avanço; a identidade da etapa não.
+  const identity = step ? "step:" + step[1] + "/" + step[2] : stableStage;
+  return String(taskId || "preparacao") + "|" + category + "|" + identity;
+}
+function scheduleProgressFlavorRotation() {
+  if (progressFlavorTimer !== null) window.clearTimeout(progressFlavorTimer);
+  if (cleanupSessionPhase !== "running" || !activeTaskId) {
+    progressFlavorTimer = null;
+    return;
+  }
+  progressFlavorTimer = window.setTimeout(() => {
+    progressFlavorTimer = null;
+    if (cleanupSessionPhase !== "running" || !activeTaskId) return;
+    renderProgressFlavor(activeTaskId, currentOperationStage || "Preparando a faxina…", true);
+  }, 9000);
+}
 function renderProgressFlavor(taskId, stage, forceRotation = false) {
   const flavor = document.getElementById("operation-progress-flavor");
   if (!flavor) return;
-  // Progresso percentual pode mudar a cada atualização; a frase só muda por estágio.
-  const stableStage = String(stage || "preparacao")
-    .replace(/\b\d+(?:[.,]\d+)?\s*%\b/g, "")
-    .replace(/\b(?:\d+(?:[.,]\d+)?\s*\/\s*\d+(?:[.,]\d+)?)\b/g, "")
-    .replace(/\s+/g, " ").trim();
-  const key = String(taskId || "preparacao") + "|" + stableStage;
-  if (!forceRotation && key === lastProgressFlavorKey) return;
+  const key = progressFlavorStageKey(taskId, stage);
+  const stageChanged = key !== lastProgressFlavorKey;
+  if (!stageChanged && !forceRotation) return;
   lastProgressFlavorKey = key;
   const phrase = chooseProgressFlavor(taskId, stage);
   const fragment = document.createDocumentFragment();
@@ -1174,12 +1191,13 @@ function renderProgressFlavor(taskId, stage, forceRotation = false) {
     const letter = document.createElement("span");
     letter.className = "operation-progress-letter";
     letter.style.setProperty("--letter-index", String(Math.min(index, 24)));
-    letter.textContent = character === " " ? "\u00a0" : character;
+    letter.textContent = character === " " ? "\\u00a0" : character;
     fragment.appendChild(letter);
   });
   flavor.replaceChildren(fragment);
   flavor.classList.remove("is-changing");
   window.requestAnimationFrame(() => flavor.classList.add("is-changing"));
+  scheduleProgressFlavorRotation();
 }
 function setTaskbarProgress(progress) {
   const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
