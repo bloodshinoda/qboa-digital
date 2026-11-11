@@ -2586,6 +2586,7 @@ async function refreshStorageDisks(preserveSelection = true) {
 
   const previous = preserveSelection ? new Set(selectedStorageDiskIds()) : new Set();
   refreshButton.disabled = true;
+  setDiagnosticActivity("inventory:storage", true);
   list.replaceChildren();
   const loading = document.createElement("li");
   loading.className = "storage-disk-empty";
@@ -2670,6 +2671,7 @@ async function refreshStorageDisks(preserveSelection = true) {
     runButton.disabled = true;
   } finally {
     refreshButton.disabled = false;
+    setDiagnosticActivity("inventory:storage", false);
   }
 }
 
