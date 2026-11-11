@@ -2082,6 +2082,16 @@ fn start_task(
                     .finish_execution(&execution_id_for_spawn, result_status);
                 emit_event(
                     &app_for_spawn,
+                    "task-progress",
+                    &task_id_for_spawn,
+                    &execution_id_for_spawn,
+                    "Etapas concluídas.",
+                    true,
+                    Some("100%"),
+                    &task_risk_for_spawn,
+                );
+                emit_event(
+                    &app_for_spawn,
                     "task-output",
                     &task_id_for_spawn,
                     &execution_id_for_spawn,
