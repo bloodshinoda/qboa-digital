@@ -1311,19 +1311,17 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 
 
 
-/* Indicador compartilhado de atividade: o estado real controla a animação. */
+/* Brilho discreto apenas no campo que está realizando uma tarefa em segundo plano. */
 @property --qboa-activity-angle {
   syntax: "<angle>";
   inherits: false;
   initial-value: 0deg;
 }
-.cleanup-session-dialog,
-.diagnostic-dialog {
+.qboa-activity-target {
   position: relative;
   isolation: isolate;
 }
-.cleanup-session-dialog[data-activity="working"]::after,
-.diagnostic-dialog[data-activity="working"]::after {
+.qboa-activity-target[data-activity="working"]::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1347,8 +1345,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   animation: qboa-activity-border-spin 2.8s linear infinite;
   transition: opacity 240ms ease;
 }
-.cleanup-session-dialog:not([data-activity="working"])::after,
-.diagnostic-dialog:not([data-activity="working"])::after {
+.qboa-activity-target:not([data-activity="working"])::after {
   opacity: 0;
   transition: opacity 240ms ease;
 }
@@ -1356,8 +1353,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   to { --qboa-activity-angle: 360deg; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cleanup-session-dialog[data-activity="working"]::after,
-  .diagnostic-dialog[data-activity="working"]::after {
+  .qboa-activity-target[data-activity="working"]::after {
     animation: none;
   }
 }
