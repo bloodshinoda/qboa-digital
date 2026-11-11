@@ -54,11 +54,11 @@ function ensureCleanupSessionModal() {
   shell.id = "cleanup-session-modal";
   shell.className = "cleanup-session-modal hidden";
   shell.setAttribute("aria-hidden", "true");
-  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div id="cleanup-preparation-actions" class="cleanup-preparation-actions" hidden><button id="cleanup-preparation-cancel" class="secondary-button" type="button">Cancelar</button><button id="cleanup-preparation-start" class="primary-button" type="button">Iniciar</button></div><div class="cleanup-session-content" id="cleanup-session-content"></div></section>';
+  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div id="cleanup-preparation-actions" class="cleanup-preparation-actions" hidden><button id="cleanup-preparation-cancel" class="secondary-button" type="button">Cancelar</button><button id="cleanup-preparation-start" class="primary-button" type="button">Iniciar</button></div><div class="cleanup-session-content" id="cleanup-session-content"></div><div class="toolbar" hidden><button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Parar tarefa</button></div></section>';
   document.body.appendChild(shell);
   const content = shell.querySelector("#cleanup-session-content");
-  ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal", "toolbar"].forEach((id) => {
-    const element = id === "toolbar" ? document.querySelector(".toolbar") : document.getElementById(id);
+  ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal"].forEach((id) => {
+    const element = document.getElementById(id);
     if (!element || !element.parentNode) return;
     const placeholder = document.createComment("QBoa cleanup session: " + id);
     element.parentNode.insertBefore(placeholder, element);
@@ -81,7 +81,7 @@ function setCleanupSessionPhase(phase, taskName = "") {
   const confirmation = document.getElementById("confirmation-modal");
   const progress = document.getElementById("operation-progress");
   const summary = document.getElementById("execution-summary-modal");
-  const toolbar = document.querySelector(".toolbar");
+  const toolbar = shell.querySelector(".toolbar");
   const content = document.getElementById("cleanup-session-content");
   const preparationOptions = document.getElementById("cleanup-preparation-options");
   const preparationActions = document.getElementById("cleanup-preparation-actions");
@@ -133,14 +133,14 @@ function closeCleanupSession() {
   if (!shell) return;
   shell.classList.add("hidden");
   shell.setAttribute("aria-hidden", "true");
-  const toolbar = document.querySelector(".toolbar");
+  const toolbar = shell.querySelector(".toolbar");
   const shutdownOption = document.querySelector(".shutdown-option");
   const preparationOptions = document.getElementById("cleanup-preparation-options");
   if (preparationOptions && shutdownOption && shutdownOption.parentNode !== preparationOptions) preparationOptions.appendChild(shutdownOption);
   cleanupSessionPlaceholders.forEach((placeholder, element) => {
     if (placeholder.parentNode) placeholder.parentNode.insertBefore(element, placeholder.nextSibling);
   });
-  if (toolbar) toolbar.hidden = false;
+  if (toolbar) toolbar.hidden = true;
   cleanupSessionPhase = "closed";
   cleanupSessionTaskName = "";
   cleanupExecutionStarted = false;
@@ -384,10 +384,12 @@ function syncExecutionControls() {
   const running = Boolean(activeTaskId || launchPending);
   const inCleanupSession = cleanupSessionPhase !== "closed";
   const cancelButton = document.getElementById("cancel-task-btn");
-  const toolbar = document.querySelector(".toolbar");
-  cancelButton.hidden = !activeTaskId || (inCleanupSession && cleanupSessionPhase !== "running");
-  cancelButton.disabled = !activeTaskId || (inCleanupSession && cleanupSessionPhase !== "running");
-  if (toolbar && inCleanupSession) toolbar.hidden = cleanupSessionPhase !== "running";
+  const toolbar = document.querySelector("#cleanup-session-modal .toolbar");
+  if (cancelButton) {
+    cancelButton.hidden = !activeTaskId || (inCleanupSession && cleanupSessionPhase !== "running");
+    cancelButton.disabled = !activeTaskId || (inCleanupSession && cleanupSessionPhase !== "running");
+  }
+  if (toolbar) toolbar.hidden = !inCleanupSession || cleanupSessionPhase !== "running";
   const progress = document.getElementById("operation-progress");
   if (progress) progress.hidden = !running || (inCleanupSession && cleanupSessionPhase !== "running");
   if (running && (!inCleanupSession || cleanupSessionPhase === "running")) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
@@ -3846,7 +3848,8 @@ async function registerEvents() {
     }
   });
 
-  document.getElementById("cancel-task-btn").addEventListener("click", async () => {
+  document.addEventListener("click", async (event) => {
+    if (!event.target.closest("#cancel-task-btn")) return;
     if (!activeTaskId) {
       appendConsole("Nenhuma tarefa em execução para cancelar.");
       return;
