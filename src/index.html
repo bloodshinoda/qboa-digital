@@ -193,10 +193,6 @@
       </section>
       <p id="complete-diagnostic-summary" class="complete-diagnostic-summary" hidden></p>
       <section id="memory-test-panel" class="memory-test-panel" hidden aria-label="Sessão de teste de integridade da RAM">
-        <div class="memory-test-actions">
-          <button class="primary-button" id="memory-test-start" type="button">Iniciar teste de RAM</button>
-          <button class="secondary-button" id="memory-test-cancel" type="button" hidden disabled>Cancelar teste</button>
-        </div>
         <section id="memory-inventory-panel" class="memory-inventory-panel" aria-label="Inventário físico da memória RAM">
           <div class="memory-inventory-header">
             <div>
@@ -226,6 +222,10 @@
           <input id="memory-test-custom-budget" type="range" min="134217728" max="1073741824" step="1048576" value="1073741824" disabled aria-describedby="memory-test-custom-help" />
           <div class="memory-test-slider-limits"><span>128 MiB</span><span id="memory-test-custom-maximum">RAM total</span></div>
           <p id="memory-test-custom-help">O limite é a RAM física detectada. O teste usa um bloco por vez e preserva uma reserva de memória para o Windows; a cobertura pode terminar como inconclusiva se houver pouca RAM livre.</p>
+        </div>
+        <div class="memory-test-actions">
+          <button class="primary-button" id="memory-test-start" type="button">Iniciar teste de RAM</button>
+          <button class="secondary-button" id="memory-test-cancel" type="button" hidden disabled>Cancelar teste</button>
         </div>
         <div class="memory-test-progress" role="group" aria-label="Progresso do teste de RAM">
           <div class="memory-test-progress-head"><strong id="memory-test-progress-phase">Aguardando início</strong><span id="memory-test-progress-percent">0%</span></div>
