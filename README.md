@@ -2,7 +2,7 @@
 
 ![QBoa Digital](src-tauri/icons/logo.png)
 
-Versão em preparação: `3.2.3` (versão do pacote: `3.2.3`)
+Versão preparada para release: `3.2.3` (versão do pacote: `3.2.3`)
 
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
 
@@ -286,7 +286,7 @@ A matriz de validação manual está em [docs/p0-windows-validation.md](docs/p0-
 
 ## Sobre e autoria
 
-**QBoa Digital 3.2.1** é um utilitário independente para limpeza, manutenção, privacidade e diagnóstico do Windows.
+**QBoa Digital 3.2.3** é um utilitário independente para limpeza, manutenção, privacidade e diagnóstico do Windows.
 
 - **Autor e desenvolvedor:** Vilson de Oliveira Junior
 - **Tecnologias:** Tauri, Rust, JavaScript, HTML e CSS
