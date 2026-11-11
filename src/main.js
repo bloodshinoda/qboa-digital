@@ -1157,11 +1157,11 @@ function chooseProgressFlavor(taskId, stage) {
 function progressFlavorStageKey(taskId, stage) {
   const rawStage = String(stage || "preparacao");
   const category = progressFlavorCategory(taskId, rawStage);
-  const step = rawStage.match(/\\b(?:etapa|passo)\\s*(\\d+)\\s*(?:\\/|de)\\s*(\\d+)\\b/i);
+  const step = rawStage.match(/\b(?:etapa|passo)\s*(\d+)\s*(?:\/|de)\s*(\d+)\b/i);
   const stableStage = rawStage
-    .replace(/\\b\\d+(?:[.,]\\d+)?\\s*%\\b/g, "")
-    .replace(/\\b(?:\\d+(?:[.,]\\d+)?\\s*\\/\\s*\\d+(?:[.,]\\d+)?)\\b/g, "")
-    .replace(/\\s+/g, " ").trim();
+    .replace(/\b\d+(?:[.,]\d+)?\s*%\b/g, "")
+    .replace(/\b(?:\d+(?:[.,]\d+)?\s*\/\s*\d+(?:[.,]\d+)?)\b/g, "")
+    .replace(/\s+/g, " ").trim();
   // A descrição pode acompanhar cada avanço; a identidade da etapa não.
   const identity = step ? "step:" + step[1] + "/" + step[2] : stableStage;
   return String(taskId || "preparacao") + "|" + category + "|" + identity;
@@ -1191,7 +1191,7 @@ function renderProgressFlavor(taskId, stage, forceRotation = false) {
     const letter = document.createElement("span");
     letter.className = "operation-progress-letter";
     letter.style.setProperty("--letter-index", String(Math.min(index, 24)));
-    letter.textContent = character === " " ? "\\u00a0" : character;
+    letter.textContent = character === " " ? "\u00a0" : character;
     fragment.appendChild(letter);
   });
   flavor.replaceChildren(fragment);
