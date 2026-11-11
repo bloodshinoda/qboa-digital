@@ -1204,7 +1204,10 @@ function updateOperationProgress(taskName, stage, progressValue) {
   const source = String(progressValue ?? stage ?? "");
   const match = source.match(/(?:^|\s)(\d{1,3}(?:[.,]\d+)?)\s*%/);
   if (match) {
-    currentOperationProgress = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
+    const receivedProgress = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
+    currentOperationProgress = currentOperationProgress === null
+      ? receivedProgress
+      : Math.max(currentOperationProgress, receivedProgress);
     bar.classList.add("determinate"); bar.style.width = currentOperationProgress + "%";
     percentEl.textContent = Math.round(currentOperationProgress) + "%";
     setTaskbarProgress(currentOperationProgress);
