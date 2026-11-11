@@ -82,48 +82,6 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
 - Correções nas rotinas de telemetria e privacidade avançada, com reporte de falhas por componente.
 - Ajustes na execução silenciosa da Limpeza de Disco do Windows e no fluxo de inicialização com splash screen.
 
-### Destaques da versão 3.1.2
-
-- Correção da prévia de ajustes de serviços no Windows 11 IoT Enterprise LTSC.
-- Verificação do estado atual dos serviços antes de sugerir alterações, evitando aplicar referências fora de contexto.
-- Identificação ampliada de fornecedores e apresentação de evidências para dar mais transparência à análise.
-- Confirmação explícita preservada: nenhuma alteração de serviço é aplicada automaticamente.
-
-### Destaques da versão 3.1.1
-
-- Indicador de progresso centralizado, com melhor contraste e suporte a progresso indeterminado.
-- Diálogos de confirmação e avisos de risco priorizados sobre o painel de progresso.
-- Bloqueio de execuções simultâneas na interface e no backend.
-- Avisos mais claros ao solicitar outra tarefa durante uma execução.
-- Revisão das descrições de serviços e ações para facilitar o entendimento.
-
-### Destaques da versão 3.1.0
-
-- Inventário de capacidades do Windows, com identificação e organização dos recursos disponíveis.
-- Detecção de instalações modificadas do Windows e adaptação das verificações da manutenção pesada.
-- Melhorias na interface, na apresentação das informações e na área **Sobre**.
-- Distribuição organizada em instalador e versão portátil.
-
-### Origem do projeto — QBoa Digital 1.0
-
-- Primeira versão do QBoa: o início do projeto como ferramenta para executar tarefas práticas de manutenção do Windows.
-- A proposta original era direta e funcional, construída em torno de scripts e operações acionadas pelo próprio usuário.
-- Esta versão marca o ponto de partida da história do QBoa Digital.
-
-### QBoa Digital 2.0 — evolução da ferramenta BAT
-
-- Segunda geração da ferramenta original, ainda baseada em arquivos BAT.
-- Continuidade e ampliação da proposta de reunir rotinas práticas de manutenção do Windows em um conjunto de ferramentas.
-- Serviu como base funcional e conceitual para a reestruturação que daria origem ao aplicativo desktop da linha 3.x.
-
-### Destaques da versão 3.0
-
-- Primeira versão estável da nova geração desktop do QBoa Digital.
-- Migração da antiga ferramenta baseada em arquivos BAT para um aplicativo com interface gráfica própria.
-- Nova arquitetura baseada em Tauri e Rust, preparada para evolução e manutenção.
-- Organização das funcionalidades e aprimoramento dos diagnósticos e diálogos.
-- Continuidade da proposta original do QBoa 2.0: oferecer ferramentas práticas para manutenção do Windows.
-
 ### Destaques da versão 3.2.0
 
 - Laudos de diagnóstico em JSON versionado, persistidos localmente e preservados entre sessões.
@@ -146,6 +104,48 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
 - Proteções por ponto de restauração quando disponível, snapshots e rollback de alterações reversíveis.
 
 O diagnóstico de armazenamento informa capacidade e espaço livre e oferece medições de desempenho; não substitui SMART nem verificação de integridade do sistema de arquivos. Os testes de CPU e GPU dependem de telemetria térmica compatível e aplicam limites conservadores de segurança. O teste de GPU exige Direct3D 11 Feature Level 11_0 e sensor térmico compatível; não cobre rasterização, VRAM ou todos os recursos gráficos. Os resultados não certificam integralmente os componentes.
+
+### Destaques da versão 3.1.2
+
+- Correção da prévia de ajustes de serviços no Windows 11 IoT Enterprise LTSC.
+- Verificação do estado atual dos serviços antes de sugerir alterações, evitando aplicar referências fora de contexto.
+- Identificação ampliada de fornecedores e apresentação de evidências para dar mais transparência à análise.
+- Confirmação explícita preservada: nenhuma alteração de serviço é aplicada automaticamente.
+
+### Destaques da versão 3.1.1
+
+- Indicador de progresso centralizado, com melhor contraste e suporte a progresso indeterminado.
+- Diálogos de confirmação e avisos de risco priorizados sobre o painel de progresso.
+- Bloqueio de execuções simultâneas na interface e no backend.
+- Avisos mais claros ao solicitar outra tarefa durante uma execução.
+- Revisão das descrições de serviços e ações para facilitar o entendimento.
+
+### Destaques da versão 3.1.0
+
+- Inventário de capacidades do Windows, com identificação e organização dos recursos disponíveis.
+- Detecção de instalações modificadas do Windows e adaptação das verificações da manutenção pesada.
+- Melhorias na interface, na apresentação das informações e na área **Sobre**.
+- Distribuição organizada em instalador e versão portátil.
+
+### Destaques da versão 3.0
+
+- Primeira versão estável da nova geração desktop do QBoa Digital.
+- Migração da antiga ferramenta baseada em arquivos BAT para um aplicativo com interface gráfica própria.
+- Nova arquitetura baseada em Tauri e Rust, preparada para evolução e manutenção.
+- Organização das funcionalidades e aprimoramento dos diagnósticos e diálogos.
+- Continuidade da proposta original do QBoa 2.0: oferecer ferramentas práticas para manutenção do Windows.
+
+### QBoa Digital 2.0 — evolução da ferramenta BAT
+
+- Segunda geração da ferramenta original, ainda baseada em arquivos BAT.
+- Continuidade e ampliação da proposta de reunir rotinas práticas de manutenção do Windows em um conjunto de ferramentas.
+- Serviu como base funcional e conceitual para a reestruturação que daria origem ao aplicativo desktop da linha 3.x.
+
+### Origem do projeto — QBoa Digital 1.0
+
+- Primeira versão do QBoa: o início do projeto como ferramenta para executar tarefas práticas de manutenção do Windows.
+- A proposta original era direta e funcional, construída em torno de scripts e operações acionadas pelo próprio usuário.
+- Esta versão marca o ponto de partida da história do QBoa Digital.
 
 ## Arquitetura
 
