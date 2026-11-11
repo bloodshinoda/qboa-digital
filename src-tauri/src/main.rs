@@ -78,6 +78,7 @@ struct PreparedCleanup {
 
 #[derive(Clone, Debug)]
 struct PreparedCleanupExecution {
+    reset_base_required: bool,
     restore_point: Option<String>,
     restore_point_error: Option<String>,
     restore_point_required: bool,
@@ -122,6 +123,7 @@ fn resolve_prepared_cleanup(
     };
 
     Ok(PreparedCleanupExecution {
+        reset_base_required: prepared.reset_base_required,
         restore_point,
         restore_point_error,
         restore_point_required: prepared.restore_point_required,
@@ -1391,9 +1393,14 @@ async fn run_task(
         )?)
     };
 
-    let conservative_repair = system_compat::detect()
-        .map(|assessment| assessment.use_conservative_repair)
-        .unwrap_or(true);
+    let conservative_repair = prepared_cleanup
+        .as_ref()
+        .map(|prepared| !prepared.reset_base_required)
+        .unwrap_or_else(|| {
+            system_compat::detect()
+                .map(|assessment| assessment.use_conservative_repair)
+                .unwrap_or(true)
+        });
     validate_reset_base_authorization(&task_id, conservative_repair, reset_base_authorized)?;
     let restore_point_created = prepared_cleanup
         .as_ref()
