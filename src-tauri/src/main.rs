@@ -1856,40 +1856,39 @@ fn start_task(
                             )
                             .max(last_cleanup_percent);
                             last_cleanup_percent = overall;
-                                if let Err(error) = record_cleanup_progress(
-                                    &cleanup_lifecycle,
-                                    operation_contracts::CleanupProgress {
-                                        current: Some(current),
-                                        total: Some(total),
-                                        percent: Some(overall.min(100) as u8),
-                                        stage: dism_stage_label.clone(),
-                                        message: format!(
-                                            "Passo {current}/{total} · {} ({rounded}%)",
-                                            dism_stage_label.trim_end_matches('.')
-                                        ),
-                                    },
-                                ) {
-                                    write_execution_log(
-                                        &execution_id_for_output,
-                                        &format!(
-                                            "cleanup-contract-progress-rejected error={error}"
-                                        ),
-                                    );
-                                }
-                                emit_event(
-                                    &app_for_output,
-                                    "task-progress",
-                                    &task_id_for_output,
-                                    &execution_id_for_output,
-                                    &format!(
+
+                            if let Err(error) = record_cleanup_progress(
+                                &cleanup_lifecycle,
+                                operation_contracts::CleanupProgress {
+                                    current: Some(current),
+                                    total: Some(total),
+                                    percent: Some(overall.min(100) as u8),
+                                    stage: dism_stage_label.clone(),
+                                    message: format!(
                                         "Passo {current}/{total} · {} ({rounded}%)",
                                         dism_stage_label.trim_end_matches('.')
                                     ),
-                                    true,
-                                    Some(&format!("{overall}%")),
-                                    &task_risk_for_output,
+                                },
+                            ) {
+                                write_execution_log(
+                                    &execution_id_for_output,
+                                    &format!("cleanup-contract-progress-rejected error={error}"),
                                 );
                             }
+
+                            emit_event(
+                                &app_for_output,
+                                "task-progress",
+                                &task_id_for_output,
+                                &execution_id_for_output,
+                                &format!(
+                                    "Passo {current}/{total} · {} ({rounded}%)",
+                                    dism_stage_label.trim_end_matches('.')
+                                ),
+                                true,
+                                Some(&format!("{overall}%")),
+                                &task_risk_for_output,
+                            );
                         }
                     }
                 }
