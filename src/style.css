@@ -1312,6 +1312,11 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 
 
 /* Indicador compartilhado de atividade: o estado real controla a animação. */
+@property --qboa-activity-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 .cleanup-session-dialog,
 .diagnostic-dialog {
   position: relative;
@@ -1327,8 +1332,9 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   border-radius: inherit;
   pointer-events: none;
   opacity: 1;
+  --qboa-activity-angle: 0deg;
   background: conic-gradient(
-    from 0deg,
+    from var(--qboa-activity-angle),
     transparent 0deg 250deg,
     rgba(74, 222, 128, .08) 275deg,
     rgba(74, 222, 128, .95) 315deg,
@@ -1347,7 +1353,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   transition: opacity 240ms ease;
 }
 @keyframes qboa-activity-border-spin {
-  to { transform: rotate(1turn); }
+  to { --qboa-activity-angle: 360deg; }
 }
 @media (prefers-reduced-motion: reduce) {
   .cleanup-session-dialog[data-activity="working"]::after,
