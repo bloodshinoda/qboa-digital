@@ -17,6 +17,19 @@ Este contrato se aplica somente às tarefas de limpeza/manutenção. Diagnóstic
 7. **Execução** — iniciar uma única vez. Não solicitar novamente decisões já tomadas na preparação.
 8. **Finalização** — emitir um único resultado terminal: concluída, parcial, cancelada ou falhou.
 
+## Implementação da preparação
+
+A F1 prepara operações de limpeza e manutenção antes de liberar o botão **Iniciar**:
+
+- `prepare_cleanup` resolve a tarefa e tenta criar o ponto de restauração antes da execução.
+- A preparação retorna um token de uso único, vinculado ao `task_id`, e informa se o ponto foi criado ou se houve falha.
+- Em caso de falha, a interface solicita autorização explícita ainda na preparação. Recusar descarta o token e encerra sem iniciar alterações.
+- `run_task` consome o token, valida a tarefa e exige autorização explícita quando o ponto não pôde ser criado. Não existe segunda tentativa nem confirmação tardia no executor.
+- A decisão sobre `/ResetBase` também fica vinculada à mesma preparação, evitando reclassificar o ambiente entre a confirmação e o início.
+- Diagnósticos permanecem fora desse fluxo e preservam seu ciclo de vida independente.
+
+Testes de regressão cobrem falha sem autorização, prosseguimento autorizado, reutilização do ponto criado, vínculo do token à tarefa, consumo único do token e separação entre manutenção e diagnóstico.
+
 ## Popup de execução
 
 O popup central de progresso deve concentrar:
