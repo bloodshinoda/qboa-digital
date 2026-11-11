@@ -1309,3 +1309,49 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 @media(max-width:600px) { .cleanup-preparation-actions { flex-direction:column-reverse; } .cleanup-preparation-actions button { width:100%; } }
 
 
+
+
+/* Indicador compartilhado de atividade: o estado real controla a animação. */
+.cleanup-session-dialog,
+.diagnostic-dialog {
+  position: relative;
+  isolation: isolate;
+}
+.cleanup-session-dialog[data-activity="working"]::after,
+.diagnostic-dialog[data-activity="working"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  padding: 1.5px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 1;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 250deg,
+    rgba(74, 222, 128, .08) 275deg,
+    rgba(74, 222, 128, .95) 315deg,
+    rgba(74, 222, 128, .08) 345deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: qboa-activity-border-spin 2.8s linear infinite;
+  transition: opacity 240ms ease;
+}
+.cleanup-session-dialog:not([data-activity="working"])::after,
+.diagnostic-dialog:not([data-activity="working"])::after {
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+@keyframes qboa-activity-border-spin {
+  to { transform: rotate(1turn); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cleanup-session-dialog[data-activity="working"]::after,
+  .diagnostic-dialog[data-activity="working"]::after {
+    animation: none;
+  }
+}
