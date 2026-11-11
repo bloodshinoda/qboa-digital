@@ -2471,48 +2471,6 @@ async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<St
 }
 
 #[tauri::command]
-async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, String> {
-    let registry = TaskRegistry::try_new()?;
-    let tasks: Vec<Task> = registry
-        .preset_tasks(&preset_id)
-        .into_iter()
-        .cloned()
-        .collect();
-    let ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
-    if tasks.is_empty() {
-        return Err(format!("Perfil desconhecido ou vazio: {preset_id}"));
-    }
-    if safety_state().lock().unwrap().is_task_running() {
-        return Err(
-            "Já existe uma operação em andamento. Aguarde a conclusão antes de iniciar um perfil."
-                .to_string(),
-        );
-    }
-
-    tauri::async_runtime::spawn(async move {
-        for task in tasks {
-            if let Err(error) = start_task(app.clone(), task.clone(), false, false) {
-                emit_event(
-                    &app,
-                    "task-error",
-                    &task.id,
-                    "",
-                    &error,
-                    false,
-                    None,
-                    task_risk_label(&task),
-                );
-                break;
-            }
-            while safety_state().lock().unwrap().is_task_running() {
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        }
-    });
-    Ok(ids)
-}
-
-#[tauri::command]
 async fn get_debloat_profile_tasks(
     profile: task_registry::TweakProfile,
     selected_ids: Vec<String>,
@@ -3321,7 +3279,6 @@ fn main() {
             get_running_browsers,
             prepare_browser_cleanup,
             cancel_task,
-            run_preset,
             get_debloat_profile_tasks,
             create_restore_point,
             rollback_session,
