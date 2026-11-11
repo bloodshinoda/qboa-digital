@@ -63,7 +63,11 @@ pub(crate) fn parse_tool_progress_percent(line: &str) -> Option<f64> {
         return None;
     }
 
-    number.replace(',', ".").parse::<f64>().ok().map(|value| value.clamp(0.0, 100.0))
+    number
+        .replace(',', ".")
+        .parse::<f64>()
+        .ok()
+        .map(|value| value.clamp(0.0, 100.0))
 }
 
 #[cfg(test)]
@@ -141,8 +145,17 @@ mod tests {
     #[test]
     fn interpreta_percentual_real_de_dism_e_sfc() {
         assert_eq!(parse_tool_progress_percent(" 45.7%"), Some(45.7));
-        assert_eq!(parse_tool_progress_percent("Verification 82% complete."), Some(82.0));
-        assert_eq!(parse_tool_progress_percent("Progresso 12,5% concluído"), Some(12.5));
-        assert_eq!(parse_tool_progress_percent("Nenhum percentual disponível"), None);
+        assert_eq!(
+            parse_tool_progress_percent("Verification 82% complete."),
+            Some(82.0)
+        );
+        assert_eq!(
+            parse_tool_progress_percent("Progresso 12,5% concluído"),
+            Some(12.5)
+        );
+        assert_eq!(
+            parse_tool_progress_percent("Nenhum percentual disponível"),
+            None
+        );
     }
 }
