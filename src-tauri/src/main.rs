@@ -1327,7 +1327,7 @@ async fn prepare_cleanup(task_id: String) -> Result<CleanupPreparation, String> 
         std::process::id(),
         PREPARATION_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
-    let restore_point_created = matches!(restore_point, Some(Ok(_)));
+    let restore_point_created = matches!(&restore_point, Some(Ok(_)));
     let restore_point_error = restore_point
         .as_ref()
         .and_then(|result| result.as_ref().err().cloned());
