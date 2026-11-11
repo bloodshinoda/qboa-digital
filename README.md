@@ -82,6 +82,36 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
 - Correções nas rotinas de telemetria e privacidade avançada, com reporte de falhas por componente.
 - Ajustes na execução silenciosa da Limpeza de Disco do Windows e no fluxo de inicialização com splash screen.
 
+### Destaques da versão 3.1.2
+
+- Correção da prévia de ajustes de serviços no Windows 11 IoT Enterprise LTSC.
+- Verificação do estado atual dos serviços antes de sugerir alterações, evitando aplicar referências fora de contexto.
+- Identificação ampliada de fornecedores e apresentação de evidências para dar mais transparência à análise.
+- Confirmação explícita preservada: nenhuma alteração de serviço é aplicada automaticamente.
+
+### Destaques da versão 3.1.1
+
+- Indicador de progresso centralizado, com melhor contraste e suporte a progresso indeterminado.
+- Diálogos de confirmação e avisos de risco priorizados sobre o painel de progresso.
+- Bloqueio de execuções simultâneas na interface e no backend.
+- Avisos mais claros ao solicitar outra tarefa durante uma execução.
+- Revisão das descrições de serviços e ações para facilitar o entendimento.
+
+### Destaques da versão 3.1.0
+
+- Inventário de capacidades do Windows, com identificação e organização dos recursos disponíveis.
+- Detecção de instalações modificadas do Windows e adaptação das verificações da manutenção pesada.
+- Melhorias na interface, na apresentação das informações e na área **Sobre**.
+- Distribuição organizada em instalador e versão portátil.
+
+### Destaques da versão 3.0
+
+- Primeira versão estável da nova geração desktop do QBoa Digital.
+- Migração da antiga ferramenta baseada em arquivos BAT para um aplicativo com interface gráfica própria.
+- Nova arquitetura baseada em Tauri e Rust, preparada para evolução e manutenção.
+- Organização das funcionalidades e aprimoramento dos diagnósticos e diálogos.
+- Continuidade da proposta original do QBoa 2.0: oferecer ferramentas práticas para manutenção do Windows.
+
 ### Destaques da versão 3.2.0
 
 - Laudos de diagnóstico em JSON versionado, persistidos localmente e preservados entre sessões.
