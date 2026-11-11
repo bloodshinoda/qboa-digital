@@ -2284,8 +2284,11 @@ function renderCpuTestSession(session) {
     active ? elapsed + " de " + target + " · " + Number(session.iterations || 0).toLocaleString("pt-BR") +
       " verificações · " + Number(session.calculation_errors || 0) + " divergência(s)" :
       session.error || session.report?.warnings?.join(" ") || "Teste finalizado.";
-  if (session.error) {
-    document.getElementById("cpu-test-result").textContent = session.error;
+  const result = document.getElementById("cpu-test-result");
+  if (active) {
+    result.textContent = "Teste de CPU em execução. As amostras e métricas aparecerão abaixo.";
+  } else if (session.error) {
+    result.textContent = session.error;
   }
 }
 
