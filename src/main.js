@@ -164,8 +164,18 @@ const Qboa = {
     return invoke("prepare_cleanup", { taskId });
   },
 
-  async runTask(taskId, shutdownOnComplete, resetBaseAuthorized = false) {
-    return invoke("run_task", { taskId, shutdownOnComplete, resetBaseAuthorized });
+  async cancelCleanupPreparation(token) {
+    return invoke("cancel_cleanup_preparation", { token });
+  },
+
+  async runTask(taskId, shutdownOnComplete, resetBaseAuthorized = false, preparationToken = null, proceedWithoutRestorePoint = false) {
+    return invoke("run_task", {
+      taskId,
+      shutdownOnComplete,
+      resetBaseAuthorized,
+      preparationToken,
+      proceedWithoutRestorePoint
+    });
   },
 
   async setShutdownOnComplete(enabled) {
@@ -1016,7 +1026,16 @@ function startActivity(taskName) {
 }
 
 function isCleanupTask(taskId) {
-  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update", "limpeza_historico_navegadores"].includes(taskId);
+  return [
+    "limpeza_leve",
+    "limpeza_media",
+    "limpeza_pesada",
+    "limpeza_windows_update",
+    "limpeza_historico_navegadores",
+    "desengordurar_telemetria",
+    "desengordurar_tarefas",
+    "desengordurar_telemetria_avancada"
+  ].includes(taskId);
 }
 
 function showExecutionToast(status, title, message) {
@@ -1350,41 +1369,66 @@ async function executeTask(item, cardEl) {
       await prepareBrowserCleanupIfNeeded();
     }
     let resetBaseAuthorized = false;
-    if (item.id === "limpeza_pesada") {
-      let resetBaseRequired;
-      try { resetBaseRequired = await Qboa.prepareCleanup(item.id); }
-      catch (error) {
-        appendConsole("Não foi possível verificar a necessidade do /ResetBase. A limpeza pesada não será liberada: " + String(error));
+    let restorePointAuthorized = false;
+    let preparation;
+    try {
+      preparation = await Qboa.prepareCleanup(item.id);
+    } catch (error) {
+      appendConsole("Não foi possível preparar a proteção do sistema. A operação não será liberada: " + String(error));
+      activeTaskId = null; activeExecutionId = null; launchPending = false;
+      currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
+      closeCleanupSession();
+      return false;
+    }
+
+    if (preparation.restore_point_error) {
+      restorePointAuthorized = await askConfirmation(
+        `Não consegui criar um ponto de restauração antes de iniciar: ${preparation.restore_point_error}\n\nSem esse ponto, não será possível usar a Restauração do Sistema para reverter as alterações desta operação. Deseja prosseguir mesmo assim?`,
+        "Ponto de restauração indisponível",
+        "Prosseguir sem proteção",
+        "Cancelar operação"
+      );
+      if (!restorePointAuthorized) {
+        try { await Qboa.cancelCleanupPreparation(preparation.token); } catch (error) {
+          appendConsole("Não foi possível descartar a preparação: " + String(error));
+        }
+        appendConsole("Operação cancelada na preparação: o ponto de restauração não foi criado e nenhuma alteração começou.");
         activeTaskId = null; activeExecutionId = null; launchPending = false;
         currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
         closeCleanupSession();
         return false;
       }
-      if (resetBaseRequired) {
-        resetBaseAuthorized = await askConfirmation(
-          "A limpeza pesada executará DISM /StartComponentCleanup /ResetBase. Depois disso, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada não começará.",
-          "Operação irreversível: DISM /ResetBase",
-          "Sim, executar /ResetBase",
-          "Cancelar limpeza pesada"
-        );
-        if (!resetBaseAuthorized) {
-          appendConsole("Limpeza pesada cancelada na preparação: /ResetBase não autorizado. Nenhuma etapa de limpeza foi iniciada.");
-          activeTaskId = null; activeExecutionId = null; launchPending = false;
-          currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
-          const shutdownToggle = document.getElementById("shutdown-on-complete");
-          if (shutdownToggle) shutdownToggle.checked = false;
-          try { await Qboa.setShutdownOnComplete(false); } catch (error) {
-            appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
-          }
-          closeCleanupSession();
-          return false;
-        }
-      } else {
-        appendConsole("Compatibilidade: ambiente restritivo ou não classificável; /ResetBase será omitido para preservar a reversibilidade.");
-      }
+      appendConsole("Falha no ponto de restauração autorizada: a operação poderá continuar sem essa proteção.");
+    } else if (preparation.restore_point_created) {
+      appendConsole("Ponto de restauração criado antes do início da operação.");
     }
-    activeTaskId = item.id;
-    preparedCleanupTask = { item, cardEl, resetBaseAuthorized };
+
+    if (preparation.reset_base_required) {
+      resetBaseAuthorized = await askConfirmation(
+        "A limpeza pesada executará DISM /StartComponentCleanup /ResetBase. Depois disso, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada não começará.",
+        "Operação irreversível: DISM /ResetBase",
+        "Sim, executar /ResetBase",
+        "Cancelar limpeza pesada"
+      );
+      if (!resetBaseAuthorized) {
+        try { await Qboa.cancelCleanupPreparation(preparation.token); } catch (error) {
+          appendConsole("Não foi possível descartar a preparação: " + String(error));
+        }
+        appendConsole("Limpeza pesada cancelada na preparação: /ResetBase não autorizado. Nenhuma etapa de limpeza foi iniciada.");
+        activeTaskId = null; activeExecutionId = null; launchPending = false;
+        currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
+        const shutdownToggle = document.getElementById("shutdown-on-complete");
+        if (shutdownToggle) shutdownToggle.checked = false;
+        try { await Qboa.setShutdownOnComplete(false); } catch (error) {
+          appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
+        }
+        closeCleanupSession();
+        return false;
+      }
+    } else if (item.id === "limpeza_pesada") {
+      appendConsole("Compatibilidade: ambiente restritivo ou não classificável; /ResetBase será omitido para preservar a reversibilidade.");
+    }
+    preparedCleanupTask = { item, cardEl, resetBaseAuthorized, preparationToken: preparation.token, restorePointAuthorized };
     launchPending = false;
     currentOperationStage = "Aguardando autorização para iniciar.";
     setCleanupSessionPhase("ready", item.name);
@@ -1429,7 +1473,13 @@ async function executeTask(item, cardEl) {
 async function startPreparedCleanup() {
   const prepared = preparedCleanupTask;
   if (!prepared || cleanupSessionPhase !== "ready" || !activeTaskId) return false;
-  const { item, cardEl, resetBaseAuthorized = false } = prepared;
+  const {
+    item,
+    cardEl,
+    resetBaseAuthorized = false,
+    preparationToken,
+    restorePointAuthorized = false
+  } = prepared;
   preparedCleanupTask = null;
   launchPending = true;
   cleanupExecutionStarted = false;
@@ -1444,7 +1494,13 @@ async function startPreparedCleanup() {
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
 
   try {
-    const result = await Qboa.runTask(item.id, shutdownOnComplete, resetBaseAuthorized);
+    const result = await Qboa.runTask(
+      item.id,
+      shutdownOnComplete,
+      resetBaseAuthorized,
+      preparationToken,
+      restorePointAuthorized
+    );
     if (activeTaskId === item.id) {
       activeExecutionId = result.execution_id || activeExecutionId;
       launchPending = false;
@@ -1473,6 +1529,11 @@ async function cancelPreparedCleanup() {
   const prepared = preparedCleanupTask;
   if (!prepared || cleanupSessionPhase !== "ready") return;
   preparedCleanupTask = null;
+  try {
+    await Qboa.cancelCleanupPreparation(prepared.preparationToken);
+  } catch (error) {
+    appendConsole("Não foi possível descartar a preparação cancelada: " + String(error));
+  }
   if (prepared.cardEl) prepared.cardEl.classList.remove("running");
   browserCleanupDecision = null;
   activeTaskId = null;
