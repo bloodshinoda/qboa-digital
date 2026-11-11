@@ -71,6 +71,7 @@ type SharedCleanupLifecycle = Arc<Mutex<operation_contracts::CleanupExecutionLif
 #[derive(Clone, Debug)]
 struct PreparedCleanup {
     task_id: String,
+    created_at: Instant,
     reset_base_required: bool,
     restore_point_required: bool,
     restore_point: Option<Result<String, String>>,
@@ -97,6 +98,8 @@ static PREPARED_CLEANUPS: std::sync::OnceLock<
     Mutex<std::collections::HashMap<String, PreparedCleanup>>,
 > = std::sync::OnceLock::new();
 static PREPARATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+const PREPARATION_TOKEN_TTL: Duration = Duration::from_secs(15 * 60);
+const MAX_PREPARED_CLEANUPS: usize = 32;
 
 fn prepared_cleanups() -> &'static Mutex<std::collections::HashMap<String, PreparedCleanup>> {
     PREPARED_CLEANUPS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
@@ -139,9 +142,9 @@ fn take_prepared_cleanup(
     task_id: &str,
     proceed_without_restore_point: bool,
 ) -> Result<PreparedCleanupExecution, String> {
-    let prepared = prepared_cleanups()
-        .lock()
-        .unwrap()
+    let mut preparations = prepared_cleanups().lock().unwrap();
+    preparations.retain(|_, prepared| prepared.created_at.elapsed() < PREPARATION_TOKEN_TTL);
+    let prepared = preparations
         .remove(token)
         .ok_or_else(|| "A preparação expirou, foi cancelada ou já foi utilizada.".to_string())?;
     resolve_prepared_cleanup(task_id, prepared, proceed_without_restore_point)
@@ -1328,10 +1331,22 @@ async fn prepare_cleanup(task_id: String) -> Result<CleanupPreparation, String> 
         .as_ref()
         .and_then(|result| result.as_ref().err().cloned());
 
-    prepared_cleanups().lock().unwrap().insert(
+    let mut preparations = prepared_cleanups().lock().unwrap();
+    preparations.retain(|_, prepared| prepared.created_at.elapsed() < PREPARATION_TOKEN_TTL);
+    if preparations.len() >= MAX_PREPARED_CLEANUPS {
+        if let Some(oldest_token) = preparations
+            .iter()
+            .min_by_key(|(_, prepared)| prepared.created_at)
+            .map(|(token, _)| token.clone())
+        {
+            preparations.remove(&oldest_token);
+        }
+    }
+    preparations.insert(
         token.clone(),
         PreparedCleanup {
             task_id,
+            created_at: Instant::now(),
             reset_base_required,
             restore_point_required,
             restore_point,
@@ -3053,6 +3068,7 @@ mod tests {
         assert!(task.risk.requires_restore_point());
         assert!(!task.creates_restore_point);
         let prepared = PreparedCleanup {
+            created_at: Instant::now(),
             task_id: task.id.clone(),
             reset_base_required: false,
             restore_point_required: true,
@@ -3071,6 +3087,7 @@ mod tests {
     #[test]
     fn ponto_de_restauracao_preparado_e_reutilizado_sem_segunda_confirmacao() {
         let prepared = PreparedCleanup {
+            created_at: Instant::now(),
             task_id: "limpeza_media".to_string(),
             reset_base_required: false,
             restore_point_required: true,
@@ -3087,6 +3104,7 @@ mod tests {
     #[test]
     fn preparacao_nao_pode_ser_reutilizada_por_outra_tarefa() {
         let prepared = PreparedCleanup {
+            created_at: Instant::now(),
             task_id: "limpeza_media".to_string(),
             reset_base_required: false,
             restore_point_required: true,
@@ -3114,6 +3132,7 @@ mod tests {
         prepared_cleanups().lock().unwrap().insert(
             token.clone(),
             PreparedCleanup {
+            created_at: Instant::now(),
                 task_id: "limpeza_leve".to_string(),
                 reset_base_required: false,
                 restore_point_required: false,
@@ -3125,8 +3144,30 @@ mod tests {
     }
 
     #[test]
+    fn token_de_preparacao_expirado_e_descartado_automaticamente() {
+        let token = format!(
+            "teste-prep-expirado-{}",
+            PREPARATION_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        prepared_cleanups().lock().unwrap().insert(
+            token.clone(),
+            PreparedCleanup {
+                task_id: "limpeza_leve".to_string(),
+                created_at: Instant::now() - PREPARATION_TOKEN_TTL - Duration::from_secs(1),
+                reset_base_required: false,
+                restore_point_required: false,
+                restore_point: None,
+            },
+        );
+
+        assert!(take_prepared_cleanup(&token, "limpeza_leve", false).is_err());
+        assert!(!prepared_cleanups().lock().unwrap().contains_key(&token));
+    }
+
+    #[test]
     fn autorizacao_de_resetbase_e_preservada_na_preparacao() {
         let prepared = PreparedCleanup {
+            created_at: Instant::now(),
             task_id: "limpeza_pesada".to_string(),
             reset_base_required: true,
             restore_point_required: false,
