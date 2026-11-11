@@ -23,6 +23,7 @@ A F1 prepara operações de limpeza e manutenção antes de liberar o botão **I
 
 - `prepare_cleanup` resolve a tarefa e tenta criar o ponto de restauração antes da execução.
 - A preparação retorna um token de uso único, vinculado ao `task_id`, e informa se o ponto foi criado ou se houve falha.
+- O token expira após 15 minutos; tokens expirados são descartados e o armazenamento mantém no máximo 32 preparações pendentes.
 - Em caso de falha, a interface solicita autorização explícita ainda na preparação. Recusar descarta o token e encerra sem iniciar alterações.
 - `run_task` consome o token, valida a tarefa e exige autorização explícita quando o ponto não pôde ser criado. Não existe segunda tentativa nem confirmação tardia no executor.
 - A decisão sobre `/ResetBase` também fica vinculada à mesma preparação, evitando reclassificar o ambiente entre a confirmação e o início.
