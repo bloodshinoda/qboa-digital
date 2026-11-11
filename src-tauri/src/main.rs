@@ -102,6 +102,10 @@ fn prepared_cleanups() -> &'static Mutex<std::collections::HashMap<String, Prepa
     PREPARED_CLEANUPS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
+fn requires_cleanup_preparation(task: &Task) -> bool {
+    task.module != task_registry::TaskModule::Diagnostic
+}
+
 fn resolve_prepared_cleanup(
     task_id: &str,
     prepared: PreparedCleanup,
@@ -1377,7 +1381,7 @@ async fn run_task(
         .resolve(&task_id)
         .cloned()
         .ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
-    let prepared_cleanup = if task.module == task_registry::TaskModule::Diagnostic {
+    let prepared_cleanup = if !requires_cleanup_preparation(&task) {
         if preparation_token.is_some() {
             return Err("Diagnósticos não aceitam token de preparação de limpeza.".to_string());
         }
@@ -3122,6 +3126,44 @@ mod tests {
     }
 
     #[test]
+    fn tarefas_de_manutencao_exigem_preparacao_e_diagnosticos_preservam_ciclo_proprio() {
+        let cleanup = resolve_task("limpeza_media").unwrap().unwrap();
+        let debloat = resolve_task("desengordurar_telemetria").unwrap().unwrap();
+        let diagnostic = resolve_task("diagnostico_sfc").unwrap().unwrap();
+        assert!(requires_cleanup_preparation(&cleanup));
+        assert!(requires_cleanup_preparation(&debloat));
+        assert!(!requires_cleanup_preparation(&diagnostic));
+    }
+
+    #[test]
+    fn token_de_preparacao_so_pode_ser_consumido_uma_vez() {
+        let token = format!("teste-prep-{}", PREPARATION_COUNTER.fetch_add(1, Ordering::Relaxed));
+        prepared_cleanups().lock().unwrap().insert(
+            token.clone(),
+            PreparedCleanup {
+                task_id: "limpeza_leve".to_string(),
+                reset_base_required: false,
+                restore_point_required: false,
+                restore_point: None,
+            },
+        );
+        assert!(take_prepared_cleanup(&token, "limpeza_leve", false).is_ok());
+        assert!(take_prepared_cleanup(&token, "limpeza_leve", false).is_err());
+    }
+
+    #[test]
+    fn autorizacao_de_resetbase_e_preservada_na_preparacao() {
+        let prepared = PreparedCleanup {
+            task_id: "limpeza_pesada".to_string(),
+            reset_base_required: true,
+            restore_point_required: false,
+            restore_point: None,
+        };
+        let resolved = resolve_prepared_cleanup("limpeza_pesada", prepared, false).unwrap();
+        assert!(resolved.reset_base_required);
+    }
+
+    #[test]
     fn reset_base_confirmation_is_required_before_heavy_cleanup_is_released() {
         assert!(reset_base_confirmation_required("limpeza_pesada", false));
         assert!(!reset_base_confirmation_required("limpeza_pesada", true));
@@ -3272,6 +3314,7 @@ fn main() {
             finish_startup,
             get_tasks,
             prepare_cleanup,
+            cancel_cleanup_preparation,
             run_task,
             set_shutdown_on_complete,
             respond_restore_point_failure,
