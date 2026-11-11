@@ -2,13 +2,15 @@
 
 ![QBoa Digital](src-tauri/icons/logo.png)
 
-Versão atual: `3.2.2` (versão do pacote: `3.2.2`)
+Versão em preparação: `3.2.3` (versão do pacote: `3.2.3`)
 
 [![made-with-rust](https://img.shields.io/badge/Made%20with-Rust-1f425f.svg)](https://www.rust-lang.org/) [![made-with-javascript](https://img.shields.io/badge/Made%20with-JavaScript-1f425f.svg)](https://www.javascript.com) 
 
-## QBoa Digital 3.2.2
+## QBoa Digital 3.2.3
 
-A versão 3.2.2 refina a experiência de execução: permite redimensionar o Registro de Atividades por arraste, apresenta o progresso na barra de tarefas do Windows e exibe mensagens contextuais bem-humoradas no popup de progresso, com variações e animação sutil. Mantém o percentual real das operações separado das mensagens descontraídas.
+A versão 3.2.3 consolida a preparação segura das tarefas e o progresso global da execução. O ponto de restauração é solicitado antes de liberar o início; quando não pode ser criado, a pessoa decide explicitamente se deseja prosseguir. O progresso passa a representar a operação inteira, sem reiniciar entre etapas, incorporando os percentuais reais de DISM e SFC dentro dos pesos definidos. A experiência visual mantém o glow apenas no campo em atividade, com transição suave.
+
+A validação funcional desta versão foi realizada em Windows 11 LTSC, Windows 10 LTSC e Windows 11 Pro for Workstations. A publicação dos instaladores será feita após a conclusão da preparação da release.
 
 > O QBoa Digital mantém diagnóstico separado de limpeza e manutenção.
 

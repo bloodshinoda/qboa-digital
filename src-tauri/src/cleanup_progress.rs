@@ -1,86 +1,161 @@
 // Cálculo puro do progresso agregado das etapas de limpeza.
 //
-// O DISM é a etapa mais demorada: recebe 55% do progresso em limpeza média
-// (até 5 etapas) e 65% em limpeza pesada (6+ etapas). Seu avanço fica
-// limitado a 94% desse peso até o processo encerrar, contemplando a pausa
-// frequente após exibir 100%.
+// O percentual representa a operação inteira. Etapas simples consomem seu peso
+// quando a próxima começa; DISM, ResetBase e SFC avançam dentro do próprio peso
+// usando o percentual real informado pela ferramenta.
+//
+// Limpeza média (4 etapas): 25% por etapa.
+// Limpeza pesada (8 etapas): 6% para cada etapa inicial, 35% para RestoreHealth,
+// 15% para ResetBase e 20% para SFC. Os pesos somam 100%.
 
-pub(crate) fn cleanup_progress_percent(
-    current: u32,
-    total: u32,
-    is_dism: bool,
-    dism_percent: f64,
-) -> u32 {
+fn stage_weight(total: u32, index: u32) -> f64 {
+    if total == 4 {
+        return 25.0;
+    }
+
+    if total == 8 {
+        return match index {
+            1..=5 => 6.0,
+            6 => 35.0,
+            7 => 15.0,
+            8 => 20.0,
+            _ => 0.0,
+        };
+    }
+
+    if total == 0 {
+        0.0
+    } else {
+        100.0 / total as f64
+    }
+}
+
+/// Calcula o percentual global com base nas etapas concluídas e no avanço da atual.
+pub(crate) fn cleanup_progress_percent(current: u32, total: u32, stage_percent: f64) -> u32 {
     if total == 0 || current == 0 || current > total {
         return 0;
     }
 
-    let dism_weight = if total >= 6 { 0.65 } else { 0.55 };
-    let other_weight = (1.0 - dism_weight) / (total - 1).max(1) as f64;
+    let completed: f64 = (1..current).map(|index| stage_weight(total, index)).sum();
+    let current_weight = stage_weight(total, current);
+    let current_progress = current_weight * stage_percent.clamp(0.0, 100.0) / 100.0;
 
-    let progress = if is_dism {
-        let stage_progress = dism_percent.clamp(0.0, 100.0) / 100.0 * 0.94;
-        (current - 1) as f64 * other_weight + stage_progress * dism_weight
-    } else {
-        let completed_before = if current > 1 { current - 1 } else { 0 };
-        completed_before as f64 * other_weight
-    };
+    (completed + current_progress).clamp(0.0, 100.0).floor() as u32
+}
 
-    (progress.clamp(0.0, 1.0) * 100.0).floor() as u32
+/// Extrai o percentual de linhas de progresso do DISM/SFC sem interpretar
+/// números de outras mensagens como avanço da ferramenta.
+pub(crate) fn parse_tool_progress_percent(line: &str) -> Option<f64> {
+    let percent_pos = line.find('%')?;
+    let prefix = &line[..percent_pos];
+    let number: String = prefix
+        .chars()
+        .rev()
+        .take_while(|character| {
+            character.is_ascii_digit() || *character == '.' || *character == ','
+        })
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+
+    if number.is_empty() {
+        return None;
+    }
+
+    number
+        .replace(',', ".")
+        .parse::<f64>()
+        .ok()
+        .map(|value| value.clamp(0.0, 100.0))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::cleanup_progress_percent;
+    use super::{cleanup_progress_percent, parse_tool_progress_percent};
 
     #[test]
-    fn progresso_inicial_permanece_em_zero() {
-        assert_eq!(cleanup_progress_percent(1, 5, false, 0.0), 0);
-        assert_eq!(cleanup_progress_percent(1, 6, false, 0.0), 0);
+    fn limpeza_media_distribui_o_progresso_igualmente_entre_as_etapas() {
+        assert_eq!(cleanup_progress_percent(1, 4, 0.0), 0);
+        assert_eq!(cleanup_progress_percent(2, 4, 0.0), 25);
+        assert_eq!(cleanup_progress_percent(3, 4, 0.0), 50);
+        assert_eq!(cleanup_progress_percent(4, 4, 0.0), 75);
+        assert_eq!(cleanup_progress_percent(4, 4, 50.0), 87);
+        assert_eq!(cleanup_progress_percent(4, 4, 100.0), 100);
     }
 
     #[test]
-    fn etapas_concluidas_usam_o_peso_restante_na_limpeza_media() {
-        assert_eq!(cleanup_progress_percent(2, 5, false, 0.0), 11);
-        assert_eq!(cleanup_progress_percent(5, 5, false, 0.0), 44);
+    fn limpeza_pesada_mantem_o_percentual_global_linear_entre_dism_resetbase_e_sfc() {
+        assert_eq!(cleanup_progress_percent(6, 8, 0.0), 30);
+        assert_eq!(cleanup_progress_percent(6, 8, 50.0), 47);
+        assert_eq!(cleanup_progress_percent(6, 8, 100.0), 65);
+        assert_eq!(cleanup_progress_percent(7, 8, 0.0), 65);
+        assert_eq!(cleanup_progress_percent(7, 8, 100.0), 80);
+        assert_eq!(cleanup_progress_percent(8, 8, 0.0), 80);
+        assert_eq!(cleanup_progress_percent(8, 8, 50.0), 90);
+        assert_eq!(cleanup_progress_percent(8, 8, 100.0), 100);
     }
 
     #[test]
-    fn etapas_concluidas_usam_o_peso_restante_na_limpeza_pesada() {
-        assert_eq!(cleanup_progress_percent(2, 6, false, 0.0), 6);
-        assert_eq!(cleanup_progress_percent(6, 6, false, 0.0), 35);
+    fn etapas_simples_sao_consolidadas_quando_a_proxima_comeca() {
+        assert_eq!(cleanup_progress_percent(5, 8, 0.0), 24);
+        assert_eq!(cleanup_progress_percent(6, 8, 0.0), 30);
     }
 
     #[test]
-    fn dism_respeita_o_peso_da_limpeza_media() {
-        assert_eq!(cleanup_progress_percent(5, 5, true, 0.0), 44);
-        assert_eq!(cleanup_progress_percent(5, 5, true, 50.0), 70);
-        assert_eq!(cleanup_progress_percent(5, 5, true, 100.0), 96);
+    fn etapas_de_tarefas_sem_pesos_especificos_dividem_o_total() {
+        assert_eq!(cleanup_progress_percent(2, 5, 0.0), 20);
+        assert_eq!(cleanup_progress_percent(5, 5, 50.0), 90);
     }
 
     #[test]
-    fn dism_respeita_o_peso_da_limpeza_pesada() {
-        assert_eq!(cleanup_progress_percent(6, 6, true, 0.0), 35);
-        assert_eq!(cleanup_progress_percent(6, 6, true, 50.0), 65);
-        assert_eq!(cleanup_progress_percent(6, 6, true, 100.0), 96);
+    fn progresso_global_nao_regride_ao_trocar_de_etapa() {
+        let stage_percentages = [
+            (1, 8, 100.0),
+            (2, 8, 100.0),
+            (3, 8, 100.0),
+            (4, 8, 100.0),
+            (5, 8, 100.0),
+            (6, 8, 100.0),
+            (7, 8, 100.0),
+            (8, 8, 100.0),
+        ];
+        let values = stage_percentages
+            .into_iter()
+            .map(|(current, total, local)| cleanup_progress_percent(current, total, local))
+            .collect::<Vec<_>>();
+
+        assert!(values.windows(2).all(|pair| pair[1] >= pair[0]));
+        assert_eq!(values.last(), Some(&100));
     }
 
     #[test]
-    fn progresso_do_dism_e_limitado_ao_intervalo_de_zero_a_cem() {
-        assert_eq!(cleanup_progress_percent(5, 5, true, -20.0), 44);
-        assert_eq!(cleanup_progress_percent(5, 5, true, 150.0), 96);
+    fn percentual_da_etapa_e_limitado_ao_intervalo_de_zero_a_cem() {
+        assert_eq!(cleanup_progress_percent(6, 8, -20.0), 30);
+        assert_eq!(cleanup_progress_percent(6, 8, 150.0), 65);
     }
 
     #[test]
     fn entradas_invalidas_nao_geram_progresso() {
-        assert_eq!(cleanup_progress_percent(0, 5, false, 0.0), 0);
-        assert_eq!(cleanup_progress_percent(1, 0, false, 0.0), 0);
-        assert_eq!(cleanup_progress_percent(6, 5, false, 0.0), 0);
+        assert_eq!(cleanup_progress_percent(0, 5, 0.0), 0);
+        assert_eq!(cleanup_progress_percent(1, 0, 0.0), 0);
+        assert_eq!(cleanup_progress_percent(6, 5, 0.0), 0);
     }
 
     #[test]
-    fn uma_unica_etapa_nao_divide_por_zero() {
-        assert_eq!(cleanup_progress_percent(1, 1, false, 0.0), 0);
-        assert_eq!(cleanup_progress_percent(1, 1, true, 100.0), 51);
+    fn interpreta_percentual_real_de_dism_e_sfc() {
+        assert_eq!(parse_tool_progress_percent(" 45.7%"), Some(45.7));
+        assert_eq!(
+            parse_tool_progress_percent("Verification 82% complete."),
+            Some(82.0)
+        );
+        assert_eq!(
+            parse_tool_progress_percent("Progresso 12,5% concluído"),
+            Some(12.5)
+        );
+        assert_eq!(
+            parse_tool_progress_percent("Nenhum percentual disponível"),
+            None
+        );
     }
 }

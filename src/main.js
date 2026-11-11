@@ -41,6 +41,41 @@ let cpuInventorySnapshot = null;
 let cpuTestSamples = [];
 let gpuTestSessionSnapshot = null;
 let gpuInventorySnapshot = null;
+const diagnosticActivityTargets = new Map();
+
+function diagnosticActivityTarget(reason) {
+  if (reason.startsWith("inventory:cpu")) return document.querySelector("#cpu-test-panel .cpu-inventory-panel");
+  if (reason.startsWith("inventory:gpu")) return document.querySelector("#gpu-test-panel .cpu-inventory-panel");
+  if (reason.startsWith("inventory:memory")) return document.getElementById("memory-inventory-panel");
+  if (reason.startsWith("inventory:storage")) return document.getElementById("storage-disk-picker");
+  if (reason.startsWith("starting:cpu")) return document.getElementById("cpu-test-result");
+  if (reason.startsWith("starting:gpu")) return document.getElementById("gpu-test-result");
+  if (reason.startsWith("starting:memory")) return document.getElementById("memory-test-result");
+  if (reason.startsWith("run:")) return document.getElementById("diagnostic-status");
+  // Sessões com gráfico ou barra de progresso já têm feedback visual próprio.
+  return null;
+}
+
+function refreshDiagnosticActivityTarget(target) {
+  if (!target) return;
+  const active = [...diagnosticActivityTargets.values()].some((element) => element === target);
+  target.classList.add("qboa-activity-target");
+  target.dataset.activity = active ? "working" : "idle";
+}
+
+function setDiagnosticActivity(reason, active) {
+  const previousTarget = diagnosticActivityTargets.get(reason);
+  if (active) {
+    const target = diagnosticActivityTarget(reason);
+    if (target) diagnosticActivityTargets.set(reason, target);
+    else diagnosticActivityTargets.delete(reason);
+  } else {
+    diagnosticActivityTargets.delete(reason);
+  }
+  if (previousTarget) refreshDiagnosticActivityTarget(previousTarget);
+  const currentTarget = diagnosticActivityTargets.get(reason);
+  if (currentTarget && currentTarget !== previousTarget) refreshDiagnosticActivityTarget(currentTarget);
+}
 
 let cleanupSessionPhase = "closed";
 let cleanupSessionTaskName = "";
@@ -54,7 +89,7 @@ function ensureCleanupSessionModal() {
   shell.id = "cleanup-session-modal";
   shell.className = "cleanup-session-modal hidden";
   shell.setAttribute("aria-hidden", "true");
-  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de limpeza</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div id="cleanup-preparation-actions" class="cleanup-preparation-actions" hidden><button id="cleanup-preparation-cancel" class="secondary-button" type="button">Cancelar</button><button id="cleanup-preparation-start" class="primary-button" type="button">Iniciar</button></div><div class="cleanup-session-content" id="cleanup-session-content"></div><div class="toolbar" hidden><button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Parar tarefa</button></div></section>';
+  shell.innerHTML = '<section class="cleanup-session-dialog" role="dialog" aria-modal="true" aria-labelledby="cleanup-session-title"><header class="cleanup-session-header"><div><span class="eyebrow">QBoa Digital · sessão de manutenção</span><h2 id="cleanup-session-title">Preparando a faxina</h2><p id="cleanup-session-description">Vamos conferir tudo antes de começar.</p></div></header><ol class="cleanup-session-steps" aria-label="Etapas da sessão"><li data-session-step="preparing" class="active"><span>1</span> Preparação</li><li data-session-step="running"><span>2</span> Execução</li><li data-session-step="result"><span>3</span> Resultado</li></ol><div id="cleanup-preparation-intro" class="cleanup-preparation-intro qboa-activity-target"><strong>Deixando tudo pronto</strong><p>O QBoa está conferindo as condições e reunindo as decisões necessárias. A faxina só começa depois desta etapa.</p></div><div id="cleanup-preparation-options" class="cleanup-preparation-options"><label class="shutdown-option"><input id="shutdown-on-complete" type="checkbox" /><span>Desligar ao concluir</span></label></div><div id="cleanup-preparation-actions" class="cleanup-preparation-actions" hidden><button id="cleanup-preparation-cancel" class="secondary-button" type="button">Cancelar</button><button id="cleanup-preparation-start" class="primary-button" type="button">Iniciar</button></div><div class="cleanup-session-content" id="cleanup-session-content"></div><div class="toolbar" hidden><button id="cancel-task-btn" class="secondary-button" type="button" hidden disabled>Parar tarefa</button></div></section>';
   document.body.appendChild(shell);
   const content = shell.querySelector("#cleanup-session-content");
   ["risk-modal", "confirmation-modal", "operation-progress", "execution-summary-modal"].forEach((id) => {
@@ -96,6 +131,10 @@ function setCleanupSessionPhase(phase, taskName = "") {
   preparationOptions.hidden = !["preparing", "ready", "starting"].includes(phase);
   if (preparationActions) preparationActions.hidden = phase !== "ready";
   const preparationPromptOpen = !risk?.classList.contains("hidden") || !confirmation?.classList.contains("hidden");
+  const preparationActivity = document.getElementById("cleanup-preparation-intro");
+  if (preparationActivity) preparationActivity.dataset.activity =
+    (phase === "starting" || (phase === "preparing" && !preparationPromptOpen))
+      ? "working" : "idle";
   shell.classList.remove("hidden");
   shell.setAttribute("aria-hidden", "false");
   shell.dataset.phase = phase;
@@ -117,13 +156,10 @@ function setCleanupSessionPhase(phase, taskName = "") {
   if (phase === "running") {
     updateOperationProgress(cleanupSessionTaskName || currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", currentOperationProgress);
     if (progressFlavorTimer === null) {
-      progressFlavorTimer = window.setInterval(() => {
-        if (cleanupSessionPhase !== "running" || !activeTaskId) return;
-        renderProgressFlavor(activeTaskId, currentOperationStage || "Preparando a faxina…", true);
-      }, 9000);
+      scheduleProgressFlavorRotation();
     }
   } else if (progressFlavorTimer !== null) {
-    window.clearInterval(progressFlavorTimer);
+    window.clearTimeout(progressFlavorTimer);
     progressFlavorTimer = null;
   }
 }
@@ -164,8 +200,18 @@ const Qboa = {
     return invoke("prepare_cleanup", { taskId });
   },
 
-  async runTask(taskId, shutdownOnComplete, resetBaseAuthorized = false) {
-    return invoke("run_task", { taskId, shutdownOnComplete, resetBaseAuthorized });
+  async cancelCleanupPreparation(token) {
+    return invoke("cancel_cleanup_preparation", { token });
+  },
+
+  async runTask(taskId, shutdownOnComplete, resetBaseAuthorized = false, preparationToken = null, proceedWithoutRestorePoint = false) {
+    return invoke("run_task", {
+      taskId,
+      shutdownOnComplete,
+      resetBaseAuthorized,
+      preparationToken,
+      proceedWithoutRestorePoint
+    });
   },
 
   async setShutdownOnComplete(enabled) {
@@ -360,7 +406,7 @@ function renderTabs() {
     {
       id: "sobre",
       label: "ℹ️ Sobre",
-      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.2"; }
+      summary: () => { document.getElementById("section-summary").textContent = "Sobre o QBoa Digital · versão 3.2.3"; }
     }
   ];
 
@@ -454,10 +500,10 @@ function renderCards() {
       <article class="contribution-panel about-panel">
         <div class="contribution-copy">
           <span class="eyebrow">Sobre o aplicativo</span>
-          <h2>QBoa Digital <span class="about-version">3.2.2</span></h2>
+          <h2>QBoa Digital <span class="about-version">3.2.3</span></h2>
           <p>Utilitário independente de limpeza, manutenção, privacidade e diagnóstico do Windows, com foco em ferramentas práticas e atenção à segurança das operações.</p>
           <div class="about-meta">
-            <p><strong>Versão:</strong> 3.2.2</p>
+            <p><strong>Versão:</strong> 3.2.3</p>
             <p><strong>Build:</strong> <span class="about-build-number">Local</span></p>
             <p><strong>Autoria e desenvolvimento:</strong> Vilson de Oliveira Junior</p>
             <p><strong>Tecnologias:</strong> Tauri, Rust, JavaScript, HTML e CSS</p>
@@ -1016,7 +1062,16 @@ function startActivity(taskName) {
 }
 
 function isCleanupTask(taskId) {
-  return ["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_windows_update", "limpeza_historico_navegadores"].includes(taskId);
+  return [
+    "limpeza_leve",
+    "limpeza_media",
+    "limpeza_pesada",
+    "limpeza_windows_update",
+    "limpeza_historico_navegadores",
+    "desengordurar_telemetria",
+    "desengordurar_tarefas",
+    "desengordurar_telemetria_avancada"
+  ].includes(taskId);
 }
 
 function showExecutionToast(status, title, message) {
@@ -1138,16 +1193,36 @@ function chooseProgressFlavor(taskId, stage) {
   progressFlavorLastIndex.set(category, index);
   return options[index];
 }
+function progressFlavorStageKey(taskId, stage) {
+  const rawStage = String(stage || "preparacao");
+  const category = progressFlavorCategory(taskId, rawStage);
+  const step = rawStage.match(/\b(?:etapa|passo)\s*(\d+)\s*(?:\/|de)\s*(\d+)\b/i);
+  const stableStage = rawStage
+    .replace(/\b\d+(?:[.,]\d+)?\s*%/g, "")
+    .replace(/\b(?:\d+(?:[.,]\d+)?\s*\/\s*\d+(?:[.,]\d+)?)\b/g, "")
+    .replace(/\s+/g, " ").trim();
+  // A descrição pode acompanhar cada avanço; a identidade da etapa não.
+  const identity = step ? "step:" + step[1] + "/" + step[2] : stableStage;
+  return String(taskId || "preparacao") + "|" + category + "|" + identity;
+}
+function scheduleProgressFlavorRotation() {
+  if (progressFlavorTimer !== null) window.clearTimeout(progressFlavorTimer);
+  if (cleanupSessionPhase !== "running" || !activeTaskId) {
+    progressFlavorTimer = null;
+    return;
+  }
+  progressFlavorTimer = window.setTimeout(() => {
+    progressFlavorTimer = null;
+    if (cleanupSessionPhase !== "running" || !activeTaskId) return;
+    renderProgressFlavor(activeTaskId, currentOperationStage || "Preparando a faxina…", true);
+  }, 9000);
+}
 function renderProgressFlavor(taskId, stage, forceRotation = false) {
   const flavor = document.getElementById("operation-progress-flavor");
   if (!flavor) return;
-  // Progresso percentual pode mudar a cada atualização; a frase só muda por estágio.
-  const stableStage = String(stage || "preparacao")
-    .replace(/\b\d+(?:[.,]\d+)?\s*%\b/g, "")
-    .replace(/\b(?:\d+(?:[.,]\d+)?\s*\/\s*\d+(?:[.,]\d+)?)\b/g, "")
-    .replace(/\s+/g, " ").trim();
-  const key = String(taskId || "preparacao") + "|" + stableStage;
-  if (!forceRotation && key === lastProgressFlavorKey) return;
+  const key = progressFlavorStageKey(taskId, stage);
+  const stageChanged = key !== lastProgressFlavorKey;
+  if (!stageChanged && !forceRotation) return;
   lastProgressFlavorKey = key;
   const phrase = chooseProgressFlavor(taskId, stage);
   const fragment = document.createDocumentFragment();
@@ -1161,6 +1236,7 @@ function renderProgressFlavor(taskId, stage, forceRotation = false) {
   flavor.replaceChildren(fragment);
   flavor.classList.remove("is-changing");
   window.requestAnimationFrame(() => flavor.classList.add("is-changing"));
+  scheduleProgressFlavorRotation();
 }
 function setTaskbarProgress(progress) {
   const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
@@ -1185,7 +1261,10 @@ function updateOperationProgress(taskName, stage, progressValue) {
   const source = String(progressValue ?? stage ?? "");
   const match = source.match(/(?:^|\s)(\d{1,3}(?:[.,]\d+)?)\s*%/);
   if (match) {
-    currentOperationProgress = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
+    const receivedProgress = Math.max(0, Math.min(100, Number(match[1].replace(",", "."))));
+    currentOperationProgress = currentOperationProgress === null
+      ? receivedProgress
+      : Math.max(currentOperationProgress, receivedProgress);
     bar.classList.add("determinate"); bar.style.width = currentOperationProgress + "%";
     percentEl.textContent = Math.round(currentOperationProgress) + "%";
     setTaskbarProgress(currentOperationProgress);
@@ -1332,6 +1411,7 @@ async function executeTask(item, cardEl) {
   if (operationIsBusy(item?.name)) return false;
 
   launchPending = true;
+  if (cleanup) activeTaskId = item.id;
   currentOperationProgress = null;
   lastProgressFlavorKey = "";
   currentOperationName = item.name;
@@ -1350,41 +1430,67 @@ async function executeTask(item, cardEl) {
       await prepareBrowserCleanupIfNeeded();
     }
     let resetBaseAuthorized = false;
-    if (item.id === "limpeza_pesada") {
-      let resetBaseRequired;
-      try { resetBaseRequired = await Qboa.prepareCleanup(item.id); }
-      catch (error) {
-        appendConsole("Não foi possível verificar a necessidade do /ResetBase. A limpeza pesada não será liberada: " + String(error));
+    let restorePointAuthorized = false;
+    let preparation;
+    try {
+      preparation = await Qboa.prepareCleanup(item.id);
+    } catch (error) {
+      appendConsole("Não foi possível preparar a proteção do sistema. A operação não será liberada: " + String(error));
+      activeTaskId = null; activeExecutionId = null; launchPending = false;
+      currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
+      closeCleanupSession();
+      return false;
+    }
+
+    if (preparation.restore_point_error) {
+      appendConsole("Detalhes técnicos da falha ao criar o ponto de restauração: " + preparation.restore_point_error);
+      restorePointAuthorized = await askConfirmation(
+        "Não foi possível criar um ponto de restauração porque um serviço necessário do Windows está desabilitado ou indisponível.\n\nSem essa proteção, você não poderá reverter as alterações desta operação pela Restauração do Sistema.\n\nDeseja continuar mesmo assim?",
+        "Ponto de restauração indisponível",
+        "Prosseguir sem proteção",
+        "Cancelar operação"
+      );
+      if (!restorePointAuthorized) {
+        try { await Qboa.cancelCleanupPreparation(preparation.token); } catch (error) {
+          appendConsole("Não foi possível descartar a preparação: " + String(error));
+        }
+        appendConsole("Operação cancelada na preparação: o ponto de restauração não foi criado e nenhuma alteração começou.");
         activeTaskId = null; activeExecutionId = null; launchPending = false;
         currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
         closeCleanupSession();
         return false;
       }
-      if (resetBaseRequired) {
-        resetBaseAuthorized = await askConfirmation(
-          "A limpeza pesada executará DISM /StartComponentCleanup /ResetBase. Depois disso, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada não começará.",
-          "Operação irreversível: DISM /ResetBase",
-          "Sim, executar /ResetBase",
-          "Cancelar limpeza pesada"
-        );
-        if (!resetBaseAuthorized) {
-          appendConsole("Limpeza pesada cancelada na preparação: /ResetBase não autorizado. Nenhuma etapa de limpeza foi iniciada.");
-          activeTaskId = null; activeExecutionId = null; launchPending = false;
-          currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
-          const shutdownToggle = document.getElementById("shutdown-on-complete");
-          if (shutdownToggle) shutdownToggle.checked = false;
-          try { await Qboa.setShutdownOnComplete(false); } catch (error) {
-            appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
-          }
-          closeCleanupSession();
-          return false;
-        }
-      } else {
-        appendConsole("Compatibilidade: ambiente restritivo ou não classificável; /ResetBase será omitido para preservar a reversibilidade.");
-      }
+      appendConsole("Falha no ponto de restauração autorizada: a operação poderá continuar sem essa proteção.");
+    } else if (preparation.restore_point_created) {
+      appendConsole("Ponto de restauração criado antes do início da operação.");
     }
-    activeTaskId = item.id;
-    preparedCleanupTask = { item, cardEl, resetBaseAuthorized };
+
+    if (preparation.reset_base_required) {
+      resetBaseAuthorized = await askConfirmation(
+        "A limpeza pesada executará DISM /StartComponentCleanup /ResetBase. Depois disso, não será possível desinstalar as atualizações do Windows que já estão instaladas. Se você não autorizar, a limpeza pesada não começará.",
+        "Operação irreversível: DISM /ResetBase",
+        "Sim, executar /ResetBase",
+        "Cancelar limpeza pesada"
+      );
+      if (!resetBaseAuthorized) {
+        try { await Qboa.cancelCleanupPreparation(preparation.token); } catch (error) {
+          appendConsole("Não foi possível descartar a preparação: " + String(error));
+        }
+        appendConsole("Limpeza pesada cancelada na preparação: /ResetBase não autorizado. Nenhuma etapa de limpeza foi iniciada.");
+        activeTaskId = null; activeExecutionId = null; launchPending = false;
+        currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
+        const shutdownToggle = document.getElementById("shutdown-on-complete");
+        if (shutdownToggle) shutdownToggle.checked = false;
+        try { await Qboa.setShutdownOnComplete(false); } catch (error) {
+          appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
+        }
+        closeCleanupSession();
+        return false;
+      }
+    } else if (item.id === "limpeza_pesada") {
+      appendConsole("Compatibilidade: ambiente restritivo ou não classificável; /ResetBase será omitido para preservar a reversibilidade.");
+    }
+    preparedCleanupTask = { item, cardEl, resetBaseAuthorized, preparationToken: preparation.token, restorePointAuthorized };
     launchPending = false;
     currentOperationStage = "Aguardando autorização para iniciar.";
     setCleanupSessionPhase("ready", item.name);
@@ -1429,7 +1535,13 @@ async function executeTask(item, cardEl) {
 async function startPreparedCleanup() {
   const prepared = preparedCleanupTask;
   if (!prepared || cleanupSessionPhase !== "ready" || !activeTaskId) return false;
-  const { item, cardEl, resetBaseAuthorized = false } = prepared;
+  const {
+    item,
+    cardEl,
+    resetBaseAuthorized = false,
+    preparationToken,
+    restorePointAuthorized = false
+  } = prepared;
   preparedCleanupTask = null;
   launchPending = true;
   cleanupExecutionStarted = false;
@@ -1444,7 +1556,13 @@ async function startPreparedCleanup() {
   const shutdownOnComplete = document.getElementById("shutdown-on-complete").checked;
 
   try {
-    const result = await Qboa.runTask(item.id, shutdownOnComplete, resetBaseAuthorized);
+    const result = await Qboa.runTask(
+      item.id,
+      shutdownOnComplete,
+      resetBaseAuthorized,
+      preparationToken,
+      restorePointAuthorized
+    );
     if (activeTaskId === item.id) {
       activeExecutionId = result.execution_id || activeExecutionId;
       launchPending = false;
@@ -1473,6 +1591,11 @@ async function cancelPreparedCleanup() {
   const prepared = preparedCleanupTask;
   if (!prepared || cleanupSessionPhase !== "ready") return;
   preparedCleanupTask = null;
+  try {
+    await Qboa.cancelCleanupPreparation(prepared.preparationToken);
+  } catch (error) {
+    appendConsole("Não foi possível descartar a preparação cancelada: " + String(error));
+  }
   if (prepared.cardEl) prepared.cardEl.classList.remove("running");
   browserCleanupDecision = null;
   activeTaskId = null;
@@ -1966,6 +2089,7 @@ async function loadCpuInventory() {
   const start = document.getElementById("cpu-test-start");
   refresh.disabled = true;
   start.disabled = true;
+  setDiagnosticActivity("inventory:cpu", true);
   summary.textContent = "Consultando identificação da CPU e sensores...";
   details.replaceChildren();
   status.textContent = "";
@@ -2038,6 +2162,7 @@ async function loadCpuInventory() {
     start.disabled = true;
   } finally {
     refresh.disabled = false;
+    setDiagnosticActivity("inventory:cpu", false);
   }
 }
 
@@ -2179,6 +2304,7 @@ function renderCpuTestSession(session) {
     updateCpuLiveMetrics(cpuTestSamples);
   }
   const active = ["running", "cancelling"].includes(session.lifecycle);
+  setDiagnosticActivity("session:cpu", active);
   const start = document.getElementById("cpu-test-start");
   const cancel = document.getElementById("cpu-test-cancel");
   const profile = document.getElementById("cpu-test-profile");
@@ -2205,8 +2331,11 @@ function renderCpuTestSession(session) {
     active ? elapsed + " de " + target + " · " + Number(session.iterations || 0).toLocaleString("pt-BR") +
       " verificações · " + Number(session.calculation_errors || 0) + " divergência(s)" :
       session.error || session.report?.warnings?.join(" ") || "Teste finalizado.";
-  if (session.error) {
-    document.getElementById("cpu-test-result").textContent = session.error;
+  const result = document.getElementById("cpu-test-result");
+  if (active) {
+    result.textContent = "Teste de CPU em execução. As amostras e métricas aparecerão abaixo.";
+  } else if (session.error) {
+    result.textContent = session.error;
   }
 }
 
@@ -2224,7 +2353,8 @@ async function startCpuTestFromUi() {
   const start = document.getElementById("cpu-test-start");
   const result = document.getElementById("cpu-test-result");
   start.disabled = true;
-  result.textContent = "Solicitando início do teste…";
+  setDiagnosticActivity("starting:cpu", true);
+  result.textContent = "Preparando o teste de CPU…";
   cpuTestSamples = [];
   renderCpuChart(cpuTestSamples);
   try {
@@ -2234,6 +2364,8 @@ async function startCpuTestFromUi() {
   } catch (error) {
     result.textContent = String(error);
     start.disabled = false;
+  } finally {
+    setDiagnosticActivity("starting:cpu", false);
   }
 }
 
@@ -2270,6 +2402,7 @@ async function loadGpuInventory() {
   const refresh = document.getElementById("gpu-inventory-refresh");
   if (!summary || !details || !sensor || !refresh) return;
   refresh.disabled = true;
+  setDiagnosticActivity("inventory:gpu", true);
   summary.textContent = "Consultando adaptadores gráficos e sensores…";
   details.replaceChildren();
   sensor.textContent = "";
@@ -2306,6 +2439,7 @@ async function loadGpuInventory() {
     document.getElementById("gpu-test-start").disabled = true;
   } finally {
     refresh.disabled = false;
+    setDiagnosticActivity("inventory:gpu", false);
   }
 }
 
@@ -2313,6 +2447,7 @@ function renderGpuTestSession(session) {
   if (!session) { gpuTestSessionSnapshot = null; return; }
   gpuTestSessionSnapshot = session;
   const active = ["running", "cancelling"].includes(session.lifecycle);
+  setDiagnosticActivity("session:gpu", active);
   const start = document.getElementById("gpu-test-start");
   const cancel = document.getElementById("gpu-test-cancel");
   const profile = document.getElementById("gpu-test-profile");
@@ -2423,7 +2558,8 @@ async function startGpuTestFromUi() {
   const start = document.getElementById("gpu-test-start");
   const result = document.getElementById("gpu-test-result");
   start.disabled = true;
-  result.textContent = "Validando sensores e solicitando início do teste…";
+  setDiagnosticActivity("starting:gpu", true);
+  result.textContent = "Preparando o teste de GPU e validando sensores…";
   try {
     const session = await Qboa.startGpuTest(profile);
     renderGpuTestSession(session);
@@ -2431,6 +2567,8 @@ async function startGpuTestFromUi() {
   } catch (error) {
     result.textContent = String(error);
     start.disabled = !gpuInventorySnapshot?.sensor_available;
+  } finally {
+    setDiagnosticActivity("starting:gpu", false);
   }
 }
 
@@ -2495,6 +2633,7 @@ async function refreshStorageDisks(preserveSelection = true) {
 
   const previous = preserveSelection ? new Set(selectedStorageDiskIds()) : new Set();
   refreshButton.disabled = true;
+  setDiagnosticActivity("inventory:storage", true);
   list.replaceChildren();
   const loading = document.createElement("li");
   loading.className = "storage-disk-empty";
@@ -2579,6 +2718,7 @@ async function refreshStorageDisks(preserveSelection = true) {
     runButton.disabled = true;
   } finally {
     refreshButton.disabled = false;
+    setDiagnosticActivity("inventory:storage", false);
   }
 }
 
@@ -2742,6 +2882,7 @@ async function loadMemoryInventory() {
   const refresh = document.getElementById("memory-inventory-refresh");
   if (!summary || !modulesList || !note) return;
   refresh.disabled = true;
+  setDiagnosticActivity("inventory:memory", true);
   summary.textContent = "Consultando módulos, slots e memória disponível…";
   modulesList.replaceChildren();
   try {
@@ -2825,6 +2966,7 @@ async function loadMemoryInventory() {
     document.getElementById("memory-test-custom-budget").disabled = true;
   } finally {
     refresh.disabled = false;
+    setDiagnosticActivity("inventory:memory", false);
   }
 }
 
@@ -2880,6 +3022,7 @@ function renderMemoryTestSession(session) {
   }
   memoryTestSessionSnapshot = session;
   const active = ["running", "cancelling"].includes(session.lifecycle);
+  setDiagnosticActivity("session:memory", active);
   const profile = document.getElementById("memory-test-profile");
   if (session.profile && ["fast", "standard", "extended", "custom"].includes(session.profile)) {
     profile.value = session.profile;
@@ -2972,7 +3115,8 @@ async function startMemoryTestFromUi() {
   const result = document.getElementById("memory-test-result");
   const start = document.getElementById("memory-test-start");
   start.disabled = true;
-  result.textContent = "Solicitando início da sessão…";
+  setDiagnosticActivity("starting:memory", true);
+  result.textContent = "Preparando a sessão de teste de RAM…";
   try {
     const session = await Qboa.startMemoryTest(profile, memoryBudgetBytes);
     renderMemoryTestSession(session);
@@ -2980,6 +3124,8 @@ async function startMemoryTestFromUi() {
   } catch (error) {
     result.textContent = String(error);
     start.disabled = false;
+  } finally {
+    setDiagnosticActivity("starting:memory", false);
   }
 }
 
@@ -3147,6 +3293,7 @@ async function runCompleteDiagnostic() {
   const results = [];
   const issues = [];
   completeDiagnosticRunning = true;
+  setDiagnosticActivity("complete:diagnostic", true);
   completeDiagnosticCancelRequested = false;
   completeDiagnosticCancelSent = false;
   completeDiagnosticCurrentSession = null;
@@ -3416,6 +3563,7 @@ async function runCompleteDiagnostic() {
     summaryPanel.textContent = "A execução foi interrompida. Os laudos individuais já gravados continuam preservados.";
   } finally {
     completeDiagnosticRunning = false;
+    setDiagnosticActivity("complete:diagnostic", false);
     completeDiagnosticCurrentSession = null;
     runButton.hidden = false;
     runButton.disabled = false;
@@ -3438,7 +3586,9 @@ async function runDiagnostic(mode, target = null) {
   document.getElementById("diagnostic-results").replaceChildren();
   const runButton = document.getElementById("diagnostic-run-selected");
   runButton.disabled = true;
-  status.textContent = "Verificando...";
+  const activityReason = "run:" + mode + ":" + (target || "all");
+  setDiagnosticActivity(activityReason, true);
+  status.textContent = "Preparando a consulta…";
   try {
     if (target === "armazenamento") {
       const selectedIds = selectedStorageDiskIds();
@@ -3487,6 +3637,7 @@ async function runDiagnostic(mode, target = null) {
   } catch (error) {
     status.textContent = String(error);
   } finally {
+    setDiagnosticActivity(activityReason, false);
     const list = document.getElementById("storage-disk-list");
     runButton.disabled = target === "armazenamento"
       ? !list || selectedStorageDiskIds().length === 0

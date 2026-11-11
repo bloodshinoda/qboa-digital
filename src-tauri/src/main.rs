@@ -68,6 +68,88 @@ fn operation_start_gate() -> &'static Mutex<()> {
 
 type SharedCleanupLifecycle = Arc<Mutex<operation_contracts::CleanupExecutionLifecycle>>;
 
+#[derive(Clone, Debug)]
+struct PreparedCleanup {
+    task_id: String,
+    created_at: Instant,
+    reset_base_required: bool,
+    restore_point_required: bool,
+    restore_point: Option<Result<String, String>>,
+}
+
+#[derive(Clone, Debug)]
+struct PreparedCleanupExecution {
+    reset_base_required: bool,
+    restore_point: Option<String>,
+    restore_point_error: Option<String>,
+    restore_point_required: bool,
+}
+
+#[derive(Clone, Serialize)]
+struct CleanupPreparation {
+    token: String,
+    reset_base_required: bool,
+    restore_point_required: bool,
+    restore_point_created: bool,
+    restore_point_error: Option<String>,
+}
+
+static PREPARED_CLEANUPS: std::sync::OnceLock<
+    Mutex<std::collections::HashMap<String, PreparedCleanup>>,
+> = std::sync::OnceLock::new();
+static PREPARATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+const PREPARATION_TOKEN_TTL: Duration = Duration::from_secs(15 * 60);
+const MAX_PREPARED_CLEANUPS: usize = 32;
+
+fn prepared_cleanups() -> &'static Mutex<std::collections::HashMap<String, PreparedCleanup>> {
+    PREPARED_CLEANUPS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn requires_cleanup_preparation(task: &Task) -> bool {
+    task.module != task_registry::TaskModule::Diagnostic
+}
+
+fn resolve_prepared_cleanup(
+    task_id: &str,
+    prepared: PreparedCleanup,
+    proceed_without_restore_point: bool,
+) -> Result<PreparedCleanupExecution, String> {
+    if prepared.task_id != task_id {
+        return Err("A preparação recebida pertence a outra tarefa.".to_string());
+    }
+
+    let (restore_point, restore_point_error) = match prepared.restore_point {
+        Some(Ok(point)) => (Some(point), None),
+        Some(Err(error)) if proceed_without_restore_point => (None, Some(error)),
+        Some(Err(error)) => {
+            return Err(format!(
+                "A tarefa não pode começar sem autorização para prosseguir sem ponto de restauração: {error}"
+            ));
+        }
+        None => (None, None),
+    };
+
+    Ok(PreparedCleanupExecution {
+        reset_base_required: prepared.reset_base_required,
+        restore_point,
+        restore_point_error,
+        restore_point_required: prepared.restore_point_required,
+    })
+}
+
+fn take_prepared_cleanup(
+    token: &str,
+    task_id: &str,
+    proceed_without_restore_point: bool,
+) -> Result<PreparedCleanupExecution, String> {
+    let mut preparations = prepared_cleanups().lock().unwrap();
+    preparations.retain(|_, prepared| prepared.created_at.elapsed() < PREPARATION_TOKEN_TTL);
+    let prepared = preparations
+        .remove(token)
+        .ok_or_else(|| "A preparação expirou, foi cancelada ou já foi utilizada.".to_string())?;
+    resolve_prepared_cleanup(task_id, prepared, proceed_without_restore_point)
+}
+
 fn transition_cleanup_lifecycle(
     lifecycle: &Option<SharedCleanupLifecycle>,
     next: operation_contracts::CleanupExecutionState,
@@ -1038,13 +1120,18 @@ fn execute_task(
         return Err("Tudo bem, a tarefa foi interrompida a seu pedido.".to_string());
     }
     match task.id.as_str() {
-        "limpeza_leve" => cleanup_standard(
-            &task.id,
-            execution_id,
-            on_output,
-            is_cancelled,
-            apply_registry,
-        ),
+        "limpeza_leve" => {
+            on_output(
+                "[Etapa 1/1] Limpando temporários, caches básicos, histórico recente e lixeira...",
+            );
+            cleanup_standard(
+                &task.id,
+                execution_id,
+                on_output,
+                is_cancelled,
+                apply_registry,
+            )
+        }
         "limpeza_media" => {
             on_output("[Etapa 1/4] Executando a limpeza segura de temporários, caches básicos e lixeira...");
             let part_1 = cleanup_standard(
@@ -1219,14 +1306,75 @@ fn validate_reset_base_authorization(
 }
 
 #[tauri::command]
-async fn prepare_cleanup(task_id: String) -> Result<bool, String> {
+async fn prepare_cleanup(task_id: String) -> Result<CleanupPreparation, String> {
+    let task = resolve_task(&task_id)?.ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
+    if task.module == task_registry::TaskModule::Diagnostic {
+        return Err("Diagnósticos não utilizam a preparação de limpeza/manutenção.".to_string());
+    }
+
     let conservative_repair = system_compat::detect()
         .map(|assessment| assessment.use_conservative_repair)
         .unwrap_or(true);
-    Ok(reset_base_confirmation_required(
-        &task_id,
-        conservative_repair,
-    ))
+    let reset_base_required = reset_base_confirmation_required(&task_id, conservative_repair);
+    let restore_point_required = task.creates_restore_point || task.risk.requires_restore_point();
+    let restore_point = if restore_point_required {
+        let mut manager = safety_state().lock().unwrap().clone();
+        Some(
+            manager.create_restore_point(&format!("Qboa Digital — Antes da tarefa: {}", task.name)),
+        )
+    } else {
+        None
+    };
+
+    let token = format!(
+        "prep-{}-{}",
+        std::process::id(),
+        PREPARATION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let restore_point_created = matches!(&restore_point, Some(Ok(_)));
+    let restore_point_error = restore_point
+        .as_ref()
+        .and_then(|result| result.as_ref().err().cloned());
+
+    let mut preparations = prepared_cleanups().lock().unwrap();
+    preparations.retain(|_, prepared| prepared.created_at.elapsed() < PREPARATION_TOKEN_TTL);
+    if preparations.len() >= MAX_PREPARED_CLEANUPS {
+        if let Some(oldest_token) = preparations
+            .iter()
+            .min_by_key(|(_, prepared)| prepared.created_at)
+            .map(|(token, _)| token.clone())
+        {
+            preparations.remove(&oldest_token);
+        }
+    }
+    preparations.insert(
+        token.clone(),
+        PreparedCleanup {
+            task_id,
+            created_at: Instant::now(),
+            reset_base_required,
+            restore_point_required,
+            restore_point,
+        },
+    );
+
+    Ok(CleanupPreparation {
+        token,
+        reset_base_required,
+        restore_point_required,
+        restore_point_created,
+        restore_point_error,
+    })
+}
+
+#[tauri::command]
+async fn cancel_cleanup_preparation(token: String) -> Result<(), String> {
+    prepared_cleanups()
+        .lock()
+        .unwrap()
+        .remove(&token)
+        .map(|_| ())
+        .ok_or_else(|| "A preparação já expirou ou foi utilizada.".to_string())
 }
 
 #[tauri::command]
@@ -1241,27 +1389,55 @@ async fn run_task(
     task_id: String,
     shutdown_on_complete: bool,
     reset_base_authorized: bool,
+    preparation_token: Option<String>,
+    proceed_without_restore_point: bool,
 ) -> Result<TaskResult, String> {
     let registry = TaskRegistry::try_new()?;
     let task = registry
         .resolve(&task_id)
         .cloned()
         .ok_or_else(|| format!("Tarefa desconhecida: {task_id}"))?;
-    let conservative_repair = system_compat::detect()
-        .map(|assessment| assessment.use_conservative_repair)
-        .unwrap_or(true);
+    let prepared_cleanup = if !requires_cleanup_preparation(&task) {
+        if preparation_token.is_some() {
+            return Err("Diagnósticos não aceitam token de preparação de limpeza.".to_string());
+        }
+        None
+    } else {
+        let token = preparation_token.as_deref().ok_or_else(|| {
+            "A tarefa precisa passar pela preparação antes de iniciar.".to_string()
+        })?;
+        Some(take_prepared_cleanup(
+            token,
+            &task_id,
+            proceed_without_restore_point,
+        )?)
+    };
+
+    let conservative_repair = prepared_cleanup
+        .as_ref()
+        .map(|prepared| !prepared.reset_base_required)
+        .unwrap_or_else(|| {
+            system_compat::detect()
+                .map(|assessment| assessment.use_conservative_repair)
+                .unwrap_or(true)
+        });
     validate_reset_base_authorization(&task_id, conservative_repair, reset_base_authorized)?;
+    let restore_point_created = prepared_cleanup
+        .as_ref()
+        .map(|prepared| prepared.restore_point.is_some())
+        .unwrap_or(task.creates_restore_point || task.risk.requires_restore_point());
     let execution = start_task(
         app,
         task.clone(),
         shutdown_on_complete,
         reset_base_authorized,
+        prepared_cleanup,
     )?;
-    let result = task_result(&task, &execution.execution_id);
+    let result = task_result(&task, &execution.execution_id, restore_point_created);
     Ok(result)
 }
 
-fn task_result(task: &Task, execution_id: &str) -> TaskResult {
+fn task_result(task: &Task, execution_id: &str, restore_point_created: bool) -> TaskResult {
     let task_risk = task_risk_label(task).to_string();
     TaskResult {
         ok: true,
@@ -1269,7 +1445,7 @@ fn task_result(task: &Task, execution_id: &str) -> TaskResult {
         task_id: task.id.clone(),
         execution_id: execution_id.to_string(),
         risk: task_risk,
-        restore_point_created: task.creates_restore_point || task.risk.requires_restore_point(),
+        restore_point_created,
         change_id: None,
     }
 }
@@ -1279,6 +1455,7 @@ fn start_task(
     task: Task,
     shutdown_on_complete: bool,
     reset_base_authorized: bool,
+    prepared_cleanup: Option<PreparedCleanupExecution>,
 ) -> Result<safety::ExecutionHandle, String> {
     let _start_guard = operation_start_gate()
         .lock()
@@ -1302,6 +1479,7 @@ fn start_task(
     let task_risk = task_risk_label(&task).to_string();
     let task_for_spawn = task.clone();
     let task_risk_for_spawn = task_risk.clone();
+    let prepared_cleanup_for_spawn = prepared_cleanup.clone();
 
     let execution = safety_state()
         .lock()
@@ -1379,135 +1557,203 @@ fn start_task(
             None
         };
 
-        if task_for_spawn.creates_restore_point || task_for_spawn.risk.requires_restore_point() {
-            write_execution_log(&execution_id_for_spawn, "restore-point-phase-started");
-            let mut restore_point_manager = safety_state().lock().unwrap().clone();
-            match restore_point_manager.create_restore_point(&format!(
-                "Qboa Digital — Antes da tarefa: {}",
-                task_for_spawn.name
-            )) {
-                Ok(point) => {
-                    write_execution_log(&execution_id_for_spawn, "restore-point-phase-completed");
-                    emit_event(
-                        &app_for_spawn,
-                        "restore-point-created",
-                        &task_id_for_spawn,
-                        &execution_id_for_spawn,
-                        &point,
-                        true,
-                        Some("100%"),
-                        &task_risk_for_spawn,
-                    );
-                    Some(point)
-                }
-                Err(err) => {
+        let restore_point = if let Some(prepared) = prepared_cleanup_for_spawn {
+            if let Some(point) = prepared.restore_point {
+                write_execution_log(&execution_id_for_spawn, "restore-point-preflight-completed");
+                emit_event(
+                    &app_for_spawn,
+                    "restore-point-created",
+                    &task_id_for_spawn,
+                    &execution_id_for_spawn,
+                    &point,
+                    true,
+                    Some("100%"),
+                    &task_risk_for_spawn,
+                );
+                Some(point)
+            } else {
+                if let Some(error) = prepared.restore_point_error {
                     write_execution_log(
                         &execution_id_for_spawn,
-                        &format!("restore-point-phase-failed error={err}"),
-                    );
-                    let (sender, receiver) = mpsc::channel();
-                    restore_point_responses()
-                        .lock()
-                        .unwrap()
-                        .insert(execution_id_for_spawn.clone(), sender);
-                    if let Err(error) = transition_cleanup_lifecycle(
-                        &cleanup_lifecycle,
-                        operation_contracts::CleanupExecutionState::AwaitingConfirmation,
-                    ) {
-                        write_execution_log(
-                            &execution_id_for_spawn,
-                            &format!("cleanup-contract-confirmation-failed error={error}"),
-                        );
-                    }
-                    emit_event(
-                        &app_for_spawn,
-                        "restore-point-confirmation-required",
-                        &task_id_for_spawn,
-                        &execution_id_for_spawn,
-                        &format!(
-                            "Não consegui criar um ponto de restauração: {err}\nQuer continuar mesmo assim?"
-                        ),
-                        false,
-                        None,
-                        &task_risk_for_spawn,
-                    );
-                    let proceed = match receive_confirmation(&receiver, Duration::from_secs(300)) {
-                        ConfirmationWait::Answered(response) => response,
-                        ConfirmationWait::TimedOut => {
-                            write_execution_log(
-                                &execution_id_for_spawn,
-                                "confirmation-timeout tipo=ponto-de-restauracao; decisão=cancelar",
-                            );
-                            false
-                        }
-                        ConfirmationWait::Disconnected => false,
-                    };
-                    restore_point_responses()
-                        .lock()
-                        .unwrap()
-                        .remove(&execution_id_for_spawn);
-                    if proceed {
-                        if let Err(error) = transition_cleanup_lifecycle(
-                            &cleanup_lifecycle,
-                            operation_contracts::CleanupExecutionState::Running,
-                        ) {
-                            write_execution_log(
-                                &execution_id_for_spawn,
-                                &format!("cleanup-contract-resume-failed error={error}"),
-                            );
-                        }
-                    }
-                    if !proceed {
-                        write_execution_log(
-                            &execution_id_for_spawn,
-                            "task-cancelled-by-user-after-restore-point-failure",
-                        );
-                        safety_state()
-                            .lock()
-                            .unwrap()
-                            .finish_execution(&execution_id_for_spawn, "cancelled");
-                        if let Err(error) = finish_cleanup_lifecycle(
-                            &cleanup_lifecycle,
-                            operation_contracts::CleanupExecutionState::Cancelled,
-                            "Execução cancelada após falha na criação do ponto de restauração.",
-                            None,
-                        ) {
-                            write_execution_log(
-                                &execution_id_for_spawn,
-                                &format!("cleanup-contract-finalization-failed error={error}"),
-                            );
-                        }
-                        emit_event(
-                            &app_for_spawn,
-                            "task-cancelled",
-                            &task_id_for_spawn,
-                            &execution_id_for_spawn,
-                            "Tudo bem, cancelei. O ponto de restauração não foi criado.",
-                            false,
-                            None,
-                            &task_risk_for_spawn,
-                        );
-                        return;
-                    }
-                    write_execution_log(
-                        &execution_id_for_spawn,
-                        "user-approved-proceeding-without-restore-point",
+                        &format!("restore-point-preflight-failed-authorized error={error}"),
                     );
                     emit_event(
                         &app_for_spawn,
                         "task-output",
                         &task_id_for_spawn,
                         &execution_id_for_spawn,
-                        "Aviso: prosseguindo sem ponto de restauração; não será possível usar esse ponto para reverter alterações.",
+                        "Aviso: prosseguindo sem ponto de restauração após autorização explícita; não será possível usar esse ponto para reverter alterações.",
                         true,
                         None,
                         &task_risk_for_spawn,
                     );
-                    None
+                } else if prepared.restore_point_required {
+                    write_execution_log(
+                        &execution_id_for_spawn,
+                        "restore-point-preflight-missing-result",
+                    );
+                    emit_event(
+                        &app_for_spawn,
+                        "task-error",
+                        &task_id_for_spawn,
+                        &execution_id_for_spawn,
+                        "A preparação terminou sem um resultado válido do ponto de restauração.",
+                        false,
+                        None,
+                        &task_risk_for_spawn,
+                    );
+                    safety_state()
+                        .lock()
+                        .unwrap()
+                        .finish_execution(&execution_id_for_spawn, "failed");
+                    let _ = finish_cleanup_lifecycle(
+                        &cleanup_lifecycle,
+                        operation_contracts::CleanupExecutionState::Failed,
+                        "Preparação de proteção incompleta.",
+                        None,
+                    );
+                    return;
                 }
+                None
             }
         } else {
-            None
+            if task_for_spawn.creates_restore_point || task_for_spawn.risk.requires_restore_point()
+            {
+                write_execution_log(&execution_id_for_spawn, "restore-point-phase-started");
+                let mut restore_point_manager = safety_state().lock().unwrap().clone();
+                match restore_point_manager.create_restore_point(&format!(
+                    "Qboa Digital — Antes da tarefa: {}",
+                    task_for_spawn.name
+                )) {
+                    Ok(point) => {
+                        write_execution_log(
+                            &execution_id_for_spawn,
+                            "restore-point-phase-completed",
+                        );
+                        emit_event(
+                            &app_for_spawn,
+                            "restore-point-created",
+                            &task_id_for_spawn,
+                            &execution_id_for_spawn,
+                            &point,
+                            true,
+                            Some("100%"),
+                            &task_risk_for_spawn,
+                        );
+                        Some(point)
+                    }
+                    Err(err) => {
+                        write_execution_log(
+                            &execution_id_for_spawn,
+                            &format!("restore-point-phase-failed error={err}"),
+                        );
+                        let (sender, receiver) = mpsc::channel();
+                        restore_point_responses()
+                            .lock()
+                            .unwrap()
+                            .insert(execution_id_for_spawn.clone(), sender);
+                        if let Err(error) = transition_cleanup_lifecycle(
+                            &cleanup_lifecycle,
+                            operation_contracts::CleanupExecutionState::AwaitingConfirmation,
+                        ) {
+                            write_execution_log(
+                                &execution_id_for_spawn,
+                                &format!("cleanup-contract-confirmation-failed error={error}"),
+                            );
+                        }
+                        emit_event(
+                            &app_for_spawn,
+                            "restore-point-confirmation-required",
+                            &task_id_for_spawn,
+                            &execution_id_for_spawn,
+                            &format!(
+                                "Não consegui criar um ponto de restauração: {err}\nQuer continuar mesmo assim?"
+                            ),
+                            false,
+                            None,
+                            &task_risk_for_spawn,
+                        );
+                        let proceed = match receive_confirmation(
+                            &receiver,
+                            Duration::from_secs(300),
+                        ) {
+                            ConfirmationWait::Answered(response) => response,
+                            ConfirmationWait::TimedOut => {
+                                write_execution_log(
+                                    &execution_id_for_spawn,
+                                    "confirmation-timeout tipo=ponto-de-restauracao; decisão=cancelar",
+                                );
+                                false
+                            }
+                            ConfirmationWait::Disconnected => false,
+                        };
+                        restore_point_responses()
+                            .lock()
+                            .unwrap()
+                            .remove(&execution_id_for_spawn);
+                        if proceed {
+                            if let Err(error) = transition_cleanup_lifecycle(
+                                &cleanup_lifecycle,
+                                operation_contracts::CleanupExecutionState::Running,
+                            ) {
+                                write_execution_log(
+                                    &execution_id_for_spawn,
+                                    &format!("cleanup-contract-resume-failed error={error}"),
+                                );
+                            }
+                        }
+                        if !proceed {
+                            write_execution_log(
+                                &execution_id_for_spawn,
+                                "task-cancelled-by-user-after-restore-point-failure",
+                            );
+                            safety_state()
+                                .lock()
+                                .unwrap()
+                                .finish_execution(&execution_id_for_spawn, "cancelled");
+                            if let Err(error) = finish_cleanup_lifecycle(
+                                &cleanup_lifecycle,
+                                operation_contracts::CleanupExecutionState::Cancelled,
+                                "Execução cancelada após falha na criação do ponto de restauração.",
+                                None,
+                            ) {
+                                write_execution_log(
+                                    &execution_id_for_spawn,
+                                    &format!("cleanup-contract-finalization-failed error={error}"),
+                                );
+                            }
+                            emit_event(
+                                &app_for_spawn,
+                                "task-cancelled",
+                                &task_id_for_spawn,
+                                &execution_id_for_spawn,
+                                "Tudo bem, cancelei. O ponto de restauração não foi criado.",
+                                false,
+                                None,
+                                &task_risk_for_spawn,
+                            );
+                            return;
+                        }
+                        write_execution_log(
+                            &execution_id_for_spawn,
+                            "user-approved-proceeding-without-restore-point",
+                        );
+                        emit_event(
+                            &app_for_spawn,
+                            "task-output",
+                            &task_id_for_spawn,
+                            &execution_id_for_spawn,
+                            "Aviso: prosseguindo sem ponto de restauração; não será possível usar esse ponto para reverter alterações.",
+                            true,
+                            None,
+                            &task_risk_for_spawn,
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            }
         };
 
         write_execution_log(
@@ -1530,7 +1776,7 @@ fn start_task(
             operation_contracts::CleanupProgress {
                 current: None,
                 total: None,
-                percent: Some(30),
+                percent: Some(0),
                 stage: "Preparação".into(),
                 message: "Preparando tudo com cuidado e verificando possíveis riscos.".into(),
             },
@@ -1547,7 +1793,7 @@ fn start_task(
             &execution_id_for_spawn,
             "Preparando tudo com cuidado e verificando possíveis riscos.",
             true,
-            Some("30%"),
+            Some("0%"),
             &task_risk_for_spawn,
         );
 
@@ -1557,9 +1803,10 @@ fn start_task(
         let task_risk_for_output = task_risk_for_spawn.clone();
         let mut streamed_output = String::new();
         let mut cleanup_step: Option<(u32, u32)> = None;
-        let mut dism_percent = 0u32;
-        let mut dism_active = false;
+        let mut tool_percent = 0u32;
+        let mut tool_progress_active = false;
         let mut dism_stage_label = String::new();
+        let mut last_cleanup_percent = 0u32;
         let mut on_output = |line: &str| {
             streamed_output.push_str(line);
             streamed_output.push('\n');
@@ -1573,19 +1820,16 @@ fn start_task(
                         {
                             if total > 0 && current > 0 && current <= total {
                                 cleanup_step = Some((current, total));
-                                dism_percent = 0;
-                                dism_active = description.to_ascii_lowercase().contains("dism")
-                                    || description.to_ascii_lowercase().contains("imagem")
-                                    || description
-                                        .to_ascii_lowercase()
-                                        .contains("componentes substituídos");
+                                tool_percent = 0;
+                                let normalized_description = description.to_ascii_lowercase();
+                                tool_progress_active = normalized_description.contains("dism")
+                                    || normalized_description.contains("sfc")
+                                    || normalized_description.contains("integridade");
                                 dism_stage_label = description.trim_end_matches("...").to_string();
-                                let percent = cleanup_progress::cleanup_progress_percent(
-                                    current,
-                                    total,
-                                    dism_active,
-                                    0.0,
-                                );
+                                let percent =
+                                    cleanup_progress::cleanup_progress_percent(current, total, 0.0)
+                                        .max(last_cleanup_percent);
+                                last_cleanup_percent = percent;
                                 let friendly = description.trim_end_matches("...");
                                 if let Err(error) = record_cleanup_progress(
                                     &cleanup_lifecycle,
@@ -1618,60 +1862,49 @@ fn start_task(
                         }
                     }
                 }
-            } else if dism_active {
-                if let Some(percent_pos) = trimmed.find('%') {
-                    let prefix = &trimmed[..percent_pos];
-                    let number: String = prefix
-                        .chars()
-                        .rev()
-                        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
-                        .collect::<String>()
-                        .chars()
-                        .rev()
-                        .collect();
-                    if let Ok(value) = number.replace(',', ".").parse::<f64>() {
-                        let value = value.clamp(0.0, 100.0);
-                        let rounded = value.round() as u32;
-                        if rounded >= dism_percent {
-                            dism_percent = rounded;
-                            if let Some((current, total)) = cleanup_step {
-                                let overall = cleanup_progress::cleanup_progress_percent(
-                                    current, total, true, value,
-                                );
-                                if let Err(error) = record_cleanup_progress(
-                                    &cleanup_lifecycle,
-                                    operation_contracts::CleanupProgress {
-                                        current: Some(current),
-                                        total: Some(total),
-                                        percent: Some(overall.min(100) as u8),
-                                        stage: dism_stage_label.clone(),
-                                        message: format!(
-                                            "Passo {current}/{total} · {} ({rounded}%)",
-                                            dism_stage_label.trim_end_matches('.')
-                                        ),
-                                    },
-                                ) {
-                                    write_execution_log(
-                                        &execution_id_for_output,
-                                        &format!(
-                                            "cleanup-contract-progress-rejected error={error}"
-                                        ),
-                                    );
-                                }
-                                emit_event(
-                                    &app_for_output,
-                                    "task-progress",
-                                    &task_id_for_output,
-                                    &execution_id_for_output,
-                                    &format!(
+            } else if tool_progress_active {
+                if let Some(value) = cleanup_progress::parse_tool_progress_percent(trimmed) {
+                    let rounded = value.round() as u32;
+                    if rounded >= tool_percent {
+                        tool_percent = rounded;
+                        if let Some((current, total)) = cleanup_step {
+                            let overall =
+                                cleanup_progress::cleanup_progress_percent(current, total, value)
+                                    .max(last_cleanup_percent);
+                            last_cleanup_percent = overall;
+
+                            if let Err(error) = record_cleanup_progress(
+                                &cleanup_lifecycle,
+                                operation_contracts::CleanupProgress {
+                                    current: Some(current),
+                                    total: Some(total),
+                                    percent: Some(overall.min(100) as u8),
+                                    stage: dism_stage_label.clone(),
+                                    message: format!(
                                         "Passo {current}/{total} · {} ({rounded}%)",
                                         dism_stage_label.trim_end_matches('.')
                                     ),
-                                    true,
-                                    Some(&format!("{overall}%")),
-                                    &task_risk_for_output,
+                                },
+                            ) {
+                                write_execution_log(
+                                    &execution_id_for_output,
+                                    &format!("cleanup-contract-progress-rejected error={error}"),
                                 );
                             }
+
+                            emit_event(
+                                &app_for_output,
+                                "task-progress",
+                                &task_id_for_output,
+                                &execution_id_for_output,
+                                &format!(
+                                    "Passo {current}/{total} · {} ({rounded}%)",
+                                    dism_stage_label.trim_end_matches('.')
+                                ),
+                                true,
+                                Some(&format!("{overall}%")),
+                                &task_risk_for_output,
+                            );
                         }
                     }
                 }
@@ -1862,6 +2095,16 @@ fn start_task(
                     .lock()
                     .unwrap()
                     .finish_execution(&execution_id_for_spawn, result_status);
+                emit_event(
+                    &app_for_spawn,
+                    "task-progress",
+                    &task_id_for_spawn,
+                    &execution_id_for_spawn,
+                    "Etapas concluídas.",
+                    true,
+                    Some("100%"),
+                    &task_risk_for_spawn,
+                );
                 emit_event(
                     &app_for_spawn,
                     "task-output",
@@ -2248,48 +2491,6 @@ async fn cancel_task(task_id: String, execution_id: Option<String>) -> Result<St
     } else {
         Err(format!("A tarefa não está mais em execução: {task_id}"))
     }
-}
-
-#[tauri::command]
-async fn run_preset(app: AppHandle, preset_id: String) -> Result<Vec<String>, String> {
-    let registry = TaskRegistry::try_new()?;
-    let tasks: Vec<Task> = registry
-        .preset_tasks(&preset_id)
-        .into_iter()
-        .cloned()
-        .collect();
-    let ids: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
-    if tasks.is_empty() {
-        return Err(format!("Perfil desconhecido ou vazio: {preset_id}"));
-    }
-    if safety_state().lock().unwrap().is_task_running() {
-        return Err(
-            "Já existe uma operação em andamento. Aguarde a conclusão antes de iniciar um perfil."
-                .to_string(),
-        );
-    }
-
-    tauri::async_runtime::spawn(async move {
-        for task in tasks {
-            if let Err(error) = start_task(app.clone(), task.clone(), false, false) {
-                emit_event(
-                    &app,
-                    "task-error",
-                    &task.id,
-                    "",
-                    &error,
-                    false,
-                    None,
-                    task_risk_label(&task),
-                );
-                break;
-            }
-            while safety_state().lock().unwrap().is_task_running() {
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        }
-    });
-    Ok(ids)
 }
 
 #[tauri::command]
@@ -2864,6 +3065,121 @@ mod tests {
     }
 
     #[test]
+    fn limpeza_media_exige_ponto_de_restauracao_preparado_antes_do_inicio() {
+        let task = resolve_task("limpeza_media").unwrap().unwrap();
+        assert!(task.risk.requires_restore_point());
+        assert!(!task.creates_restore_point);
+        let prepared = PreparedCleanup {
+            created_at: Instant::now(),
+            task_id: task.id.clone(),
+            reset_base_required: false,
+            restore_point_required: true,
+            restore_point: Some(Err("VSS indisponível".to_string())),
+        };
+        assert!(resolve_prepared_cleanup(&task.id, prepared.clone(), false).is_err());
+        let approved = resolve_prepared_cleanup(&task.id, prepared, true).unwrap();
+        assert!(approved.restore_point_required);
+        assert!(approved.restore_point.is_none());
+        assert_eq!(
+            approved.restore_point_error.as_deref(),
+            Some("VSS indisponível")
+        );
+    }
+
+    #[test]
+    fn ponto_de_restauracao_preparado_e_reutilizado_sem_segunda_confirmacao() {
+        let prepared = PreparedCleanup {
+            created_at: Instant::now(),
+            task_id: "limpeza_media".to_string(),
+            reset_base_required: false,
+            restore_point_required: true,
+            restore_point: Some(Ok("Windows Restore Point: teste".to_string())),
+        };
+        let resolved = resolve_prepared_cleanup("limpeza_media", prepared, false).unwrap();
+        assert_eq!(
+            resolved.restore_point.as_deref(),
+            Some("Windows Restore Point: teste")
+        );
+        assert!(resolved.restore_point_error.is_none());
+    }
+
+    #[test]
+    fn preparacao_nao_pode_ser_reutilizada_por_outra_tarefa() {
+        let prepared = PreparedCleanup {
+            created_at: Instant::now(),
+            task_id: "limpeza_media".to_string(),
+            reset_base_required: false,
+            restore_point_required: true,
+            restore_point: Some(Ok("ponto".to_string())),
+        };
+        assert!(resolve_prepared_cleanup("limpeza_pesada", prepared, false).is_err());
+    }
+
+    #[test]
+    fn tarefas_de_manutencao_exigem_preparacao_e_diagnosticos_preservam_ciclo_proprio() {
+        let cleanup = resolve_task("limpeza_media").unwrap().unwrap();
+        let debloat = resolve_task("desengordurar_telemetria").unwrap().unwrap();
+        let diagnostic = resolve_task("diagnostico_sfc").unwrap().unwrap();
+        assert!(requires_cleanup_preparation(&cleanup));
+        assert!(requires_cleanup_preparation(&debloat));
+        assert!(!requires_cleanup_preparation(&diagnostic));
+    }
+
+    #[test]
+    fn token_de_preparacao_so_pode_ser_consumido_uma_vez() {
+        let token = format!(
+            "teste-prep-{}",
+            PREPARATION_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        prepared_cleanups().lock().unwrap().insert(
+            token.clone(),
+            PreparedCleanup {
+                created_at: Instant::now(),
+                task_id: "limpeza_leve".to_string(),
+                reset_base_required: false,
+                restore_point_required: false,
+                restore_point: None,
+            },
+        );
+        assert!(take_prepared_cleanup(&token, "limpeza_leve", false).is_ok());
+        assert!(take_prepared_cleanup(&token, "limpeza_leve", false).is_err());
+    }
+
+    #[test]
+    fn token_de_preparacao_expirado_e_descartado_automaticamente() {
+        let token = format!(
+            "teste-prep-expirado-{}",
+            PREPARATION_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        prepared_cleanups().lock().unwrap().insert(
+            token.clone(),
+            PreparedCleanup {
+                task_id: "limpeza_leve".to_string(),
+                created_at: Instant::now() - PREPARATION_TOKEN_TTL - Duration::from_secs(1),
+                reset_base_required: false,
+                restore_point_required: false,
+                restore_point: None,
+            },
+        );
+
+        assert!(take_prepared_cleanup(&token, "limpeza_leve", false).is_err());
+        assert!(!prepared_cleanups().lock().unwrap().contains_key(&token));
+    }
+
+    #[test]
+    fn autorizacao_de_resetbase_e_preservada_na_preparacao() {
+        let prepared = PreparedCleanup {
+            created_at: Instant::now(),
+            task_id: "limpeza_pesada".to_string(),
+            reset_base_required: true,
+            restore_point_required: false,
+            restore_point: None,
+        };
+        let resolved = resolve_prepared_cleanup("limpeza_pesada", prepared, false).unwrap();
+        assert!(resolved.reset_base_required);
+    }
+
+    #[test]
     fn reset_base_confirmation_is_required_before_heavy_cleanup_is_released() {
         assert!(reset_base_confirmation_required("limpeza_pesada", false));
         assert!(!reset_base_confirmation_required("limpeza_pesada", true));
@@ -3014,13 +3330,13 @@ fn main() {
             finish_startup,
             get_tasks,
             prepare_cleanup,
+            cancel_cleanup_preparation,
             run_task,
             set_shutdown_on_complete,
             respond_restore_point_failure,
             get_running_browsers,
             prepare_browser_cleanup,
             cancel_task,
-            run_preset,
             get_debloat_profile_tasks,
             create_restore_point,
             rollback_session,
