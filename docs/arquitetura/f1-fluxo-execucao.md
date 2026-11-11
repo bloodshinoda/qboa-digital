@@ -58,7 +58,7 @@ O cancelamento deve ter estado visível (Solicitando parada…) e impedir clique
 O percentual exibido representa a operação inteira, nunca o percentual isolado da etapa atual.
 
 - O progresso começa em 0% e só chega a 100% quando o executor conclui a operação.
-- Cada etapa recebe um peso; a troca de etapa consolida o peso da etapa anterior.
+- Cada etapa recebe um peso; a troca de etapa consolida o peso da etapa anterior. A limpeza leve é representada como uma etapa única (1/1), pois o motor atual não fornece percentuais internos confiáveis para suas sub-rotinas.
 - DISM RestoreHealth, DISM ResetBase e SFC usam o percentual real da ferramenta somente dentro do peso reservado àquela etapa.
 - Etapas sem percentual próprio avançam por conclusão: o peso é consolidado quando a próxima etapa começa.
 - O percentual global é monotônico: nenhuma atualização posterior pode fazê-lo regredir.
