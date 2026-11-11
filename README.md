@@ -10,7 +10,7 @@ Versão preparada para release: `3.2.3` (versão do pacote: `3.2.3`)
 
 A versão 3.2.3 consolida a preparação segura das tarefas e o progresso global da execução. O ponto de restauração é solicitado antes de liberar o início; quando não pode ser criado, a pessoa decide explicitamente se deseja prosseguir. O progresso passa a representar a operação inteira, sem reiniciar entre etapas, incorporando os percentuais reais de DISM e SFC dentro dos pesos definidos. A experiência visual mantém o glow apenas no campo em atividade, com transição suave.
 
-A validação funcional desta versão foi realizada em Windows 11 LTSC, Windows 10 LTSC e Windows 11 Pro for Workstations. A publicação dos instaladores será feita após a conclusão da preparação da release.
+A validação funcional desta versão foi realizada em Windows 11 LTSC, Windows 10 LTSC e Windows 11 Pro for Workstations. Os instaladores da versão 3.2.3 estão disponíveis nos links abaixo.
 
 > O QBoa Digital mantém diagnóstico separado de limpeza e manutenção.
 
@@ -52,11 +52,19 @@ Capturas da interface do QBoa Digital. As imagens são hospedadas no repositóri
   <p><strong>Serviços do Windows</strong></p>
 </div>
 
-## Downloads — versão 3.2.2
+## Downloads — versão 3.2.3
 
-- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.2/qboa-digital-3.2.2-x64-installer.exe)** — instalação tradicional.
-- **[Versão portátil Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.2/qboa-digital-3.2.2-x64-portable.exe)** — executável portátil distribuído como arquivo individual.
-- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.2.2).
+- **[Instalador Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.3/qboa-digital-3.2.3-x64-installer.exe)** — instalação tradicional.
+- **[Versão portátil Windows x64 (.exe)](https://github.com/bloodshinoda/qboa-digital/releases/download/v3.2.3/qboa-digital-3.2.3-x64-portable.exe)** — executável portátil distribuído como arquivo individual.
+- [Notas da versão e todos os arquivos da release](https://github.com/bloodshinoda/qboa-digital/releases/tag/v3.2.3).
+
+### Destaques da versão 3.2.3
+
+- Preparação segura das tarefas com solicitação antecipada do ponto de restauração e decisão explícita quando a criação falha.
+- Autorização de uso único vinculada à tarefa, com expiração e proteção contra reutilização.
+- Progresso global monotônico de 0 a 100, incorporando os percentuais reais de DISM e SFC dentro dos pesos de cada etapa.
+- Cancelamentos e falhas não são apresentados como conclusão bem-sucedida.
+- Glow restrito ao campo em atividade, com transição suave.
 
 ### Destaques da versão 3.2.2
 
