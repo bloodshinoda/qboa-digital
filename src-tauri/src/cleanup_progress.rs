@@ -105,6 +105,27 @@ mod tests {
     }
 
     #[test]
+    fn progresso_global_nao_regride_ao_trocar_de_etapa() {
+        let stage_percentages = [
+            (1, 8, 100.0),
+            (2, 8, 100.0),
+            (3, 8, 100.0),
+            (4, 8, 100.0),
+            (5, 8, 100.0),
+            (6, 8, 100.0),
+            (7, 8, 100.0),
+            (8, 8, 100.0),
+        ];
+        let values = stage_percentages
+            .into_iter()
+            .map(|(current, total, local)| cleanup_progress_percent(current, total, local))
+            .collect::<Vec<_>>();
+
+        assert!(values.windows(2).all(|pair| pair[1] >= pair[0]));
+        assert_eq!(values.last(), Some(&100));
+    }
+
+    #[test]
     fn percentual_da_etapa_e_limitado_ao_intervalo_de_zero_a_cem() {
         assert_eq!(cleanup_progress_percent(6, 8, -20.0), 30);
         assert_eq!(cleanup_progress_percent(6, 8, 150.0), 65);
