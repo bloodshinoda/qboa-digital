@@ -2,6 +2,25 @@
 
 Todas as mudanças relevantes do QBoa Digital são registradas neste arquivo.
 
+## [3.2.3] — Em preparação
+
+### Segurança e preparação de tarefas
+- Move a solicitação do ponto de restauração para antes do início da execução.
+- Exige consentimento explícito para prosseguir quando o Windows não consegue criar o ponto; recusar cancela antes de qualquer alteração.
+- Vincula a autorização a um token de uso único, associado à tarefa, com validade limitada e proteção contra reutilização.
+- Mantém os diagnósticos independentes do fluxo de limpeza e manutenção.
+
+### Progresso e experiência de execução
+- Unifica o percentual em uma escala global, monotônica e ponderada, sem reiniciar entre etapas.
+- Incorpora os percentuais reais de DISM RestoreHealth, ResetBase e SFC dentro dos pesos de cada etapa.
+- Mantém a limpeza leve como uma etapa global única e não simula conclusão em caso de cancelamento ou falha.
+- Concentra o glow no campo que está trabalhando, com transição suave e sem animação enquanto aguarda uma ação da pessoa.
+
+### Validação
+- Build #765 aprovado no GitHub Actions, com DevTools habilitado.
+- Validação funcional em Windows 11 LTSC, Windows 10 LTSC e Windows 11 Pro for Workstations.
+
+
 ## [3.2.2] — 2026-11-04
 
 ### Interface e experiência de uso
