@@ -1606,7 +1606,10 @@ fn start_task(
                     task_for_spawn.name
                 )) {
                     Ok(point) => {
-                        write_execution_log(&execution_id_for_spawn, "restore-point-phase-completed");
+                        write_execution_log(
+                            &execution_id_for_spawn,
+                            "restore-point-phase-completed",
+                        );
                         emit_event(
                             &app_for_spawn,
                             "restore-point-created",
@@ -1650,7 +1653,10 @@ fn start_task(
                             None,
                             &task_risk_for_spawn,
                         );
-                        let proceed = match receive_confirmation(&receiver, Duration::from_secs(300)) {
+                        let proceed = match receive_confirmation(
+                            &receiver,
+                            Duration::from_secs(300),
+                        ) {
                             ConfirmationWait::Answered(response) => response,
                             ConfirmationWait::TimedOut => {
                                 write_execution_log(
