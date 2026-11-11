@@ -3132,7 +3132,7 @@ mod tests {
         prepared_cleanups().lock().unwrap().insert(
             token.clone(),
             PreparedCleanup {
-            created_at: Instant::now(),
+                created_at: Instant::now(),
                 task_id: "limpeza_leve".to_string(),
                 reset_base_required: false,
                 restore_point_required: false,
