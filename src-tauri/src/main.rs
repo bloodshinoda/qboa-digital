@@ -1756,7 +1756,7 @@ fn start_task(
             operation_contracts::CleanupProgress {
                 current: None,
                 total: None,
-                percent: Some(30),
+                percent: Some(0),
                 stage: "Preparação".into(),
                 message: "Preparando tudo com cuidado e verificando possíveis riscos.".into(),
             },
@@ -1773,7 +1773,7 @@ fn start_task(
             &execution_id_for_spawn,
             "Preparando tudo com cuidado e verificando possíveis riscos.",
             true,
-            Some("30%"),
+            Some("0%"),
             &task_risk_for_spawn,
         );
 
@@ -1783,9 +1783,10 @@ fn start_task(
         let task_risk_for_output = task_risk_for_spawn.clone();
         let mut streamed_output = String::new();
         let mut cleanup_step: Option<(u32, u32)> = None;
-        let mut dism_percent = 0u32;
-        let mut dism_active = false;
+        let mut tool_percent = 0u32;
+        let mut tool_progress_active = false;
         let mut dism_stage_label = String::new();
+        let mut last_cleanup_percent = 0u32;
         let mut on_output = |line: &str| {
             streamed_output.push_str(line);
             streamed_output.push('\n');
@@ -1799,19 +1800,19 @@ fn start_task(
                         {
                             if total > 0 && current > 0 && current <= total {
                                 cleanup_step = Some((current, total));
-                                dism_percent = 0;
-                                dism_active = description.to_ascii_lowercase().contains("dism")
-                                    || description.to_ascii_lowercase().contains("imagem")
-                                    || description
-                                        .to_ascii_lowercase()
-                                        .contains("componentes substituídos");
+                                tool_percent = 0;
+                                let normalized_description = description.to_ascii_lowercase();
+                                tool_progress_active = normalized_description.contains("dism")
+                                    || normalized_description.contains("sfc")
+                                    || normalized_description.contains("integridade");
                                 dism_stage_label = description.trim_end_matches("...").to_string();
                                 let percent = cleanup_progress::cleanup_progress_percent(
                                     current,
                                     total,
-                                    dism_active,
                                     0.0,
-                                );
+                                )
+                                .max(last_cleanup_percent);
+                                last_cleanup_percent = percent;
                                 let friendly = description.trim_end_matches("...");
                                 if let Err(error) = record_cleanup_progress(
                                     &cleanup_lifecycle,
@@ -1844,26 +1845,17 @@ fn start_task(
                         }
                     }
                 }
-            } else if dism_active {
-                if let Some(percent_pos) = trimmed.find('%') {
-                    let prefix = &trimmed[..percent_pos];
-                    let number: String = prefix
-                        .chars()
-                        .rev()
-                        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
-                        .collect::<String>()
-                        .chars()
-                        .rev()
-                        .collect();
-                    if let Ok(value) = number.replace(',', ".").parse::<f64>() {
-                        let value = value.clamp(0.0, 100.0);
-                        let rounded = value.round() as u32;
-                        if rounded >= dism_percent {
-                            dism_percent = rounded;
-                            if let Some((current, total)) = cleanup_step {
-                                let overall = cleanup_progress::cleanup_progress_percent(
-                                    current, total, true, value,
-                                );
+            } else if tool_progress_active {
+                if let Some(value) = cleanup_progress::parse_tool_progress_percent(trimmed) {
+                    let rounded = value.round() as u32;
+                    if rounded >= tool_percent {
+                        tool_percent = rounded;
+                        if let Some((current, total)) = cleanup_step {
+                            let overall = cleanup_progress::cleanup_progress_percent(
+                                current, total, value,
+                            )
+                            .max(last_cleanup_percent);
+                            last_cleanup_percent = overall;
                                 if let Err(error) = record_cleanup_progress(
                                     &cleanup_lifecycle,
                                     operation_contracts::CleanupProgress {
