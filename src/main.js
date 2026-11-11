@@ -1383,8 +1383,9 @@ async function executeTask(item, cardEl) {
     }
 
     if (preparation.restore_point_error) {
+      appendConsole("Detalhes técnicos da falha ao criar o ponto de restauração: " + preparation.restore_point_error);
       restorePointAuthorized = await askConfirmation(
-        `Não consegui criar um ponto de restauração antes de iniciar: ${preparation.restore_point_error}\n\nSem esse ponto, não será possível usar a Restauração do Sistema para reverter as alterações desta operação. Deseja prosseguir mesmo assim?`,
+        "Não foi possível criar um ponto de restauração porque um serviço necessário do Windows está desabilitado ou indisponível.\n\nSem essa proteção, você não poderá reverter as alterações desta operação pela Restauração do Sistema.\n\nDeseja continuar mesmo assim?",
         "Ponto de restauração indisponível",
         "Prosseguir sem proteção",
         "Cancelar operação"
