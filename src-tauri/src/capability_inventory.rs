@@ -44,6 +44,107 @@ pub(crate) struct CapabilityInventory {
     pub warnings: Vec<String>,
 }
 
+fn classify_wsl(
+    feature_state: Option<&str>,
+    registered: &[String],
+    running: &[String],
+) -> Capability {
+    let (status, confidence, summary) = if !running.is_empty() {
+        (
+            CapabilityStatus::Detected,
+            "high",
+            format!("WSL está em execução: {}.", running.join(", ")),
+        )
+    } else if !registered.is_empty() {
+        (
+            CapabilityStatus::Detected,
+            "high",
+            format!(
+                "WSL instalado; nenhuma distribuição está em execução. Distribuições: {}.",
+                registered.join(", ")
+            ),
+        )
+    } else {
+        match feature_state {
+            Some("Enabled") => (
+                CapabilityStatus::Detected,
+                "high",
+                "Componente WSL habilitado; nenhuma distribuição registrada.".into(),
+            ),
+            Some("Disabled") => (
+                CapabilityStatus::Disabled,
+                "high",
+                "Componente opcional WSL desabilitado; nenhuma distribuição foi detectada.".into(),
+            ),
+            _ => (
+                CapabilityStatus::Unknown,
+                "low",
+                "Não foi possível confirmar o estado do WSL ou de suas distribuições.".into(),
+            ),
+        }
+    };
+
+    let mut details = vec![
+        format!("FeatureState={}", feature_state.unwrap_or("Unknown")),
+        format!("RegisteredDistributions={}", registered.len()),
+        format!("RunningDistributions={}", running.len()),
+    ];
+    details.extend(
+        registered
+            .iter()
+            .map(|name| format!("RegisteredDistribution={name}")),
+    );
+    details.extend(
+        running
+            .iter()
+            .map(|name| format!("RunningDistribution={name}")),
+    );
+
+    Capability {
+        id: "wsl".into(),
+        label: "Subsistema do Windows para Linux (WSL)".into(),
+        status,
+        confidence: confidence.into(),
+        summary,
+        sources: vec![
+            "Get-WindowsOptionalFeature -Online".into(),
+            "wsl.exe --list --quiet".into(),
+            "wsl.exe --list --running --quiet".into(),
+        ],
+        details,
+    }
+}
+
+fn apply_wsl_evidence(inventory: &mut CapabilityInventory) {
+    let Some(index) = inventory
+        .capabilities
+        .iter()
+        .position(|capability| capability.id == "wsl")
+    else {
+        return;
+    };
+
+    let current = &inventory.capabilities[index];
+    let feature_state = current
+        .details
+        .iter()
+        .find_map(|detail| detail.strip_prefix("FeatureState="));
+    let registered = current
+        .details
+        .iter()
+        .filter_map(|detail| detail.strip_prefix("RegisteredDistribution="))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let running = current
+        .details
+        .iter()
+        .filter_map(|detail| detail.strip_prefix("RunningDistribution="))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    inventory.capabilities[index] = classify_wsl(feature_state, &registered, &running);
+}
+
 #[cfg(target_os = "windows")]
 fn collect_windows() -> Result<CapabilityInventory, String> {
     use std::{os::windows::process::CommandExt, process::Command};
@@ -84,6 +185,27 @@ $caps.Add([pscustomobject]@{id='hypervisor_active';label='Hipervisor ativo';stat
 try{$cs=Get-CimInstance Win32_ComputerSystem -ErrorAction Stop;$i=$caps[$caps.Count-1];if($null -ne $cs.HypervisorPresent){$i.status=if($cs.HypervisorPresent){'detected'}else{'not_detected'};$i.confidence='high';$i.summary=if($cs.HypervisorPresent){'O Windows informa hipervisor ativo.'}else{'O Windows não informa hipervisor ativo.'}}}catch{$caps[$caps.Count-1].summary='Consulta do hipervisor indisponível.'}
 $features=@(@('hyper_v','Hyper-V','Microsoft-Hyper-V-All'),@('wsl','Subsistema do Windows para Linux (WSL)','Microsoft-Windows-Subsystem-Linux'),@('virtual_machine_platform','Plataforma de Máquina Virtual','VirtualMachinePlatform'),@('sandbox','Windows Sandbox','Containers-DisposableClientVM'))
 foreach($f in $features){$caps.Add([pscustomobject]@{id=$f[0];label=$f[1];status='unknown';confidence='low';summary='Consulta pendente.';sources=@('Get-WindowsOptionalFeature -Online');details=@()});$i=$caps[$caps.Count-1];try{$x=Get-WindowsOptionalFeature -Online -FeatureName $f[2] -ErrorAction Stop;$i.status=if($x.State -eq 'Enabled'){'detected'}elseif($x.State -eq 'Disabled'){'disabled'}else{'not_applicable'};$i.confidence='high';$i.summary="Estado do recurso $($f[2]): $($x.State).";$i.details=@("FeatureName=$($f[2])","State=$($x.State)")}catch{$i.summary="Não foi possível consultar o recurso $($f[2]).";$i.details=@($_.Exception.Message)}}
+# O estado do recurso opcional não é suficiente para detectar o WSL moderno:
+# uma distribuição WSL2 em execução é evidência direta, mesmo se o recurso inbox estiver Disabled.
+$wslCapability=@($caps | Where-Object {$_.id -eq 'wsl'} | Select-Object -First 1)[0]
+$wslCommand=Get-Command wsl.exe -ErrorAction SilentlyContinue
+$wslRegistered=@();$wslRunning=@()
+if($null -ne $wslCommand){
+ try{
+  $rawRegistered=@(& $wslCommand.Source --list --quiet 2>$null);$registeredExit=$LASTEXITCODE
+  if($registeredExit -eq 0){$wslRegistered=@($rawRegistered | ForEach-Object {([string]$_ -replace "`0",'').Trim()} | Where-Object {$_ -and $_ -notmatch '(?i)no installed distributions|no running distributions|nenhuma distribui|não há distribui'})}
+ }catch{}
+ try{
+  $rawRunning=@(& $wslCommand.Source --list --running --quiet 2>$null);$runningExit=$LASTEXITCODE
+  if($runningExit -eq 0){$wslRunning=@($rawRunning | ForEach-Object {([string]$_ -replace "`0",'').Trim()} | Where-Object {$_ -and ($wslRegistered -contains $_)})}
+ }catch{}
+}
+$featureState=($wslCapability.details | Where-Object {$_ -like 'State=*'} | Select-Object -First 1)
+$featureState=if($featureState){$featureState.Substring(6)}else{'Unknown'}
+$wslCapability.details=@("FeatureState=$featureState","WslCommandAvailable=$([bool]($null -ne $wslCommand))")
+foreach($d in $wslRegistered){$wslCapability.details+= "RegisteredDistribution=$d"}
+foreach($d in $wslRunning){$wslCapability.details+= "RunningDistribution=$d"}
+$wslCapability.sources=@('Get-WindowsOptionalFeature -Online','wsl.exe --list --quiet','wsl.exe --list --running --quiet')
 $sys=[pscustomobject]@{os_name=$null;os_version=$null;os_build=$null;architecture=$env:PROCESSOR_ARCHITECTURE;manufacturer=$null;model=$null;motherboard=$null;processor=$null;memory=$null;gpu=$null;device_type='unknown';device_confidence='low';device_evidence=@()}
 try{$os=Get-CimInstance Win32_OperatingSystem -ErrorAction Stop;$sys.os_name=$os.Caption;$sys.os_version=$os.Version;$sys.os_build=$os.BuildNumber}catch{$warnings.Add('Versão do Windows indisponível.')}
 try{
@@ -169,8 +291,10 @@ ConvertTo-Json -InputObject ([pscustomobject]@{system=$sys;capabilities=@($caps)
     }
     let stdout = String::from_utf8(output.stdout)
         .map_err(|e| format!("Resposta do inventário não é UTF-8 válido: {e}"))?;
-    serde_json::from_str(stdout.trim())
-        .map_err(|e| format!("Não foi possível interpretar o inventário: {e}"))
+    let mut inventory: CapabilityInventory = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Não foi possível interpretar o inventário: {e}"))?;
+    apply_wsl_evidence(&mut inventory);
+    Ok(inventory)
 }
 
 pub(crate) fn collect() -> Result<CapabilityInventory, String> {
@@ -198,6 +322,37 @@ mod tests {
             "\"not_applicable\""
         );
     }
+    #[test]
+    fn running_wsl_overrides_disabled_inbox_feature() {
+        let registered = vec!["Ubuntu".to_string()];
+        let running = vec!["Ubuntu".to_string()];
+        let capability = classify_wsl(Some("Disabled"), &registered, &running);
+        assert_eq!(capability.status, CapabilityStatus::Detected);
+        assert!(capability.summary.contains("WSL está em execução"));
+    }
+
+    #[test]
+    fn registered_wsl_is_detected_even_when_not_running() {
+        let registered = vec!["Debian".to_string()];
+        let capability = classify_wsl(Some("Disabled"), &registered, &[]);
+        assert_eq!(capability.status, CapabilityStatus::Detected);
+        assert!(capability
+            .summary
+            .contains("nenhuma distribuição está em execução"));
+    }
+
+    #[test]
+    fn enabled_wsl_component_is_detected_without_a_distro() {
+        let capability = classify_wsl(Some("Enabled"), &[], &[]);
+        assert_eq!(capability.status, CapabilityStatus::Detected);
+    }
+
+    #[test]
+    fn disabled_wsl_component_without_distros_stays_disabled() {
+        let capability = classify_wsl(Some("Disabled"), &[], &[]);
+        assert_eq!(capability.status, CapabilityStatus::Disabled);
+    }
+
     #[test]
     fn inventory_shape_serializes_conservatively() {
         let report = CapabilityInventory {

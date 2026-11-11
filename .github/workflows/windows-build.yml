@@ -57,6 +57,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Validate frontend JavaScript syntax
+        run: node --check src/main.js
+
       - name: Validate storage collector and execute all eight tests on a temporary file
         shell: pwsh
         run: |
@@ -97,7 +100,19 @@ jobs:
       - name: Run Rust tests
         run: cargo test --locked --all-targets --manifest-path src-tauri/Cargo.toml
 
-      - name: Build Windows installer
+      - name: Embed GitHub Actions build number
+        shell: pwsh
+        run: |
+          $buildNumber = $env:GITHUB_RUN_NUMBER
+          if (-not $buildNumber) { throw "GitHub Actions run number is unavailable." }
+          Set-Content -Path "src/build-info.js" -Value "window.QBOA_BUILD_NUMBER = '$buildNumber';" -Encoding utf8 -NoNewline
+
+      - name: Build Windows installer with DevTools (development/validation)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run build -- --features devtools
+
+      - name: Build Windows installer without DevTools (release)
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: npm run build
 
       - name: Normalize installer filename

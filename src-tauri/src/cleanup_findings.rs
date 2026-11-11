@@ -98,7 +98,11 @@ pub(crate) enum FindingAction {
 }
 
 pub(crate) trait CleanupFindingBackend {
-    fn shortcuts(&mut self) -> Result<Vec<ShortcutObservation>, String>;
+    fn shortcuts(
+        &mut self,
+        is_cancelled: &dyn Fn() -> bool,
+        on_progress: &mut dyn FnMut(String),
+    ) -> Result<Vec<ShortcutObservation>, String>;
     fn associations(&mut self) -> Result<Vec<AssociationObservation>, String>;
     fn uninstall_entries(&mut self) -> Result<Vec<UninstallObservation>, String>;
     fn path_exists(&mut self, path: &Path) -> Result<bool, String>;
@@ -151,10 +155,23 @@ pub(crate) struct CleanupExecutionReport {
 pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
     backend: &mut B,
     profile: &str,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<CleanupExecutionReport, String> {
-    let detected = detect_actions(backend)?;
+    cleanup_profile_with_progress(backend, profile, is_cancelled, &mut |_| {})
+}
+
+pub(crate) fn cleanup_profile_with_progress<B: CleanupFindingBackend>(
+    backend: &mut B,
+    profile: &str,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &mut dyn FnMut(String),
+) -> Result<CleanupExecutionReport, String> {
+    let detected = detect_actions_with_cancel(backend, is_cancelled, on_progress)?;
     let mut report = CleanupExecutionReport::default();
     for candidate in detected {
+        if is_cancelled() {
+            return Err("Tarefa cancelada pelo usuário durante a varredura integrada.".to_string());
+        }
         if !candidate
             .finding
             .profiles
@@ -169,6 +186,11 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
                 .unwrap_or(0),
             _ => 0,
         };
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário antes de aplicar uma alteração.".to_string(),
+            );
+        }
         match backend.delete(&candidate.action) {
             Ok(()) => match candidate.action {
                 FindingAction::DeleteShortcut(_) => {
@@ -194,9 +216,25 @@ pub(crate) fn cleanup_profile<B: CleanupFindingBackend>(
 fn detect_actions<B: CleanupFindingBackend>(
     backend: &mut B,
 ) -> Result<Vec<DetectedFinding>, String> {
+    detect_actions_with_cancel(backend, &|| false, &mut |_| {})
+}
+
+fn detect_actions_with_cancel<B: CleanupFindingBackend>(
+    backend: &mut B,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &mut dyn FnMut(String),
+) -> Result<Vec<DetectedFinding>, String> {
+    if is_cancelled() {
+        return Err("Tarefa cancelada pelo usuário antes da varredura integrada.".to_string());
+    }
     let mut findings = Vec::new();
 
-    for shortcut in backend.shortcuts()? {
+    for shortcut in backend.shortcuts(is_cancelled, on_progress)? {
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de atalhos.".to_string(),
+            );
+        }
         let (reason, risk) = match shortcut.state {
             ShortcutState::BrokenTarget => ("O destino do atalho não existe.", FindingRisk::Low),
             ShortcutState::InvalidLink => ("O arquivo de atalho é inválido.", FindingRisk::Low),
@@ -217,6 +255,11 @@ fn detect_actions<B: CleanupFindingBackend>(
     }
 
     for association in backend.associations()? {
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de associações.".to_string(),
+            );
+        }
         if !ASSOCIATION_EXTENSIONS
             .iter()
             .any(|extension| extension.eq_ignore_ascii_case(&association.extension))
@@ -286,11 +329,23 @@ fn detect_actions<B: CleanupFindingBackend>(
     }
 
     for entry in backend.uninstall_entries()? {
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário durante a verificação de programas instalados."
+                    .to_string(),
+            );
+        }
         if entry.display_name.trim().is_empty() || entry.evidence_paths.is_empty() {
             continue;
         }
         let mut all_missing = true;
         for path in &entry.evidence_paths {
+            if is_cancelled() {
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a verificação de programas instalados."
+                        .to_string(),
+                );
+            }
             if backend.path_exists(path)? {
                 all_missing = false;
                 break;
@@ -367,11 +422,30 @@ fn stable_path(path: &Path) -> String {
 }
 
 #[cfg(target_os = "windows")]
+const SAFE_ROOTED_PATH_HELPER: &str = r#"
+function Get-SafeRootedPath([string]$value) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return $null }
+    try {
+        if ($value.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $null }
+        if ($value -match '[<>"|?*]' -or ($value.Length -gt 2 -and $value.Substring(2) -match ':')) { return $null }
+        if ([IO.Path]::IsPathRooted($value)) { return $value }
+    } catch {
+        return $null
+    }
+    return $null
+}
+"#;
+
+#[cfg(target_os = "windows")]
 pub(crate) struct WindowsCleanupFindingBackend;
 
 #[cfg(target_os = "windows")]
 impl CleanupFindingBackend for WindowsCleanupFindingBackend {
-    fn shortcuts(&mut self) -> Result<Vec<ShortcutObservation>, String> {
+    fn shortcuts(
+        &mut self,
+        is_cancelled: &dyn Fn() -> bool,
+        on_progress: &mut dyn FnMut(String),
+    ) -> Result<Vec<ShortcutObservation>, String> {
         let mut roots: Vec<PathBuf> = run_powershell_json(
             r#"$ErrorActionPreference='Stop';$r=@([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),[Environment]::GetFolderPath([Environment+SpecialFolder]::StartMenu),[Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory),[Environment]::GetFolderPath([Environment+SpecialFolder]::CommonStartMenu));ConvertTo-Json -InputObject @($r|Where-Object{$_}) -Compress"#,
         )?;
@@ -388,27 +462,83 @@ impl CleanupFindingBackend for WindowsCleanupFindingBackend {
         roots.sort();
         roots.dedup();
 
-        let mut observations = Vec::new();
+        let mut paths = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for root in roots {
+            if is_cancelled() {
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
+                );
+            }
             match std::fs::metadata(&root) {
                 Ok(metadata) if metadata.is_dir() => {}
                 Ok(_) => continue,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => {
-                    return Err(format!(
-                        "Não foi possível verificar o local {}: {error}",
-                        root.display()
-                    ))
+                    on_progress(format!("Local ignorado: {} ({error})", root.display()));
+                    continue;
                 }
             }
-            collect_shortcuts(&root, &mut seen, &mut observations)?;
+            collect_shortcut_paths(&root, &mut seen, &mut paths, is_cancelled, on_progress)?;
         }
+
+        let total = paths.len();
+        on_progress(format!(
+            "Varredura de atalhos: {total} encontrado(s); inspeção em lotes iniciada."
+        ));
+        let mut observations = Vec::with_capacity(total);
+        let mut valid_header_paths = Vec::new();
+        for path in paths {
+            if is_cancelled() {
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string(),
+                );
+            }
+            match std::fs::read(&path) {
+                Ok(bytes) if shortcut_header_is_valid(&bytes) => valid_header_paths.push(path),
+                Ok(_) => observations.push(ShortcutObservation {
+                    path,
+                    state: ShortcutState::InvalidLink,
+                }),
+                Err(_) => observations.push(ShortcutObservation {
+                    path,
+                    state: ShortcutState::Uncertain,
+                }),
+            }
+        }
+
+        const BATCH_SIZE: usize = 32;
+        let total_to_inspect = valid_header_paths.len();
+        for (index, batch) in valid_header_paths.chunks(BATCH_SIZE).enumerate() {
+            if is_cancelled() {
+                return Err(
+                    "Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string(),
+                );
+            }
+            let batch_paths = batch.to_vec();
+            match inspect_shortcuts_batch(&batch_paths, is_cancelled) {
+                Ok(mut batch_results) => observations.append(&mut batch_results),
+                Err(error) if is_cancelled() => return Err(error),
+                Err(error) => {
+                    on_progress(format!("Lote inconclusivo; atalhos preservados: {error}"));
+                    observations.extend(batch_paths.into_iter().map(|path| ShortcutObservation {
+                        path,
+                        state: ShortcutState::Uncertain,
+                    }));
+                }
+            }
+            let done = ((index + 1) * BATCH_SIZE).min(total_to_inspect);
+            on_progress(format!("Inspecionando atalhos: {done}/{total_to_inspect}."));
+        }
+        on_progress(format!("Inspeção concluída: {total_to_inspect} analisado(s), {} inconclusivo(s) preservado(s).",
+            observations.iter().filter(|item| item.state == ShortcutState::Uncertain).count()));
         Ok(observations)
     }
-
     fn associations(&mut self) -> Result<Vec<AssociationObservation>, String> {
-        let script = r#"
+        let script = format!(
+            "{}\n{}",
+            SAFE_ROOTED_PATH_HELPER,
+            r#"
 $ErrorActionPreference = 'Stop'
 $extensions = @('.txt','.pdf','.png','.jpg','.jpeg','.gif','.bmp','.webp','.zip','.7z','.rar','.mp3','.wav','.mp4','.mkv','.html','.htm','.docx','.xlsx','.pptx','.json','.csv')
 $currentUser = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser,[Microsoft.Win32.RegistryView]::Default)
@@ -462,15 +592,17 @@ foreach ($extension in $extensions) {
     } elseif ($command -match '^\s*(.+?\.exe)(?:\s|,|$)') {
         $executable = $Matches[1].Trim()
     }
-    if (!$executable -or ![IO.Path]::IsPathRooted($executable)) { continue }
+    $executable = Get-SafeRootedPath $executable
+    if (!$executable) { continue }
     $results += [pscustomobject]@{ extension=$extension; source=$source; prog_id=$progId; state='candidate'; executable=$executable }
 }
 $currentUser.Dispose()
 $localMachine.Dispose()
 $classes.Dispose()
 ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
-"#;
-        let items: Vec<WindowsAssociation> = run_powershell_json(script)?;
+"#
+        );
+        let items: Vec<WindowsAssociation> = run_powershell_json(&script)?;
         Ok(items
             .into_iter()
             .filter_map(WindowsAssociation::into_observation)
@@ -478,8 +610,62 @@ ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
     }
 
     fn uninstall_entries(&mut self) -> Result<Vec<UninstallObservation>, String> {
-        let script = r#"$ErrorActionPreference='Stop';$roots=@(@('LocalMachine','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),@('LocalMachine','SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),@('CurrentUser','SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'));$r=@();foreach($root in $roots){$base=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$($root[0]),[Microsoft.Win32.RegistryView]::Default);$key=$base.OpenSubKey($root[1]);if(!$key){continue};foreach($name in $key.GetSubKeyNames()){$child=$key.OpenSubKey($name);if(!$child){continue};$display=[string]$child.GetValue('DisplayName');$install=[string]$child.GetValue('InstallLocation');$icon=[string]$child.GetValue('DisplayIcon');$evidence=@();if($install -and [IO.Path]::IsPathRooted($install)){$evidence+=@($install)};if($icon){$candidate=$icon.Trim().Trim('"');if($candidate -match '^(.+?\.exe)(?:,.*)?$'){$candidate=$Matches[1]};if([IO.Path]::IsPathRooted($candidate)){$evidence+=@($candidate)}};if($display -and $evidence.Count -gt 0){$r+=[pscustomobject]@{hive=$root[0];key_path=($root[1]+'\'+$name);display_name=$display;evidence_paths=@($evidence)}};$child.Dispose()};$key.Dispose();$base.Dispose()};ConvertTo-Json -InputObject @($r) -Depth 6 -Compress"#;
-        let items: Vec<WindowsUninstallEntry> = run_powershell_json(script)?;
+        let script = format!("{}\n", SAFE_ROOTED_PATH_HELPER)
+            + r#"
+$ErrorActionPreference = 'Stop'
+$roots = @(
+    @('LocalMachine', 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'),
+    @('LocalMachine', 'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),
+    @('CurrentUser', 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall')
+)
+$results = @()
+foreach ($root in $roots) {
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+        [Microsoft.Win32.RegistryHive]::$($root[0]),
+        [Microsoft.Win32.RegistryView]::Default
+    )
+    $key = $base.OpenSubKey($root[1])
+    if (!$key) {
+        $base.Dispose()
+        continue
+    }
+    foreach ($name in $key.GetSubKeyNames()) {
+        $child = $key.OpenSubKey($name)
+        if (!$child) { continue }
+
+        $display = [string]$child.GetValue('DisplayName')
+        $install = [string]$child.GetValue('InstallLocation')
+        $icon = [string]$child.GetValue('DisplayIcon')
+        $evidence = @()
+
+        $safeInstall = Get-SafeRootedPath $install
+        if ($safeInstall) { $evidence += $safeInstall }
+
+        if ($icon) {
+            $candidate = $icon.Trim().Trim('"')
+            if ($candidate -match '^(.+?\.exe)(?:,.*)?(?:\s|$)') {
+                $candidate = $Matches[1]
+            }
+            $safeCandidate = Get-SafeRootedPath $candidate
+            if ($safeCandidate) { $evidence += $safeCandidate }
+        }
+
+        if ($display -and $evidence.Count -gt 0) {
+            $results += [pscustomobject]@{
+                hive = $root[0]
+                key_path = ($root[1] + '\' + $name)
+                display_name = $display
+                evidence_paths = @($evidence)
+            }
+        }
+        $child.Dispose()
+    }
+    $key.Dispose()
+    $base.Dispose()
+}
+ConvertTo-Json -InputObject @($results) -Depth 6 -Compress
+"#;
+        let items: Vec<WindowsUninstallEntry> = run_powershell_json(&script)?;
         Ok(items
             .into_iter()
             .map(|item| UninstallObservation {
@@ -512,7 +698,14 @@ ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
                 {
                     return Err("Caminho de atalho fora dos locais permitidos.".to_string());
                 }
-                match inspect_shortcut(path)? {
+                let mut observations =
+                    inspect_shortcuts_batch(std::slice::from_ref(path), &|| false)?;
+                let state = observations
+                    .pop()
+                    .filter(|observation| observation.path == *path)
+                    .map(|observation| observation.state)
+                    .unwrap_or(ShortcutState::Uncertain);
+                match state {
                     ShortcutState::BrokenTarget | ShortcutState::InvalidLink => {}
                     ShortcutState::Valid | ShortcutState::Uncertain => {
                         return Err("O atalho não está confirmado como inválido.".to_string())
@@ -541,65 +734,104 @@ ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
 }
 
 #[cfg(target_os = "windows")]
-fn collect_shortcuts(
+fn collect_shortcut_paths(
     directory: &Path,
     seen: &mut std::collections::HashSet<PathBuf>,
-    observations: &mut Vec<ShortcutObservation>,
+    paths: &mut Vec<PathBuf>,
+    is_cancelled: &dyn Fn() -> bool,
+    on_progress: &mut dyn FnMut(String),
 ) -> Result<(), String> {
-    let entries = std::fs::read_dir(directory)
-        .map_err(|error| format!("Não foi possível ler {}: {error}", directory.display()))?;
+    use std::os::windows::fs::MetadataExt;
+    if is_cancelled() {
+        return Err("Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string());
+    }
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            on_progress(format!("Pasta ignorada: {} ({error})", directory.display()));
+            return Ok(());
+        }
+    };
     for entry in entries {
-        let entry = entry.map_err(|error| {
-            format!("Não foi possível enumerar {}: {error}", directory.display())
-        })?;
+        if is_cancelled() {
+            return Err(
+                "Tarefa cancelada pelo usuário durante a varredura de atalhos.".to_string(),
+            );
+        }
+        let Ok(entry) = entry else { continue };
         let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("Não foi possível verificar {}: {error}", path.display()))?;
-        if file_type.is_dir() {
-            collect_shortcuts(&path, seen, observations)?;
-        } else if file_type.is_file()
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        // Não atravessa links simbólicos, junctions ou outros reparse points.
+        if metadata.file_attributes() & 0x400 != 0 {
+            continue;
+        }
+        if metadata.is_dir() {
+            collect_shortcut_paths(&path, seen, paths, is_cancelled, on_progress)?;
+        } else if metadata.is_file()
             && path
                 .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("lnk"))
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("lnk"))
             && seen.insert(path.clone())
         {
-            observations.push(ShortcutObservation {
-                state: inspect_shortcut(&path)?,
-                path,
-            });
+            paths.push(path);
+            if paths.len() % 50 == 0 {
+                on_progress(format!(
+                    "Varredura de atalhos: {} encontrado(s)...",
+                    paths.len()
+                ));
+            }
         }
     }
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
-fn inspect_shortcut(path: &Path) -> Result<ShortcutState, String> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(ShortcutState::Uncertain)
-        }
-        Err(error) => return Err(format!("Não foi possível ler atalho: {error}")),
-    };
+fn shortcut_header_is_valid(bytes: &[u8]) -> bool {
     const HEADER: [u8; 20] = [
         0x4c, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x46,
     ];
-    if bytes.len() < HEADER.len() || bytes[..HEADER.len()] != HEADER {
-        return Ok(ShortcutState::InvalidLink);
-    }
+    bytes.len() >= HEADER.len() && bytes[..HEADER.len()] == HEADER
+}
 
-    let encoded_path = base64_encode(path.to_string_lossy().as_bytes());
+#[cfg(target_os = "windows")]
+#[derive(Deserialize)]
+struct ShortcutBatchResponse {
+    path: String,
+    state: String,
+}
+
+#[cfg(target_os = "windows")]
+fn inspect_shortcuts_batch(
+    paths: &[PathBuf],
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<Vec<ShortcutObservation>, String> {
+    let values: Vec<String> = paths
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+    let encoded = base64_encode(&serde_json::to_vec(&values).map_err(|error| error.to_string())?);
     let script = format!(
-        "$ErrorActionPreference='Stop';$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_path}'));try{{$shell=New-Object -ComObject WScript.Shell;$link=$shell.CreateShortcut($p);$target=[Environment]::ExpandEnvironmentVariables([string]$link.TargetPath);$result=if(!$target -or !( [IO.Path]::IsPathRooted($target) )){{'uncertain'}}elseif(Test-Path -LiteralPath $target){{'valid'}}else{{'broken'}};ConvertTo-Json -InputObject @{{state=$result}} -Compress}}catch{{ConvertTo-Json -InputObject @{{state='uncertain'}} -Compress}}"
+        r#"$ErrorActionPreference='Stop';$paths=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))|ConvertFrom-Json;$shell=New-Object -ComObject WScript.Shell;$results=foreach($p in $paths){{try{{$link=$shell.CreateShortcut([string]$p);$target=[Environment]::ExpandEnvironmentVariables([string]$link.TargetPath);$state=if(!$target -or ![IO.Path]::IsPathRooted($target)){{'uncertain'}}elseif(Test-Path -LiteralPath $target){{'valid'}}else{{'broken'}}}}catch{{$state='uncertain'}};[pscustomobject]@{{path=[string]$p;state=$state}}}};ConvertTo-Json -InputObject @($results) -Compress"#
     );
-    let response: ShortcutResponse = run_powershell_json(&script)?;
-    Ok(match response.state.as_str() {
-        "valid" => ShortcutState::Valid,
-        "broken" => ShortcutState::BrokenTarget,
-        _ => ShortcutState::Uncertain,
-    })
+    let output =
+        run_powershell_cancelable(&script, is_cancelled, std::time::Duration::from_secs(12))?;
+    let responses: Vec<ShortcutBatchResponse> =
+        serde_json::from_str(output.trim_start_matches('\u{feff}'))
+            .map_err(|error| format!("Resposta da inspeção em lote inválida: {error}"))?;
+    Ok(responses
+        .into_iter()
+        .map(|item| ShortcutObservation {
+            path: PathBuf::from(item.path),
+            state: match item.state.as_str() {
+                "valid" => ShortcutState::Valid,
+                "broken" => ShortcutState::BrokenTarget,
+                _ => ShortcutState::Uncertain,
+            },
+        })
+        .collect())
 }
 
 #[cfg(target_os = "windows")]
@@ -705,6 +937,76 @@ fn delete_uninstall_entry(
 }
 
 #[cfg(target_os = "windows")]
+fn run_powershell_cancelable(
+    script: &str,
+    is_cancelled: &dyn Fn() -> bool,
+    timeout: std::time::Duration,
+) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+    let utf16: Vec<u16> = format!(
+        "$utf8=[System.Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=$utf8;{script}"
+    )
+    .encode_utf16()
+    .collect();
+    let encoded = base64_encode(
+        &utf16
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        &encoded,
+    ]);
+    command.creation_flags(0x08000000);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Não foi possível iniciar a inspeção em lote: {error}"))?;
+    let started = Instant::now();
+    loop {
+        if is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Tarefa cancelada pelo usuário durante a inspeção de atalhos.".to_string());
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(
+                "Lote excedeu 12 segundos; atalhos preservados como inconclusivos.".to_string(),
+            );
+        }
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|error| error.to_string())?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "PowerShell retornou erro: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+                return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(40)),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Falha ao acompanhar a inspeção: {error}"));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn run_powershell_json<T: for<'de> Deserialize<'de>>(script: &str) -> Result<T, String> {
     let output = run_powershell(script)?;
     serde_json::from_str(output.trim_start_matches('\u{feff}'))
@@ -777,13 +1079,6 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[cfg(target_os = "windows")]
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ShortcutResponse {
-    state: String,
-}
-
-#[cfg(target_os = "windows")]
-#[derive(Deserialize)]
 struct WindowsAssociation {
     extension: String,
     source: String,
@@ -829,7 +1124,10 @@ pub(crate) struct WindowsCleanupFindingBackend;
 
 #[cfg(not(target_os = "windows"))]
 impl CleanupFindingBackend for WindowsCleanupFindingBackend {
-    fn shortcuts(&mut self) -> Result<Vec<ShortcutObservation>, String> {
+    fn shortcuts(
+        &mut self,
+        _is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<ShortcutObservation>, String> {
         Err("A detecção de limpeza só está disponível no Windows.".to_string())
     }
 
@@ -865,7 +1163,15 @@ mod tests {
     }
 
     impl CleanupFindingBackend for FakeBackend {
-        fn shortcuts(&mut self) -> Result<Vec<ShortcutObservation>, String> {
+        fn shortcuts(
+            &mut self,
+            _is_cancelled: &dyn Fn() -> bool,
+            on_progress: &mut dyn FnMut(String),
+        ) -> Result<Vec<ShortcutObservation>, String> {
+            on_progress(format!(
+                "Varredura de atalhos: {} encontrado(s) no backend de teste.",
+                self.shortcuts.len()
+            ));
             Ok(self.shortcuts.clone())
         }
 
@@ -1080,7 +1386,7 @@ mod tests {
             ..FakeBackend::default()
         };
 
-        let report = cleanup_profile(&mut backend, "complete").unwrap();
+        let report = cleanup_profile(&mut backend, "complete", &|| false).unwrap();
         assert_eq!(report.files_removed, 1);
         assert_eq!(report.registry_entries_removed, 1);
         assert_eq!(report.failures, 0);
@@ -1089,6 +1395,85 @@ mod tests {
             .deleted
             .iter()
             .any(|action| matches!(action, FindingAction::DeleteUninstallEntry { .. })));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cancelamento_interrompe_o_powershell_em_execucao() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let signal = Arc::clone(&cancelled);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            signal.store(true, Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let result = run_powershell_cancelable(
+            "Start-Sleep -Seconds 20",
+            &|| cancelled.load(Ordering::SeqCst),
+            Duration::from_secs(25),
+        );
+        assert!(result.unwrap_err().contains("cancelada"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn malformed_registry_paths_are_ignored_without_aborting_scan() {
+        let script = format!("{}\n", SAFE_ROOTED_PATH_HELPER)
+            + r#"$paths = @('C:\Program Files\Good App', 'C:\Program Files\Bad|App', 'relative\path'); $result = @($paths | ForEach-Object { $safe = Get-SafeRootedPath $_; if ($safe) { $safe } else { '<null>' } }); ConvertTo-Json -InputObject @($result) -Compress"#;
+        let result: Vec<String> = run_powershell_json(&script).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], r"C:\Program Files\Good App");
+        assert_eq!(result[1], "<null>");
+        assert_eq!(result[2], "<null>");
+    }
+
+    #[test]
+    fn cleanup_profile_stops_when_cancelled_before_scanning() {
+        let mut backend = FakeBackend {
+            shortcuts: vec![ShortcutObservation {
+                path: PathBuf::from(r"C:\Users\test\Desktop\broken.lnk"),
+                state: ShortcutState::BrokenTarget,
+            }],
+            ..FakeBackend::default()
+        };
+
+        let result = cleanup_profile(&mut backend, "complete", &|| true);
+
+        assert!(result.unwrap_err().contains("cancelada"));
+        assert!(backend.deleted.is_empty());
+    }
+
+    #[test]
+    fn cleanup_profile_stops_between_deletions_when_cancelled() {
+        let mut backend = FakeBackend {
+            shortcuts: vec![
+                ShortcutObservation {
+                    path: PathBuf::from(r"C:\Users\test\Desktop\one.lnk"),
+                    state: ShortcutState::BrokenTarget,
+                },
+                ShortcutObservation {
+                    path: PathBuf::from(r"C:\Users\test\Desktop\two.lnk"),
+                    state: ShortcutState::BrokenTarget,
+                },
+            ],
+            ..FakeBackend::default()
+        };
+        let checks = std::cell::Cell::new(0);
+        let is_cancelled = || {
+            let current = checks.get();
+            checks.set(current + 1);
+            current >= 6
+        };
+
+        let result = cleanup_profile(&mut backend, "complete", &is_cancelled);
+
+        assert!(result.unwrap_err().contains("cancelada"));
+        assert_eq!(backend.deleted.len(), 1);
     }
 
     #[test]
