@@ -41,6 +41,15 @@ let cpuInventorySnapshot = null;
 let cpuTestSamples = [];
 let gpuTestSessionSnapshot = null;
 let gpuInventorySnapshot = null;
+const diagnosticActivityReasons = new Set();
+
+function setDiagnosticActivity(reason, active) {
+  if (active) diagnosticActivityReasons.add(reason);
+  else diagnosticActivityReasons.delete(reason);
+  const dialog = document.querySelector("#diagnostic-modal .diagnostic-dialog");
+  if (!dialog) return;
+  dialog.dataset.activity = diagnosticActivityReasons.size ? "working" : "idle";
+}
 
 let cleanupSessionPhase = "closed";
 let cleanupSessionTaskName = "";
@@ -96,6 +105,10 @@ function setCleanupSessionPhase(phase, taskName = "") {
   preparationOptions.hidden = !["preparing", "ready", "starting"].includes(phase);
   if (preparationActions) preparationActions.hidden = phase !== "ready";
   const preparationPromptOpen = !risk?.classList.contains("hidden") || !confirmation?.classList.contains("hidden");
+  const dialog = shell.querySelector(".cleanup-session-dialog");
+  if (dialog) dialog.dataset.activity =
+    (phase === "starting" || phase === "running" || (phase === "preparing" && !preparationPromptOpen))
+      ? "working" : "idle";
   shell.classList.remove("hidden");
   shell.setAttribute("aria-hidden", "false");
   shell.dataset.phase = phase;
@@ -2029,6 +2042,7 @@ async function loadCpuInventory() {
   const start = document.getElementById("cpu-test-start");
   refresh.disabled = true;
   start.disabled = true;
+  setDiagnosticActivity("inventory:cpu", true);
   summary.textContent = "Consultando identificação da CPU e sensores...";
   details.replaceChildren();
   status.textContent = "";
@@ -2101,6 +2115,7 @@ async function loadCpuInventory() {
     start.disabled = true;
   } finally {
     refresh.disabled = false;
+    setDiagnosticActivity("inventory:cpu", false);
   }
 }
 
@@ -2242,6 +2257,7 @@ function renderCpuTestSession(session) {
     updateCpuLiveMetrics(cpuTestSamples);
   }
   const active = ["running", "cancelling"].includes(session.lifecycle);
+  setDiagnosticActivity("session:cpu", active);
   const start = document.getElementById("cpu-test-start");
   const cancel = document.getElementById("cpu-test-cancel");
   const profile = document.getElementById("cpu-test-profile");
@@ -2287,7 +2303,8 @@ async function startCpuTestFromUi() {
   const start = document.getElementById("cpu-test-start");
   const result = document.getElementById("cpu-test-result");
   start.disabled = true;
-  result.textContent = "Solicitando início do teste…";
+  setDiagnosticActivity("starting:cpu", true);
+  result.textContent = "Preparando o teste de CPU…";
   cpuTestSamples = [];
   renderCpuChart(cpuTestSamples);
   try {
@@ -2297,6 +2314,8 @@ async function startCpuTestFromUi() {
   } catch (error) {
     result.textContent = String(error);
     start.disabled = false;
+  } finally {
+    setDiagnosticActivity("starting:cpu", false);
   }
 }
 
@@ -2333,6 +2352,7 @@ async function loadGpuInventory() {
   const refresh = document.getElementById("gpu-inventory-refresh");
   if (!summary || !details || !sensor || !refresh) return;
   refresh.disabled = true;
+  setDiagnosticActivity("inventory:gpu", true);
   summary.textContent = "Consultando adaptadores gráficos e sensores…";
   details.replaceChildren();
   sensor.textContent = "";
@@ -2369,6 +2389,7 @@ async function loadGpuInventory() {
     document.getElementById("gpu-test-start").disabled = true;
   } finally {
     refresh.disabled = false;
+    setDiagnosticActivity("inventory:gpu", false);
   }
 }
 
@@ -2376,6 +2397,7 @@ function renderGpuTestSession(session) {
   if (!session) { gpuTestSessionSnapshot = null; return; }
   gpuTestSessionSnapshot = session;
   const active = ["running", "cancelling"].includes(session.lifecycle);
+  setDiagnosticActivity("session:gpu", active);
   const start = document.getElementById("gpu-test-start");
   const cancel = document.getElementById("gpu-test-cancel");
   const profile = document.getElementById("gpu-test-profile");
@@ -2486,7 +2508,8 @@ async function startGpuTestFromUi() {
   const start = document.getElementById("gpu-test-start");
   const result = document.getElementById("gpu-test-result");
   start.disabled = true;
-  result.textContent = "Validando sensores e solicitando início do teste…";
+  setDiagnosticActivity("starting:gpu", true);
+  result.textContent = "Preparando o teste de GPU e validando sensores…";
   try {
     const session = await Qboa.startGpuTest(profile);
     renderGpuTestSession(session);
@@ -2494,6 +2517,8 @@ async function startGpuTestFromUi() {
   } catch (error) {
     result.textContent = String(error);
     start.disabled = !gpuInventorySnapshot?.sensor_available;
+  } finally {
+    setDiagnosticActivity("starting:gpu", false);
   }
 }
 
@@ -2805,6 +2830,7 @@ async function loadMemoryInventory() {
   const refresh = document.getElementById("memory-inventory-refresh");
   if (!summary || !modulesList || !note) return;
   refresh.disabled = true;
+  setDiagnosticActivity("inventory:memory", true);
   summary.textContent = "Consultando módulos, slots e memória disponível…";
   modulesList.replaceChildren();
   try {
@@ -2888,6 +2914,7 @@ async function loadMemoryInventory() {
     document.getElementById("memory-test-custom-budget").disabled = true;
   } finally {
     refresh.disabled = false;
+    setDiagnosticActivity("inventory:memory", false);
   }
 }
 
@@ -2943,6 +2970,7 @@ function renderMemoryTestSession(session) {
   }
   memoryTestSessionSnapshot = session;
   const active = ["running", "cancelling"].includes(session.lifecycle);
+  setDiagnosticActivity("session:memory", active);
   const profile = document.getElementById("memory-test-profile");
   if (session.profile && ["fast", "standard", "extended", "custom"].includes(session.profile)) {
     profile.value = session.profile;
@@ -3035,7 +3063,8 @@ async function startMemoryTestFromUi() {
   const result = document.getElementById("memory-test-result");
   const start = document.getElementById("memory-test-start");
   start.disabled = true;
-  result.textContent = "Solicitando início da sessão…";
+  setDiagnosticActivity("starting:memory", true);
+  result.textContent = "Preparando a sessão de teste de RAM…";
   try {
     const session = await Qboa.startMemoryTest(profile, memoryBudgetBytes);
     renderMemoryTestSession(session);
@@ -3043,6 +3072,8 @@ async function startMemoryTestFromUi() {
   } catch (error) {
     result.textContent = String(error);
     start.disabled = false;
+  } finally {
+    setDiagnosticActivity("starting:memory", false);
   }
 }
 
@@ -3210,6 +3241,7 @@ async function runCompleteDiagnostic() {
   const results = [];
   const issues = [];
   completeDiagnosticRunning = true;
+  setDiagnosticActivity("complete:diagnostic", true);
   completeDiagnosticCancelRequested = false;
   completeDiagnosticCancelSent = false;
   completeDiagnosticCurrentSession = null;
@@ -3479,6 +3511,7 @@ async function runCompleteDiagnostic() {
     summaryPanel.textContent = "A execução foi interrompida. Os laudos individuais já gravados continuam preservados.";
   } finally {
     completeDiagnosticRunning = false;
+    setDiagnosticActivity("complete:diagnostic", false);
     completeDiagnosticCurrentSession = null;
     runButton.hidden = false;
     runButton.disabled = false;
@@ -3501,7 +3534,9 @@ async function runDiagnostic(mode, target = null) {
   document.getElementById("diagnostic-results").replaceChildren();
   const runButton = document.getElementById("diagnostic-run-selected");
   runButton.disabled = true;
-  status.textContent = "Verificando...";
+  const activityReason = "run:" + mode + ":" + (target || "all");
+  setDiagnosticActivity(activityReason, true);
+  status.textContent = "Preparando a consulta…";
   try {
     if (target === "armazenamento") {
       const selectedIds = selectedStorageDiskIds();
@@ -3550,6 +3585,7 @@ async function runDiagnostic(mode, target = null) {
   } catch (error) {
     status.textContent = String(error);
   } finally {
+    setDiagnosticActivity(activityReason, false);
     const list = document.getElementById("storage-disk-list");
     runButton.disabled = target === "armazenamento"
       ? !list || selectedStorageDiskIds().length === 0
