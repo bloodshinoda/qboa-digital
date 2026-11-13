@@ -383,6 +383,32 @@ mod tests {
     }
 
     #[test]
+    fn envelope_de_evento_preserva_identidade_e_formato_consumido_pelo_frontend() {
+        let envelope = CleanupEventEnvelope {
+            event: serde_json::to_string(&CleanupEventKind::TaskProgress)
+                .unwrap()
+                .trim_matches('"')
+                .to_string(),
+            task_id: "limpeza_media".to_string(),
+            execution_id: "exec-caracterizacao-01".to_string(),
+            message: "Etapa em andamento".to_string(),
+            ok: true,
+            progress: Some(r#"{"current":2,"total":4,"percent":35}"#.to_string()),
+            risk: "moderate".to_string(),
+        };
+
+        let json = serde_json::to_value(envelope).unwrap();
+        assert_eq!(json["event"], "task-progress");
+        assert_eq!(json["task_id"], "limpeza_media");
+        assert_eq!(json["execution_id"], "exec-caracterizacao-01");
+        assert_eq!(json["message"], "Etapa em andamento");
+        assert_eq!(json["ok"], true);
+        assert_eq!(json["progress"], r#"{"current":2,"total":4,"percent":35}"#);
+        assert_eq!(json["risk"], "moderate");
+        assert_eq!(json.as_object().unwrap().len(), 7);
+    }
+
+    #[test]
     fn resultado_final_exige_contagem_de_etapas_coerente() {
         let result = CleanupOperationResult {
             execution: CleanupExecutionRef {
