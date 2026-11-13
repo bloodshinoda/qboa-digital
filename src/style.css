@@ -139,7 +139,7 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.8fr);
   gap: 18px;
-  padding: 20px 24px 0;
+  padding: 20px 24px 20px;
   background: var(--qboa-panel-strong);
   overflow: auto;
 }
