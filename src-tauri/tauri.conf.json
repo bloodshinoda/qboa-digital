@@ -62,7 +62,8 @@
       "nsis": {
         "languages": [
           "PortugueseBR"
-        ]
+        ],
+        "installMode": "perMachine"
       }
     }
   }
