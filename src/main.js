@@ -2059,7 +2059,7 @@ function renderStorageReport(report, append = false) {
     issueSection.appendChild(issueList);
   }
 
-  if (append) {
+  if (append && list.querySelector(".storage-report-entry")) {
     const separator = document.createElement("li");
     separator.className = "storage-report-separator";
     separator.textContent = "Próxima unidade";
@@ -2732,7 +2732,7 @@ function normalizeStorageDisk(entry) {
     model: disk.model || disk.Model || "Disco",
     volume: volume || (driveLetter ? String(driveLetter).toUpperCase() + ":\\" : ""),
     capacity_bytes: disk.capacity_bytes ?? disk.CapacityBytes ?? disk.size_bytes ?? disk.Size,
-    volume_capacity_bytes: disk.volume_capacity_bytes ?? disk.VolumeCapacityBytes ?? disk.volume_size_bytes ?? disk.Size,
+    volume_capacity_bytes: disk.volume_capacity_bytes ?? disk.VolumeCapacityBytes ?? disk.volume_size_bytes,
     free_bytes: disk.free_bytes ?? disk.FreeBytes ?? disk.SizeRemaining,
     class: diskClass,
     bus_type: bus || "Barramento desconhecido"
