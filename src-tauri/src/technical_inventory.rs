@@ -99,6 +99,7 @@ pub struct InventoryIssue {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
 pub struct CategoryCollection<T> {
     pub state: InventoryValueState,
     pub started_at: String,
@@ -868,18 +869,18 @@ mod tests {
     }
 
     fn sample(status: InventoryRunStatus) -> TechnicalInventory {
-        let mut system = category();
-        let mut firmware = category();
-        let mut cpu = category();
-        let mut memory = category();
-        let mut gpu = category();
-        let mut storage = category();
-        let mut displays = category();
-        let mut network = category();
-        let mut audio_peripherals = category();
-        let mut power = category();
-        let mut software = category();
-        let mut drivers = category();
+        let mut system: CategoryCollection<SystemCategory> = category();
+        let mut firmware: CategoryCollection<FirmwareCategory> = category();
+        let mut cpu: CategoryCollection<CpuCategory> = category();
+        let mut memory: CategoryCollection<MemoryCategory> = category();
+        let mut gpu: CategoryCollection<GpuCategory> = category();
+        let mut storage: CategoryCollection<StorageCategory> = category();
+        let mut displays: CategoryCollection<DisplayCategory> = category();
+        let mut network: CategoryCollection<NetworkCategory> = category();
+        let mut audio_peripherals: CategoryCollection<AudioPeripheralCategory> = category();
+        let mut power: CategoryCollection<PowerCategory> = category();
+        let mut software: CategoryCollection<SoftwareCategory> = category();
+        let mut drivers: CategoryCollection<DriverCategory> = category();
 
         if status == InventoryRunStatus::Completed {
             system.state = InventoryValueState::Available;
