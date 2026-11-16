@@ -2793,7 +2793,8 @@ fn list_storage_disks() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json::Value, String> {
+async fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     let _start_guard = operation_start_gate()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2839,6 +2840,10 @@ fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json:
         .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
     storage_diagnostic::persist_report(&app_data_dir, &mut result, started_at)?;
     Ok(result)
+
+    })
+    .await
+    .map_err(|error| format!("A tarefa de armazenamento foi interrompida: {error}"))?
 }
 
 #[tauri::command]
