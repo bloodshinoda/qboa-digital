@@ -42,6 +42,7 @@ let cpuTestSamples = [];
 let activeStorageBenchmark = null;
 let lastStorageActivityLogAt = 0;
 let gpuTestSessionSnapshot = null;
+let gpuTestSamples = [];
 let gpuInventorySnapshot = null;
 const diagnosticActivityTargets = new Map();
 
@@ -2524,6 +2525,75 @@ function renderCpuChart(samples) {
     samples.length + " amostra(s) · " + Math.floor(durationSeconds / 60) + "m " + (durationSeconds % 60) + "s";
 }
 
+function renderGpuChart(samples) {
+  const canvas = document.getElementById("gpu-test-chart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const width = Math.max(280, canvas.clientWidth || 720);
+  const height = 190;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  const left = 42, right = width - 12, top = 12, bottom = height - 26;
+  const plotHeight = bottom - top;
+  ctx.font = "11px sans-serif";
+  ctx.lineWidth = 1;
+  for (let tick = 0; tick <= 100; tick += 25) {
+    const y = bottom - (tick / 100) * plotHeight;
+    ctx.strokeStyle = "rgba(255,255,255,.13)";
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,.68)";
+    ctx.textAlign = "right";
+    ctx.fillText(String(tick), left - 7, y + 4);
+  }
+  if (!samples?.length) {
+    ctx.fillStyle = "rgba(255,255,255,.65)";
+    ctx.textAlign = "center";
+    ctx.fillText("As amostras aparecerão durante o teste.", width / 2, height / 2);
+    document.getElementById("gpu-test-chart-range").textContent = "Sem amostras";
+    return;
+  }
+  const drawSeries = (field, color) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let drawing = false;
+    samples.forEach((sample, index) => {
+      const value = Number(sample[field]);
+      if (!Number.isFinite(value)) { drawing = false; return; }
+      const x = samples.length === 1 ? left : left + (index / (samples.length - 1)) * (right - left);
+      const y = bottom - (Math.max(0, Math.min(100, value)) / 100) * plotHeight;
+      if (!drawing) { ctx.moveTo(x, y); drawing = true; } else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  drawSeries("temperature_c", "#fbbf24");
+  drawSeries("utilization_percent", "#60a5fa");
+  const durationSeconds = Math.round(Number(samples[samples.length - 1]?.elapsed_ms || 0) / 1000);
+  document.getElementById("gpu-test-chart-range").textContent =
+    samples.length + " amostra(s) · " + Math.floor(durationSeconds / 60) + "m " + (durationSeconds % 60) + "s";
+}
+
+function updateGpuLiveMetrics(samples, session = {}) {
+  const valid = Array.isArray(samples) ? samples : [];
+  const latest = valid[valid.length - 1] || {};
+  const temperatures = valid.map((item) => Number(item.temperature_c)).filter(Number.isFinite);
+  const usages = valid.map((item) => Number(item.utilization_percent)).filter(Number.isFinite);
+  const maxOf = (items) => items.length ? Math.max(...items) : null;
+  const source = latest.temperature_source === 'cpu' ? 'CPU · referência térmica' : 'GPU';
+  document.getElementById('gpu-test-temperature').textContent = latest.temperature_c == null ? '—' : Number(latest.temperature_c).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' °C';
+  document.getElementById('gpu-test-temperature-max').textContent = 'Máxima: ' + (maxOf(temperatures) == null ? '—' : maxOf(temperatures).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' °C');
+  document.getElementById('gpu-test-temperature-source').textContent = 'Sensor: ' + (latest.temperature_c == null ? 'indisponível' : source);
+  document.getElementById('gpu-test-utilization').textContent = latest.utilization_percent == null ? '—' : Number(latest.utilization_percent).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%';
+  document.getElementById('gpu-test-utilization-max').textContent = 'Pico: ' + (maxOf(usages) == null ? '—' : maxOf(usages).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%');
+  document.getElementById('gpu-test-dispatches').textContent = Number(session.dispatches || 0).toLocaleString('pt-BR');
+  document.getElementById('gpu-test-validation-errors').textContent = Number(session.validation_errors || 0).toLocaleString('pt-BR');
+  const legend = document.getElementById('gpu-test-chart-temperature-legend');
+  if (legend) legend.textContent = latest.temperature_source === 'cpu' ? 'CPU · referência térmica (°C)' : 'Temperatura da GPU (°C)';
+}
 function updateCpuLiveMetrics(samples) {
   const valid = Array.isArray(samples) ? samples : [];
   const latest = valid[valid.length - 1] || {};
@@ -2755,6 +2825,13 @@ async function loadGpuInventory() {
 function renderGpuTestSession(session) {
   if (!session) { gpuTestSessionSnapshot = null; return; }
   gpuTestSessionSnapshot = session;
+  if (session.report?.samples) gpuTestSamples = session.report.samples.slice();
+  else if (session.latest_sample) {
+    const last = gpuTestSamples[gpuTestSamples.length - 1];
+    if (!last || Number(session.latest_sample.elapsed_ms) > Number(last.elapsed_ms)) gpuTestSamples.push(session.latest_sample);
+  }
+  renderGpuChart(gpuTestSamples);
+  updateGpuLiveMetrics(gpuTestSamples, session);
   const active = ["running", "cancelling"].includes(session.lifecycle);
   setDiagnosticActivity("session:gpu", active);
   const start = document.getElementById("gpu-test-start");
@@ -2872,6 +2949,9 @@ async function startGpuTestFromUi() {
   start.disabled = true;
   setDiagnosticActivity("starting:gpu", true);
   result.textContent = "Preparando o teste de GPU e validando sensores…";
+  gpuTestSamples = [];
+  renderGpuChart(gpuTestSamples);
+  updateGpuLiveMetrics(gpuTestSamples);
   try {
     const session = await Qboa.startGpuTest(profile);
     renderGpuTestSession(session);
