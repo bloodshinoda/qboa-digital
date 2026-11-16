@@ -25,7 +25,7 @@ mod windows_update;
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::io::{BufReader, Read};
+use std::io::{BufRead, BufReader, Read};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -2556,7 +2556,11 @@ async fn get_diagnostic_reports(
 }
 
 #[cfg(target_os = "windows")]
-fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_json::Value, String> {
+fn execute_storage_script(
+    mode: &str,
+    disk_id: Option<&str>,
+    app: Option<&AppHandle>,
+) -> Result<serde_json::Value, String> {
     if !matches!(mode, "list" | "test") {
         return Err("Modo de teste de armazenamento inválido.".into());
     }
@@ -2578,7 +2582,7 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
         std::process::id()
     ));
     let mut created_script = false;
-    let execution = (|| -> Result<std::process::Output, String> {
+    let execution = (|| -> Result<(std::process::ExitStatus, String, String), String> {
         let mut script_file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -2608,20 +2612,88 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
                 "-File",
             ])
             .arg(&script_path)
-            .output()
-            .map_err(|error| {
-                format!("Não foi possível iniciar o coletor de armazenamento: {error}")
-            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("Não foi possível iniciar o coletor de armazenamento: {error}"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Não foi possível acompanhar a saída do coletor de armazenamento.".to_string())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "Não foi possível acompanhar os erros do coletor de armazenamento.".to_string())?;
+        let stderr_reader = std::thread::spawn(move || {
+            let mut content = String::new();
+            let mut reader = BufReader::new(stderr);
+            let _ = reader.read_to_string(&mut content);
+            content
+        });
+
+        let mut stdout_reader = BufReader::new(stdout);
+        let mut stdout_content = String::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let bytes_read = stdout_reader
+                .read_line(&mut line)
+                .map_err(|error| format!("Falha ao ler a saída do coletor de armazenamento: {error}"))?;
+            if bytes_read == 0 {
+                break;
+            }
+            if let Some(sample) = line.trim_end_matches(['\\r', '\\n']).strip_prefix("QBOA_PROGRESS|") {
+                if let Some(app) = app {
+                    let fields: Vec<&str> = sample.split('|').collect();
+                    if fields.len() == 6 {
+                        let parsed = (
+                            fields[1].parse::<u64>(),
+                            fields[2].parse::<u64>(),
+                            fields[3].parse::<u64>(),
+                            fields[4].parse::<f64>(),
+                            fields[5].parse::<f64>(),
+                        );
+                        if let (Ok(elapsed_ms), Ok(bytes_transferred), Ok(operations), Ok(mb_per_second), Ok(iops)) = parsed {
+                            if mb_per_second.is_finite() && iops.is_finite() {
+                                let _ = app.emit(
+                                    "qboa-storage-benchmark-progress",
+                                    serde_json::json!({
+                                        "disk_id": disk_id,
+                                        "kind": fields[0],
+                                        "elapsed_ms": elapsed_ms,
+                                        "bytes_transferred": bytes_transferred,
+                                        "operations": operations,
+                                        "mb_per_second": mb_per_second,
+                                        "iops": iops
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                }
+            } else {
+                stdout_content.push_str(&line);
+            }
+        }
+        let status = child
+            .wait()
+            .map_err(|error| format!("Não foi possível aguardar o coletor de armazenamento: {error}"))?;
+        let stderr_content = stderr_reader
+            .join()
+            .unwrap_or_else(|_| "Falha ao recuperar a saída de erro do coletor.".to_string());
+        Ok((status, stdout_content, stderr_content))
     })();
     if created_script {
         std::fs::remove_file(&script_path).map_err(|error| {
             format!("Não foi possível remover o script temporário de armazenamento: {error}")
         })?;
     }
-    let output = execution?;
-    if !output.status.success() {
-        let stderr = decode_process_output(&output.stderr);
-        let stdout = decode_process_output(&output.stdout);
+    let (status, stdout, stderr) = execution?;
+    if !status.success() {
+        let stderr = decode_process_output(stderr.as_bytes());
+        let stdout = decode_process_output(stdout.as_bytes());
         let details = if !stderr.trim().is_empty() {
             stderr
         } else {
@@ -2632,12 +2704,16 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
             details.trim()
         ));
     }
-    serde_json::from_slice::<serde_json::Value>(&output.stdout)
+    serde_json::from_str::<serde_json::Value>(&stdout)
         .map_err(|error| format!("O coletor de armazenamento retornou JSON inválido: {error}"))
 }
 
 #[cfg(not(target_os = "windows"))]
-fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_json::Value, String> {
+fn execute_storage_script(
+    mode: &str,
+    disk_id: Option<&str>,
+    _app: Option<&AppHandle>,
+) -> Result<serde_json::Value, String> {
     use serde_json::json;
 
     if mode == "list" {
@@ -2705,7 +2781,7 @@ fn execute_storage_script(mode: &str, disk_id: Option<&str>) -> Result<serde_jso
 
 #[tauri::command]
 fn list_storage_disks() -> Result<serde_json::Value, String> {
-    execute_storage_script("list", None)
+    execute_storage_script("list", None, None)
 }
 
 #[tauri::command]
@@ -2732,7 +2808,7 @@ fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json:
         );
     }
     let started_at = storage_diagnostic::timestamp_now();
-    let mut result = execute_storage_script("test", Some(&disk_id))?;
+    let mut result = execute_storage_script("test", Some(&disk_id), Some(&app))?;
     let mut report: storage_diagnostic::StorageReport = serde_json::from_value(result.clone())
         .map_err(|error| format!("Relatório de armazenamento incompleto: {error}"))?;
     storage_diagnostic::evaluate(&mut report);
