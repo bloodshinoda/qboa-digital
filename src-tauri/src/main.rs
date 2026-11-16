@@ -2793,7 +2793,10 @@ fn list_storage_disks() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn run_storage_diagnostic(app: AppHandle, disk_id: String) -> Result<serde_json::Value, String> {
+async fn run_storage_diagnostic(
+    app: AppHandle,
+    disk_id: String,
+) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
     let _start_guard = operation_start_gate()
         .lock()
