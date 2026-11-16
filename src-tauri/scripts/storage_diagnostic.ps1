@@ -41,6 +41,12 @@ public static class QboaStorageBench {
 
     public static QboaBenchResult Run(string path, long fileBytes, int blockBytes, int queueDepth,
         bool write, bool randomAccess, long maxBytes, int maxMilliseconds) {
+        return Run(path, fileBytes, blockBytes, queueDepth, write, randomAccess, maxBytes, maxMilliseconds, null);
+    }
+
+    public static QboaBenchResult Run(string path, long fileBytes, int blockBytes, int queueDepth,
+        bool write, bool randomAccess, long maxBytes, int maxMilliseconds,
+        Action<long, long, long, double, double> progress) {
         if (blockBytes <= 0 || blockBytes % 4096 != 0 || fileBytes < blockBytes ||
             fileBytes % 4096 != 0 || queueDepth < 1 || queueDepth > 32 ||
             maxBytes < blockBytes || maxMilliseconds < 1)
@@ -132,7 +138,45 @@ public static class QboaStorageBench {
         ready.Wait();
         stopwatch.Start();
         startGate.Set();
+        long previousBytes = 0;
+        long previousOperations = 0;
+        long previousTicks = Stopwatch.GetTimestamp();
+        while (true) {
+            bool anyAlive = false;
+            foreach (Thread worker in workers) {
+                if (worker.IsAlive) { anyAlive = true; break; }
+            }
+            if (!anyAlive) break;
+            Thread.Sleep(150);
+            long currentBytes = Interlocked.Read(ref completedBytes);
+            long currentOperations = Interlocked.Read(ref operations);
+            long currentTicks = Stopwatch.GetTimestamp();
+            double intervalSeconds = (currentTicks - previousTicks) / (double)Stopwatch.Frequency;
+            if (progress != null && intervalSeconds > 0 &&
+                (currentBytes > previousBytes || currentOperations > previousOperations)) {
+                try {
+                    progress(stopwatch.ElapsedMilliseconds, currentBytes, currentOperations,
+                        (currentBytes - previousBytes) / 1048576.0 / intervalSeconds,
+                        (currentOperations - previousOperations) / intervalSeconds);
+                } catch { progress = null; }
+            }
+            previousBytes = currentBytes;
+            previousOperations = currentOperations;
+            previousTicks = currentTicks;
+        }
         foreach (Thread worker in workers) worker.Join();
+        long finalBytes = Interlocked.Read(ref completedBytes);
+        long finalOperations = Interlocked.Read(ref operations);
+        long finalTicks = Stopwatch.GetTimestamp();
+        double finalIntervalSeconds = (finalTicks - previousTicks) / (double)Stopwatch.Frequency;
+        if (progress != null && finalIntervalSeconds > 0 &&
+            (finalBytes > previousBytes || finalOperations > previousOperations)) {
+            try {
+                progress(stopwatch.ElapsedMilliseconds, finalBytes, finalOperations,
+                    (finalBytes - previousBytes) / 1048576.0 / finalIntervalSeconds,
+                    (finalOperations - previousOperations) / finalIntervalSeconds);
+            } catch { }
+        }
         stopwatch.Stop();
         ready.Dispose();
         startGate.Dispose();
@@ -571,14 +615,48 @@ if ($spaceAvailable) {
                 $result = [QboaStorageBench]::Run($testPath, $testFileBytes, [int]$spec.block,
                     [int]$spec.queue, [bool]$spec.write, [bool]$spec.random,
                     $maxBytesPerMeasurement, $timeLimitMs)
+                $samples = New-Object 'System.Collections.Generic.List[object]'
+                $kind = [string]$spec.kind
+                $progressScript = {
+                    param($elapsedMs, $totalBytes, $totalOperations, $mbPerSecond, $iops)
+                    $samples.Add([pscustomobject]@{
+                        elapsed_ms = [long]$elapsedMs
+                        bytes_transferred = [long]$totalBytes
+                        operations = [long]$totalOperations
+                        mb_per_second = [Math]::Round([double]$mbPerSecond, 2)
+                        iops = [Math]::Round([double]$iops, 2)
+                    })
+                    $line = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+                        'QBOA_PROGRESS|{0}|{1}|{2}|{3}|{4:R}|{5:R}',
+                        $kind, $elapsedMs, $totalBytes, $totalOperations, $mbPerSecond, $iops)
+                    [Console]::Out.WriteLine($line)
+                }.GetNewClosure()
+                $progressCallback = [System.Action[long,long,long,double,double]]$progressScript
+                $result = [QboaStorageBench]::Run($testPath, $testFileBytes, [int]$spec.block,
+                    [int]$spec.queue, [bool]$spec.write, [bool]$spec.random,
+                    $maxBytesPerMeasurement, $timeLimitMs, $progressCallback)
                 $seconds = [double]$result.DurationMs / 1000.0
                 if ($seconds -le 0) { throw 'Duração da medição inválida.' }
-                if ($spec.unit -eq 'MB/s') { $value = [Math]::Round(([double]$result.Bytes / 1048576.0 / $seconds), 2) }
-                else { $value = [Math]::Round(([double]$result.Operations / $seconds), 2) }
+                $mbPerSecond = [Math]::Round(([double]$result.Bytes / 1048576.0 / $seconds), 2)
+                $iops = [Math]::Round(([double]$result.Operations / $seconds), 2)
+                if ($spec.unit -eq 'MB/s') {
+                    $value = $mbPerSecond
+                    $secondaryValue = $iops
+                    $secondaryUnit = 'IOPS'
+                } else {
+                    $value = $iops
+                    $secondaryValue = $mbPerSecond
+                    $secondaryUnit = 'MB/s'
+                }
                 $measurements += [pscustomobject]@{
                     kind = $spec.kind
                     value = $value
                     unit = $spec.unit
+                    secondary_value = $secondaryValue
+                    secondary_unit = $secondaryUnit
+                    mb_per_second = $mbPerSecond
+                    iops = $iops
+                    samples = @($samples)
                     bytes_transferred = [long]$result.Bytes
                     duration_ms = [Math]::Round($result.DurationMs, 2)
                     queue_depth = [int]$spec.queue
