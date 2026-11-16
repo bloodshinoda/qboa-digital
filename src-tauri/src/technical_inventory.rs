@@ -9,11 +9,11 @@ use std::net::IpAddr;
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InventoryValueState { Available, NotDetected, NotApplicable, Unavailable, Error }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InventoryConfidence { Confirmed, Identified, Estimated, Unavailable }
 
@@ -92,7 +92,7 @@ pub struct CategoryCollection<T> {
     pub warnings: Vec<String>,
 }
 
-impl<T> CategoryCollection<T> {
+impl<T: Serialize> CategoryCollection<T> {
     pub fn validate(&self) -> Result<(), String> {
         if self.started_at.trim().is_empty() || self.finished_at.trim().is_empty() {
             return Err("timestamps da categoria não podem ser vazios".into());
@@ -107,11 +107,46 @@ impl<T> CategoryCollection<T> {
                 return Err("categoria error exige ao menos um issue".into()),
             _ => {}
         }
+        if let Some(data) = &self.data {
+            let value = serde_json::to_value(data).map_err(|e| format!("falha ao validar dados da categoria: {e}"))?;
+            validate_observed_tree(&value)?;
+        }
         Ok(())
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+fn validate_observed_tree(value: &serde_json::Value) -> Result<(), String> {
+    match value {
+        serde_json::Value::Object(map) => {
+            if map.contains_key("state") && map.contains_key("confidence") && map.contains_key("collected_at") && map.contains_key("value") {
+                let state = map.get("state").and_then(|v| v.as_str()).unwrap_or("");
+                let confidence = map.get("confidence").and_then(|v| v.as_str()).unwrap_or("");
+                let has_value = !map.get("value").unwrap_or(&serde_json::Value::Null).is_null();
+                if (state == "available") != has_value {
+                    return Err(format!("Observed inconsistente: state={state} e presença de value incompatíveis"));
+                }
+                if state == "unavailable" && confidence != "unavailable" {
+                    return Err("Observed unavailable exige confidence unavailable".into());
+                }
+                if confidence == "unavailable" && state != "unavailable" {
+                    return Err("Observed confidence unavailable exige state unavailable".into());
+                }
+                if confidence == "estimated" && map.get("note").and_then(|v| v.as_str()).unwrap_or("").trim().is_empty() {
+                    return Err("Observed estimated exige note".into());
+                }
+                if map.get("collected_at").and_then(|v| v.as_str()).unwrap_or("").trim().is_empty() {
+                    return Err("Observed collected_at não pode ser vazio".into());
+                }
+            }
+            for child in map.values() { validate_observed_tree(child)?; }
+        }
+        serde_json::Value::Array(items) => for child in items { validate_observed_tree(child)?; },
+        _ => {}
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InventoryRunStatus { Completed, Partial, Failed }
 
@@ -203,7 +238,7 @@ impl TechnicalInventory {
             &self.categories.software.state, &self.categories.drivers.state,
         ];
         let failed = states.iter().any(|s| **s == InventoryValueState::Error);
-        let processed = states.iter().any(|s| matches!(s,
+        let processed = states.iter().any(|s| matches!(**s,
             InventoryValueState::Available | InventoryValueState::NotDetected
             | InventoryValueState::NotApplicable | InventoryValueState::Unavailable));
         match self.collection_status {
