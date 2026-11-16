@@ -39,6 +39,7 @@ let memoryInventorySnapshot = null;
 let cpuTestSessionSnapshot = null;
 let cpuInventorySnapshot = null;
 let cpuTestSamples = [];
+let activeStorageBenchmark = null;
 let gpuTestSessionSnapshot = null;
 let gpuInventorySnapshot = null;
 const diagnosticActivityTargets = new Map();
@@ -1809,6 +1810,142 @@ function renderDiagnosticReport(report, target = null) {
   }
 }
 
+
+function storageMeasurementLabel(kind) {
+  const labels = {
+    seq_small_write: "Gravação sequencial · 128 KiB · fila 1",
+    seq_small_read: "Leitura sequencial · 128 KiB · fila 1",
+    seq_large_write: "Gravação sequencial · 1 MiB · fila 8",
+    seq_large_read: "Leitura sequencial · 1 MiB · fila 8",
+    random_small_write: "Gravação aleatória · 4 KiB · fila 1",
+    random_small_read: "Leitura aleatória · 4 KiB · fila 1",
+    random_large_write: "Gravação aleatória · 4 KiB · fila 32",
+    random_large_read: "Leitura aleatória · 4 KiB · fila 32"
+  };
+  return labels[kind] || "Medição de armazenamento";
+}
+
+function renderStorageBenchmarkProgress(payload) {
+  if (!payload || !payload.kind) return;
+  const list = document.getElementById("diagnostic-results");
+  const random = String(payload.kind).startsWith("random_");
+  const primaryKey = random ? "iops" : "mb_per_second";
+  const primaryUnit = random ? "IOPS" : "MB/s";
+  const secondaryKey = random ? "mb_per_second" : "iops";
+  const secondaryUnit = random ? "MB/s" : "IOPS";
+  const identity = String(payload.disk_id || "") + ":" + payload.kind;
+
+  if (!activeStorageBenchmark || activeStorageBenchmark.identity !== identity) {
+    const entry = document.createElement("li");
+    entry.className = "storage-live-benchmark";
+    const heading = document.createElement("div");
+    heading.className = "storage-live-heading";
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = "Benchmark em tempo real";
+    const subtitle = document.createElement("span");
+    subtitle.textContent = (payload.disk_id || "Unidade") + " · " + storageMeasurementLabel(payload.kind);
+    copy.append(title, subtitle);
+    const status = document.createElement("span");
+    status.className = "storage-live-status";
+    status.textContent = "Medindo";
+    heading.append(copy, status);
+
+    const metrics = document.createElement("div");
+    metrics.className = "storage-live-metrics";
+    const primary = document.createElement("div");
+    primary.className = "storage-live-primary";
+    const primaryLabel = document.createElement("span");
+    primaryLabel.textContent = "Velocidade atual · " + primaryUnit;
+    const primaryValue = document.createElement("strong");
+    primaryValue.textContent = "—";
+    primary.append(primaryLabel, primaryValue);
+    const secondary = document.createElement("div");
+    secondary.className = "storage-live-secondary";
+    const secondaryLabel = document.createElement("span");
+    secondaryLabel.textContent = "Métrica complementar · " + secondaryUnit;
+    const secondaryValue = document.createElement("strong");
+    secondaryValue.textContent = "—";
+    secondary.append(secondaryLabel, secondaryValue);
+    metrics.append(primary, secondary);
+
+    const chart = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    chart.setAttribute("viewBox", "0 0 560 140");
+    chart.setAttribute("preserveAspectRatio", "none");
+    chart.setAttribute("role", "img");
+    chart.setAttribute("aria-label", "Variação da velocidade durante a medição");
+    for (let index = 1; index <= 3; index++) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      const y = index * 35;
+      line.setAttribute("x1", "0");
+      line.setAttribute("x2", "560");
+      line.setAttribute("y1", String(y));
+      line.setAttribute("y2", String(y));
+      line.setAttribute("class", "storage-live-gridline");
+      chart.appendChild(line);
+    }
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("class", "storage-live-line");
+    chart.appendChild(path);
+    const footer = document.createElement("div");
+    footer.className = "storage-live-footer";
+    const elapsed = document.createElement("span");
+    const transferred = document.createElement("span");
+    footer.append(elapsed, transferred);
+    entry.append(heading, metrics, chart, footer);
+    list.appendChild(entry);
+    activeStorageBenchmark = {
+      identity, entry, path, primaryValue, secondaryValue, elapsed, transferred,
+      samples: [], primaryKey
+    };
+  }
+
+  const state = activeStorageBenchmark;
+  const sample = {
+    elapsed_ms: Number(payload.elapsed_ms) || 0,
+    bytes_transferred: Number(payload.bytes_transferred) || 0,
+    operations: Number(payload.operations) || 0,
+    mb_per_second: Number(payload.mb_per_second) || 0,
+    iops: Number(payload.iops) || 0
+  };
+  state.samples.push(sample);
+  if (state.samples.length > 80) state.samples.shift();
+  const format = (value) => Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+  state.primaryValue.textContent = format(sample[primaryKey]) + " " + primaryUnit;
+  state.secondaryValue.textContent = format(sample[secondaryKey]) + " " + secondaryUnit;
+  state.elapsed.textContent = (sample.elapsed_ms / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " s";
+  state.transferred.textContent = (sample.bytes_transferred / (1024 ** 2)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) +
+    " MiB transferidos · " + format(sample.operations) + " operações";
+
+  const maximum = Math.max(1, ...state.samples.map((point) => point[primaryKey]));
+  const points = state.samples.map((point, index) => {
+    const x = state.samples.length < 2 ? 0 : index * 560 / (state.samples.length - 1);
+    const y = 126 - (point[primaryKey] / maximum) * 112;
+    return (index === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1);
+  }).join(" ");
+  state.path.setAttribute("d", points);
+  state.path.setAttribute("aria-label", "Última amostra: " + format(sample[primaryKey]) + " " + primaryUnit);
+}
+
+function appendStorageSparkline(card, samples, primaryKey) {
+  if (!Array.isArray(samples) || samples.length < 2) return;
+  const valid = samples.filter((sample) => Number.isFinite(Number(sample?.[primaryKey])));
+  if (valid.length < 2) return;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 240 48");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("class", "storage-measurement-sparkline");
+  const maximum = Math.max(1, ...valid.map((sample) => Number(sample[primaryKey])));
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", valid.map((sample, index) => {
+    const x = index * 240 / (valid.length - 1);
+    const y = 44 - (Number(sample[primaryKey]) / maximum) * 38;
+    return (index === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1);
+  }).join(" "));
+  svg.appendChild(path);
+  card.appendChild(svg);
+}
+
 function renderStorageReport(report, append = false) {
   const list = document.getElementById("diagnostic-results");
   if (!append) list.replaceChildren();
@@ -1931,6 +2068,24 @@ function renderStorageReport(report, append = false) {
       const unit = document.createElement("small");
       unit.textContent = valid ? (measurement.unit || "") : (measurement?.reason || "Medição não retornada.");
       card.append(name, value, unit);
+      if (valid && measurement) {
+        const seconds = Number(measurement.duration_ms) / 1000;
+        const transferred = Number(measurement.bytes_transferred);
+        const blockBytes = Number(measurement.block_size_bytes) || 4096;
+        const mbPerSecond = Number.isFinite(Number(measurement.mb_per_second))
+          ? Number(measurement.mb_per_second)
+          : seconds > 0 && Number.isFinite(transferred) ? transferred / 1048576 / seconds : null;
+        const iops = Number.isFinite(Number(measurement.iops))
+          ? Number(measurement.iops)
+          : seconds > 0 && Number.isFinite(transferred) ? transferred / blockBytes / seconds : null;
+        const secondary = document.createElement("small");
+        secondary.className = "storage-measurement-secondary";
+        secondary.textContent = measurement.unit === "MB/s"
+          ? (iops === null ? "IOPS complementar indisponível" : fmt(iops) + " IOPS")
+          : (mbPerSecond === null ? "MB/s complementar indisponível" : fmt(mbPerSecond) + " MB/s");
+        card.appendChild(secondary);
+        appendStorageSparkline(card, measurement.samples, measurement.unit === "MB/s" ? "mb_per_second" : "iops");
+      }
       if (measurement && measurement.bytes_transferred !== null && measurement.bytes_transferred !== undefined) {
         const detail = document.createElement("small");
         detail.className = "storage-measurement-meta";
@@ -3737,6 +3892,7 @@ async function runDiagnostic(mode, target = null) {
   status.textContent = "Preparando a consulta…";
   try {
     if (target === "armazenamento") {
+      activeStorageBenchmark = null;
       const selectedIds = selectedStorageDiskIds();
       if (!selectedIds.length) throw new Error("Marque uma ou mais unidades antes de iniciar o teste.");
       let completed = 0;
@@ -3921,6 +4077,9 @@ async function registerEvents() {
     listen("qboa-gpu-test-finished", (event) => {
       renderGpuTestSession(event.payload?.session);
       void loadGpuDiagnosticReports();
+    }),
+    listen("qboa-storage-benchmark-progress", (event) => {
+      renderStorageBenchmarkProgress(event.payload);
     })
   ].map((registration) => registration.catch((error) => {
     console.error("Falha ao registrar eventos de diagnóstico:", error);
