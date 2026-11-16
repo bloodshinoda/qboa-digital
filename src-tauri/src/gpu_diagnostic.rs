@@ -971,7 +971,8 @@ impl D3d11Engine {
     }
 
     fn initialize_resources(&mut self) -> Result<(), String> {
-        const THREADS: u32 = 1024;
+        const THREADS: u32 = 4096;
+        const GROUP_COUNT: u32 = THREADS / 64;
         const BYTES: u32 = THREADS * 16;
         let source = b"
 RWStructuredBuffer<uint4> Results : register(u0);
@@ -1136,7 +1137,7 @@ void main(uint3 tid : SV_DispatchThreadID) {
         let batch_size = batch_size.clamp(1, 16);
         for _ in 0..batch_size {
             unsafe {
-                dispatch(self.context, 16, 1, 1);
+                dispatch(self.context, GROUP_COUNT, 1, 1);
             }
         }
         unsafe {
@@ -1157,9 +1158,9 @@ void main(uint3 tid : SV_DispatchThreadID) {
             }
             return Err("A GPU retornou um buffer de leitura vazio.".into());
         }
-        let values = unsafe { std::slice::from_raw_parts(mapped.data as *const u32, 1024 * 4) };
+        let values = unsafe { std::slice::from_raw_parts(mapped.data as *const u32, THREADS as usize * 4) };
         let mut errors = 0u64;
-        for id in 0..1024u32 {
+        for id in 0..THREADS {
             let expected = reference(id);
             let offset = id as usize * 4;
             if values[offset..offset + 4] != expected {
