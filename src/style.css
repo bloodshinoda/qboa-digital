@@ -1084,7 +1084,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .cpu-test-chart-panel { min-width:0; }
 .cpu-test-chart-heading strong { font-size:.93rem; }
 .cpu-test-chart-heading span { color:rgba(255,255,255,.7); font-size:.8rem; }
-#cpu-test-chart { display:block; width:100%; height:190px; }
+#cpu-test-chart,#gpu-test-chart { display:block; width:100%; height:190px; }
 .cpu-test-chart-legend { display:flex; flex-wrap:wrap; gap:16px; font-size:.8rem; }
 .cpu-legend-temperature { color:#fbbf24; }
 .cpu-legend-usage { color:#60a5fa; }
