@@ -659,10 +659,7 @@ fn run_test<R: Runtime>(
                 .as_deref()
                 .filter(|v| !v.trim().is_empty());
             let source = raw.temperature_source.as_deref().unwrap_or("gpu");
-            if temperature.is_none()
-                || sensor.is_none()
-                || source != inventory.temperature_source
-            {
+            if temperature.is_none() || sensor.is_none() || source != inventory.temperature_source {
                 status = "sensor_lost".into();
                 break;
             }
@@ -1138,9 +1135,13 @@ void main(uint3 tid : SV_DispatchThreadID) {
             unsafe { method(self.context, 15) };
         let batch_size = batch_size.clamp(1, 16);
         for _ in 0..batch_size {
-            unsafe { dispatch(self.context, 16, 1, 1); }
+            unsafe {
+                dispatch(self.context, 16, 1, 1);
+            }
         }
-        unsafe { copy(self.context, self.staging, self.output); }
+        unsafe {
+            copy(self.context, self.staging, self.output);
+        }
         let mut mapped = Mapped {
             data: std::ptr::null_mut(),
             row_pitch: 0,
