@@ -2724,7 +2724,10 @@ async function loadGpuInventory() {
       title.textContent = adapter.name || "Adaptador gráfico";
       const meta = document.createElement("small");
       const memory = Number(adapter.memory_bytes || 0);
+      const adapterType = adapter.adapter_type === "integrated" ? "Vídeo integrado" :
+        adapter.adapter_type === "dedicated" ? "Vídeo dedicado" : "Tipo não determinado";
       meta.textContent = [
+        adapterType,
         adapter.driver_version ? "Driver " + adapter.driver_version : "Driver não informado",
         memory > 0 ? formatMemoryBytes(memory) + " reportados pelo Windows" : "Memória dedicada não reportada"
       ].join(" · ");
@@ -2732,8 +2735,8 @@ async function loadGpuInventory() {
       details.appendChild(card);
     });
     sensor.textContent = inventory.sensor_note || (inventory.sensor_available
-      ? "Sensor térmico disponível pelo coletor integrado."
-      : "Sensor térmico indisponível. O teste de carga não será iniciado.");
+      ? "Referência térmica disponível pelo coletor integrado."
+      : "Referência térmica indisponível. O teste de carga não será iniciado.");
     sensor.dataset.available = inventory.sensor_available ? "true" : "false";
     sensor.classList.toggle("available", inventory.sensor_available);
     document.getElementById("gpu-test-start").disabled =
@@ -2777,8 +2780,9 @@ function renderGpuTestSession(session) {
   document.getElementById("gpu-test-progress-label").textContent = active ? elapsed + " / " + target :
     gpuTestStatusLabel(session.report?.execution_status || session.lifecycle);
   const live = session.latest_sample;
+  const liveTemperatureSource = live?.temperature_source === "cpu" ? "CPU · referência térmica" : "GPU";
   const liveTemperature = live?.temperature_c == null ? "temperatura indisponível" :
-    Number(live.temperature_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
+    liveTemperatureSource + " " + Number(live.temperature_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
   const liveLoad = live?.utilization_percent == null ? "utilização indisponível" :
     Number(live.utilization_percent).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + "% de utilização";
   document.getElementById("gpu-test-progress-detail").textContent = active
@@ -2795,8 +2799,9 @@ function renderGpuTestSession(session) {
     summary.textContent = gpuTestStatusLabel(report.execution_status);
     result.replaceChildren(summary);
     const metrics = document.createElement("p");
+    const temperatureSource = report.temperature_source === "cpu" ? "CPU (referência térmica)" : "GPU";
     const temp = report.temperature_max_c == null ? "temperatura máxima indisponível" :
-      "temperatura máxima " + Number(report.temperature_max_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
+      "máxima " + temperatureSource + " " + Number(report.temperature_max_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
     const load = report.utilization_average_percent == null ? "utilização indisponível" :
       "utilização média " + Number(report.utilization_average_percent).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%";
     metrics.textContent = Math.floor(Number(report.duration_ms || 0) / 1000) + " s efetivos · " +
@@ -2835,8 +2840,9 @@ async function loadGpuDiagnosticReports() {
       const date = report.started_at ? new Date(report.started_at).toLocaleString("pt-BR") : "Data não informada";
       heading.textContent = date + " · " + gpuTestStatusLabel(report.execution_status);
       const detail = document.createElement("p");
+      const temperatureSource = report.temperature_source === "cpu" ? "CPU (referência térmica)" : "GPU";
       const temperature = report.temperature_max_c == null ? "temperatura indisponível" :
-        "máxima " + Number(report.temperature_max_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
+        "máxima " + temperatureSource + " " + Number(report.temperature_max_c).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " °C";
       detail.textContent = Number(report.duration_ms || 0) / 1000 + " s · " +
         Number(report.dispatches || 0).toLocaleString("pt-BR") + " lotes · " + temperature +
         " · " + Number(report.validation_errors || 0) + " divergência(s)";
