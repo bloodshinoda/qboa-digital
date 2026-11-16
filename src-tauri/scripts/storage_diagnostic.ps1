@@ -654,6 +654,7 @@ if ($spaceAvailable) {
                         'QBOA_PROGRESS|{0}|{1}|{2}|{3}|{4:R}|{5:R}',
                         $kind, $elapsedMs, $totalBytes, $totalOperations, $mbPerSecond, $iops)
                     [Console]::Out.WriteLine($line)
+                    [Console]::Out.Flush()
                 }.GetNewClosure()
                 $progressCallback = [System.Action[long,long,long,double,double]]$progressScript
                 $result = [QboaStorageBench]::Run($testPath, $testFileBytes, [int]$spec.block,
@@ -680,7 +681,7 @@ if ($spaceAvailable) {
                     secondary_unit = $secondaryUnit
                     mb_per_second = $mbPerSecond
                     iops = $iops
-                    samples = @($samples)
+                    samples = $samples.ToArray()
                     bytes_transferred = [long]$result.Bytes
                     duration_ms = [Math]::Round($result.DurationMs, 2)
                     queue_depth = [int]$spec.queue
