@@ -542,7 +542,10 @@ fn run_test<R: Runtime>(
             .filter(|v| !v.trim().is_empty())
             .ok_or("O coletor não identificou a origem da referência térmica.")?
             .to_string();
-        let source = raw.temperature_source.as_deref().unwrap_or("gpu");
+        let source = raw
+            .temperature_source
+            .clone()
+            .unwrap_or_else(|| "gpu".to_string());
         if source != inventory.temperature_source {
             return Err(
                 "A origem da leitura térmica mudou durante a pré-verificação. O teste não foi iniciado."
@@ -559,7 +562,7 @@ fn run_test<R: Runtime>(
                 "{source_label} já está a {temp:.1} °C antes do teste. Aguarde resfriar abaixo de {THERMAL_STOP_C:.0} °C."
             ));
         }
-        first = Some((raw, temp, sensor, source.to_string()));
+        first = Some((raw, temp, sensor, source));
     }
     let (first_raw, first_temp, first_sensor, first_source) =
         first.ok_or("Pré-verificação térmica da GPU incompleta.")?;
