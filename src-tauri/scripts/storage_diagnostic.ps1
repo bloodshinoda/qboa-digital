@@ -639,9 +639,6 @@ if ($spaceAvailable) {
         $measurements = @()
         foreach ($spec in (Get-MeasurementSpec)) {
             try {
-                $result = [QboaStorageBench]::Run($testPath, $testFileBytes, [int]$spec.block,
-                    [int]$spec.queue, [bool]$spec.write, [bool]$spec.random,
-                    $maxBytesPerMeasurement, $timeLimitMs)
                 $samples = New-Object 'System.Collections.Generic.List[object]'
                 $kind = [string]$spec.kind
                 $progressScript = {
