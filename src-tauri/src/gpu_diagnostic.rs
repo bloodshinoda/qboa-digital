@@ -86,6 +86,7 @@ pub(crate) struct GpuTestReport {
     pub adapter_names: Vec<String>,
     pub driver_versions: Vec<String>,
     pub api: String,
+    #[serde(default)]
     pub temperature_source: String,
     pub profile: GpuTestProfile,
     pub target_duration_seconds: u64,
@@ -500,7 +501,8 @@ fn run_test<R: Runtime>(
             return Err("A origem da leitura térmica mudou durante a pré-verificação. O teste não foi iniciado.".into());
         }
         if temp >= THERMAL_STOP_C {
-            return Err(format!("A GPU já está a {temp:.1} °C antes do teste. Aguarde resfriar abaixo de {THERMAL_STOP_C:.0} °C."));
+            let source_label = if source == "cpu" { "A CPU (referência térmica)" } else { "A GPU" };
+            return Err(format!("{source_label} já está a {temp:.1} °C antes do teste. Aguarde resfriar abaixo de {THERMAL_STOP_C:.0} °C."));
         }
         first = Some((raw, temp, sensor, source.to_string()));
     }
@@ -1271,5 +1273,41 @@ mod tests {
         assert!(valid_temperature(45.0));
         assert!(!valid_percent(101.0));
         assert!(valid_percent(99.0));
+    }
+
+    #[test]
+    fn classifies_common_integrated_and_discrete_adapters() {
+        let adapter = |name: &str, compatibility: &str, pnp: &str| GpuAdapter {
+            name: name.into(),
+            driver_version: None,
+            memory_bytes: None,
+            adapter_compatibility: Some(compatibility.into()),
+            pnp_device_id: Some(pnp.into()),
+            adapter_type: String::new(),
+        };
+        assert_eq!(
+            classify_adapter(&adapter("Intel(R) UHD Graphics 770", "Intel Corporation", "PCI\\VEN_8086")),
+            "integrated"
+        );
+        assert_eq!(
+            classify_adapter(&adapter("Intel(R) Arc(TM) A770", "Intel Corporation", "PCI\\VEN_8086")),
+            "dedicated"
+        );
+        assert_eq!(
+            classify_adapter(&adapter("NVIDIA GeForce RTX 4060", "NVIDIA", "PCI\\VEN_10DE")),
+            "dedicated"
+        );
+        assert_eq!(
+            classify_adapter(&adapter("AMD Radeon(TM) Graphics", "Advanced Micro Devices", "PCI\\VEN_1002")),
+            "integrated"
+        );
+        assert_eq!(
+            classify_adapter(&adapter("AMD Radeon RX 7600", "Advanced Micro Devices", "PCI\\VEN_1002")),
+            "dedicated"
+        );
+        assert_eq!(
+            classify_adapter(&adapter("Adaptador desconhecido", "Fabricante", "PCI\\VEN_FFFF")),
+            "unknown"
+        );
     }
 }
