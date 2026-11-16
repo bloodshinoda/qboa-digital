@@ -1835,7 +1835,7 @@ function renderStorageBenchmarkProgress(payload) {
   const secondaryUnit = random ? "MB/s" : "IOPS";
   const identity = String(payload.disk_id || "") + ":" + payload.kind;
 
-  if (!activeStorageBenchmark || activeStorageBenchmark.identity !== identity) {
+  if (!activeStorageBenchmark) {
     const entry = document.createElement("li");
     entry.className = "storage-live-benchmark";
     const heading = document.createElement("div");
@@ -1895,9 +1895,24 @@ function renderStorageBenchmarkProgress(payload) {
     entry.append(heading, metrics, chart, footer);
     list.appendChild(entry);
     activeStorageBenchmark = {
-      identity, entry, path, primaryValue, secondaryValue, elapsed, transferred,
-      samples: [], primaryKey
+      identity, entry, path, primaryValue, secondaryValue, primaryLabel, secondaryLabel,
+      subtitle, elapsed, transferred, samples: [], primaryKey
     };
+  } else if (activeStorageBenchmark.identity !== identity) {
+    activeStorageBenchmark.identity = identity;
+    activeStorageBenchmark.primaryKey = primaryKey;
+    activeStorageBenchmark.samples = [];
+    activeStorageBenchmark.subtitle.textContent =
+      (payload.disk_id || "Unidade") + " · " + storageMeasurementLabel(payload.kind);
+    activeStorageBenchmark.primaryLabel.textContent = "Velocidade atual · " + primaryUnit;
+    activeStorageBenchmark.secondaryLabel.textContent = "Métrica complementar · " + secondaryUnit;
+    activeStorageBenchmark.primaryValue.textContent = "—";
+    activeStorageBenchmark.secondaryValue.textContent = "—";
+    activeStorageBenchmark.elapsed.textContent = "";
+    activeStorageBenchmark.transferred.textContent = "";
+    activeStorageBenchmark.path.setAttribute("d", "");
+    activeStorageBenchmark.entry.querySelector(".storage-live-status").textContent = "Medindo";
+    list.appendChild(activeStorageBenchmark.entry);
   }
 
   const state = activeStorageBenchmark;
