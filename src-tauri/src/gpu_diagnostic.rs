@@ -921,6 +921,9 @@ fn timestamp_now() -> String {
 }
 
 #[cfg(target_os = "windows")]
+const GPU_THREAD_COUNT: u32 = 4096;
+
+#[cfg(target_os = "windows")]
 struct D3d11Engine {
     device: *mut c_void,
     context: *mut c_void,
@@ -971,8 +974,7 @@ impl D3d11Engine {
     }
 
     fn initialize_resources(&mut self) -> Result<(), String> {
-        const THREADS: u32 = 4096;
-        const GROUP_COUNT: u32 = THREADS / 64;
+        const THREADS: u32 = GPU_THREAD_COUNT;
         const BYTES: u32 = THREADS * 16;
         let source = b"
 RWStructuredBuffer<uint4> Results : register(u0);
@@ -1137,7 +1139,7 @@ void main(uint3 tid : SV_DispatchThreadID) {
         let batch_size = batch_size.clamp(1, 16);
         for _ in 0..batch_size {
             unsafe {
-                dispatch(self.context, GROUP_COUNT, 1, 1);
+                dispatch(self.context, GPU_THREAD_COUNT / 64, 1, 1);
             }
         }
         unsafe {
@@ -1158,9 +1160,9 @@ void main(uint3 tid : SV_DispatchThreadID) {
             }
             return Err("A GPU retornou um buffer de leitura vazio.".into());
         }
-        let values = unsafe { std::slice::from_raw_parts(mapped.data as *const u32, THREADS as usize * 4) };
+        let values = unsafe { std::slice::from_raw_parts(mapped.data as *const u32, GPU_THREAD_COUNT as usize * 4) };
         let mut errors = 0u64;
-        for id in 0..THREADS {
+        for id in 0..GPU_THREAD_COUNT {
             let expected = reference(id);
             let offset = id as usize * 4;
             if values[offset..offset + 4] != expected {
