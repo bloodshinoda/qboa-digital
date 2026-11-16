@@ -2005,6 +2005,11 @@ function renderStorageReport(report, append = false) {
   statusBadge.textContent = status[0];
   header.append(headingCopy, statusBadge);
   entry.appendChild(header);
+  if (activeStorageBenchmark &&
+      activeStorageBenchmark.identity.startsWith(String(report.disk_id || "") + ":")) {
+    const liveStatus = activeStorageBenchmark.entry.querySelector(".storage-live-status");
+    if (liveStatus) liveStatus.textContent = "Medição concluída";
+  }
 
   const deviceFacts = document.createElement("div");
   deviceFacts.className = "storage-device-facts";
