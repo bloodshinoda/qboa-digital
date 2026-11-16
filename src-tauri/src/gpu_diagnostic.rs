@@ -87,7 +87,6 @@ pub(crate) struct GpuTestReport {
     pub driver_versions: Vec<String>,
     pub api: String,
     #[serde(default)]
-    #[serde(default)]
     pub temperature_source: String,
     pub profile: GpuTestProfile,
     pub target_duration_seconds: u64,
