@@ -1417,3 +1417,40 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 @media(prefers-reduced-motion:reduce) {
   .storage-report-entry,.storage-measurement-card { transition:none; }
 }
+
+.storage-live-benchmark {
+  display:grid;
+  gap:12px;
+  margin:0 0 14px;
+  padding:14px;
+  border:1px solid rgba(110,231,160,.3);
+  border-radius:10px;
+  background:linear-gradient(145deg,rgba(110,231,160,.075),rgba(255,255,255,.025));
+  list-style:none;
+}
+.storage-live-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.storage-live-heading > div { display:grid; gap:4px; min-width:0; }
+.storage-live-heading strong { font-size:.9rem; }
+.storage-live-heading span { color:rgba(255,255,255,.68); font-size:.78rem; line-height:1.4; }
+.storage-live-status { flex:0 0 auto; padding:4px 9px; border:1px solid rgba(110,231,160,.4); border-radius:999px; color:#a7f3c5 !important; font-size:.72rem !important; font-weight:750; }
+.storage-live-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+.storage-live-primary,.storage-live-secondary { display:grid; gap:4px; min-width:0; padding:10px; border:1px solid rgba(255,255,255,.1); border-radius:8px; background:rgba(0,0,0,.12); }
+.storage-live-primary span,.storage-live-secondary span { color:rgba(255,255,255,.68); font-size:.74rem; }
+.storage-live-primary strong { color:#a7f3c5; font-size:1.35rem; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.storage-live-secondary strong { font-size:1rem; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.storage-live-benchmark > svg { display:block; width:100%; height:145px; overflow:visible; }
+.storage-live-gridline { stroke:rgba(255,255,255,.13); stroke-width:1; stroke-dasharray:4 5; }
+.storage-live-line { fill:none; stroke:#6ee7a0; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+.storage-live-footer { display:flex; justify-content:space-between; gap:10px; color:rgba(255,255,255,.62); font-size:.72rem; font-variant-numeric:tabular-nums; }
+.storage-measurement-secondary { color:rgba(255,255,255,.82) !important; font-weight:700; }
+.storage-measurement-sparkline { display:block; width:100%; height:38px; margin-top:3px; overflow:visible; }
+.storage-measurement-sparkline path { fill:none; stroke:#6ee7a0; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+@media(max-width:460px) {
+  .storage-live-benchmark { padding:11px; }
+  .storage-live-metrics { grid-template-columns:1fr; }
+  .storage-live-primary strong { font-size:1.2rem; }
+  .storage-live-footer { flex-direction:column; gap:3px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .storage-live-benchmark,.storage-live-line { transition:none; }
+}
