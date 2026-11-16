@@ -2582,6 +2582,7 @@ function updateGpuLiveMetrics(samples, session = {}) {
   const latest = valid[valid.length - 1] || {};
   const temperatures = valid.map((item) => Number(item.temperature_c)).filter(Number.isFinite);
   const usages = valid.map((item) => Number(item.utilization_percent)).filter(Number.isFinite);
+  const frequencies = valid.map((item) => Number(item.frequency_mhz)).filter(Number.isFinite);
   const maxOf = (items) => items.length ? Math.max(...items) : null;
   const source = latest.temperature_source === 'cpu' ? 'CPU · referência térmica' : 'GPU';
   document.getElementById('gpu-test-temperature').textContent = latest.temperature_c == null ? '—' : Number(latest.temperature_c).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' °C';
@@ -2589,6 +2590,8 @@ function updateGpuLiveMetrics(samples, session = {}) {
   document.getElementById('gpu-test-temperature-source').textContent = 'Sensor: ' + (latest.temperature_c == null ? 'indisponível' : source);
   document.getElementById('gpu-test-utilization').textContent = latest.utilization_percent == null ? '—' : Number(latest.utilization_percent).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%';
   document.getElementById('gpu-test-utilization-max').textContent = 'Pico: ' + (maxOf(usages) == null ? '—' : maxOf(usages).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%');
+  document.getElementById('gpu-test-frequency').textContent = latest.frequency_mhz == null ? '—' : Number(latest.frequency_mhz).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' MHz';
+  document.getElementById('gpu-test-frequency-max').textContent = 'Pico: ' + (maxOf(frequencies) == null ? '—' : maxOf(frequencies).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' MHz');
   document.getElementById('gpu-test-dispatches').textContent = Number(session.dispatches || 0).toLocaleString('pt-BR');
   document.getElementById('gpu-test-validation-errors').textContent = Number(session.validation_errors || 0).toLocaleString('pt-BR');
   const legend = document.getElementById('gpu-test-chart-temperature-legend');
