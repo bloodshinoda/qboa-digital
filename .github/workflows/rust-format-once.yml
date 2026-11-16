@@ -1,0 +1,56 @@
+name: One-time Rust formatting repair
+
+on:
+  push:
+    branches:
+      - v3.3-dev
+    paths:
+      - ".github/workflows/rust-format-once.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  format-and-dispatch:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout development branch
+        uses: actions/checkout@v5
+        with:
+          ref: v3.3-dev
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-msvc
+
+      - name: Apply rustfmt
+        shell: pwsh
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml
+
+      - name: Commit formatted Rust source
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/technical_inventory.rs
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "Ajeitadinha: formatar modelos Rust do inventário"
+            git push origin HEAD:v3.3-dev
+          } else {
+            Write-Host "Rust source already formatted."
+          }
+
+      - name: Dispatch the standard Windows build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run windows-build.yml --ref v3.3-dev
+
+      - name: Remove this one-time workflow
+        shell: pwsh
+        run: |
+          git rm .github/workflows/rust-format-once.yml
+          git commit -m "Limpezinha: remover fluxo temporário de formatação"
+          git push origin HEAD:v3.3-dev
