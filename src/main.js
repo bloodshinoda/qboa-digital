@@ -1811,153 +1811,264 @@ function renderDiagnosticReport(report, target = null) {
 
 function renderStorageReport(report, append = false) {
   const list = document.getElementById("diagnostic-results");
-  if (!append) {
-    list.replaceChildren();
-  } else {
-    const separator = document.createElement("li");
-    separator.className = "storage-report-separator";
-    separator.textContent = "Próxima unidade · " + (report.disk_name || report.volume || report.disk_id || "disco");
-    list.appendChild(separator);
-  }
+  if (!append) list.replaceChildren();
 
-  function addItem(title, detail, meta = "") {
-    const item = document.createElement("li");
-    const heading = document.createElement("strong");
-    heading.textContent = title;
-    item.appendChild(heading);
-    if (detail) {
-      const paragraph = document.createElement("p");
-      paragraph.textContent = detail;
-      item.appendChild(paragraph);
-    }
-    if (meta) {
-      const source = document.createElement("small");
-      source.textContent = meta;
-      item.appendChild(source);
-    }
-    list.appendChild(item);
-    return item;
-  }
-
-  const fmt = (value, digits = 2) => Number.isFinite(Number(value))
-    ? Number(value).toLocaleString("pt-BR", { maximumFractionDigits: digits })
-    : "Indisponível";
-  const bytes = (value) => Number.isFinite(Number(value)) && Number(value) >= 0
-    ? (Number(value) / (1024 ** 3)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " GiB"
-    : "Indisponível";
-  const smartValue = (value, suffix = "") => value === null || value === undefined
+  const fmt = (value, digits = 2) => value === null || value === undefined || !Number.isFinite(Number(value))
     ? "Indisponível"
-    : fmt(value) + suffix;
+    : Number(value).toLocaleString("pt-BR", { maximumFractionDigits: digits });
+  const bytes = (value) => value === null || value === undefined || !Number.isFinite(Number(value)) || Number(value) < 0
+    ? "Indisponível"
+    : (Number(value) / (1024 ** 3)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " GiB";
+  const smartValue = (value, suffix = "") => value === null || value === undefined
+    ? "Não informado" : fmt(value) + suffix;
   const classNames = {
     notebook_hdd: "HD de notebook",
     desktop_hdd: "HD de desktop",
     sata_ssd: "SSD SATA",
     nvme: "SSD NVMe",
     usb: "Armazenamento USB",
-    unknown: "Classe desconhecida"
+    unknown: "Classe não identificada"
   };
-  const threshold = { notebook_hdd: 60, desktop_hdd: 120, sata_ssd: 400, nvme: 1500 };
+  const status = {
+    completed: ["Concluído", "success"],
+    partial: ["Parcial", "warning"],
+    failed: ["Falhou", "danger"],
+    cancelled: ["Cancelado", "neutral"],
+    simulated: ["Simulado", "neutral"]
+  }[report.execution_status] || ["Estado desconhecido", "neutral"];
 
-  addItem("Unidade: " + (report.disk_name || report.disk_id || "Disco"),
-    (report.volume || "Volume indisponível") + " · Capacidade: " + bytes(report.capacity_bytes),
-    "Classe: " + (classNames[report.class] || "Desconhecida") + " · Barramento: " +
-      (report.bus_type || "Indisponível") + " · ID: " + (report.disk_id || "Indisponível"));
+  const entry = document.createElement("li");
+  entry.className = "storage-report-entry";
+  const header = document.createElement("header");
+  header.className = "storage-report-heading";
+  const headingCopy = document.createElement("div");
+  const title = document.createElement("h3");
+  title.textContent = report.disk_name || report.disk_id || "Unidade de armazenamento";
+  const subtitle = document.createElement("p");
+  subtitle.textContent = (report.volume || "Volume indisponível") + " · " +
+    (classNames[report.class] || classNames.unknown) + " · " + (report.bus_type || "Barramento não identificado");
+  headingCopy.append(title, subtitle);
+  const statusBadge = document.createElement("span");
+  statusBadge.className = "storage-status-badge " + status[1];
+  statusBadge.textContent = status[0];
+  header.append(headingCopy, statusBadge);
+  entry.appendChild(header);
+
+  const deviceFacts = document.createElement("div");
+  deviceFacts.className = "storage-device-facts";
+  [
+    ["Disco físico", bytes(report.capacity_bytes)],
+    ["Volume " + (report.volume || ""), bytes(report.volume_capacity_bytes)],
+    ["Espaço livre", bytes(report.free_bytes)]
+  ].forEach(([label, value]) => {
+    const fact = document.createElement("div");
+    fact.className = "storage-device-fact";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const amount = document.createElement("strong");
+    amount.textContent = value;
+    fact.append(name, amount);
+    deviceFacts.appendChild(fact);
+  });
+  entry.appendChild(deviceFacts);
 
   if (report.backend === "fake" || report.execution_status === "simulated") {
-    addItem("MODO SIMULADO", "Valores fictícios para validar a interface; nenhum hardware foi medido.");
+    const simulated = document.createElement("p");
+    simulated.className = "storage-report-notice warning";
+    simulated.textContent = "Modo simulado: valores fictícios para validar a interface; nenhum hardware foi medido.";
+    entry.appendChild(simulated);
   }
 
-  addItem("As oito medições", "Arquivo temporário local; leituras diretas no Windows usando E/S sem cache de arquivos.");
-  const names = {
-    seq_small_write: "Sequencial pequeno · gravação · 128 KiB · fila 1",
-    seq_small_read: "Sequencial pequeno · leitura · 128 KiB · fila 1",
-    seq_large_write: "Sequencial grande · gravação · 1 MiB · fila 8",
-    seq_large_read: "Sequencial grande · leitura · 1 MiB · fila 8",
-    random_small_write: "Aleatório pequeno · gravação · 4 KiB · fila 1",
-    random_small_read: "Aleatório pequeno · leitura · 4 KiB · fila 1",
-    random_large_write: "Aleatório grande · gravação · 4 KiB · fila 32",
-    random_large_read: "Aleatório grande · leitura · 4 KiB · fila 32"
-  };
+  function createSection(titleText, descriptionText = "") {
+    const section = document.createElement("section");
+    section.className = "storage-report-section";
+    const sectionHeading = document.createElement("div");
+    sectionHeading.className = "storage-section-heading";
+    const sectionTitle = document.createElement("h4");
+    sectionTitle.textContent = titleText;
+    sectionHeading.appendChild(sectionTitle);
+    if (descriptionText) {
+      const description = document.createElement("p");
+      description.textContent = descriptionText;
+      sectionHeading.appendChild(description);
+    }
+    section.appendChild(sectionHeading);
+    entry.appendChild(section);
+    return section;
+  }
+
   const measurements = Array.isArray(report.measurements) ? report.measurements : [];
-  Object.keys(names).forEach((kind) => {
-    const measurement = measurements.find((entry) => entry.kind === kind);
-    if (!measurement) {
-      addItem(names[kind], "Indisponível: medição não retornada.");
-      return;
-    }
-    let detail = measurement.value === null || measurement.value === undefined
-      ? "Indisponível. " + (measurement.reason || "Nenhum resultado válido.")
-      : fmt(measurement.value) + " " + (measurement.unit || "");
-    let meta = measurement.bytes_transferred === null || measurement.bytes_transferred === undefined
-      ? ""
-      : "Transferidos: " + bytes(measurement.bytes_transferred) + " · Duração: " + fmt(measurement.duration_ms) + " ms";
-    if ((kind === "seq_large_read" || kind === "seq_large_write") && threshold[report.class]) {
-      const speedStatus = measurement.value === null || measurement.value === undefined
-        ? "Faixa de referência ≥ " + threshold[report.class] + " MB/s; resultado indisponível"
-        : (Number(measurement.value) >= threshold[report.class] ? "Dentro" : "Abaixo") +
-          " da faixa de referência para " + classNames[report.class] + " (≥ " + threshold[report.class] + " MB/s)";
-      meta += (meta ? " · " : "") + speedStatus;
-    } else if ((kind === "seq_large_read" || kind === "seq_large_write") && (report.class === "usb" || report.class === "unknown")) {
-      meta += (meta ? " · " : "") + "Sem faixa de desempenho para esta classe";
-    }
-    addItem(names[kind], detail, meta);
+  const measurementSpecs = [
+    { group: "Desempenho sequencial", description: "Transferência de blocos maiores; útil para observar leitura e gravação de arquivos.", kinds: [
+      ["seq_large_read", "Leitura · 1 MiB · fila 8"],
+      ["seq_large_write", "Gravação · 1 MiB · fila 8"],
+      ["seq_small_read", "Leitura · 128 KiB · fila 1"],
+      ["seq_small_write", "Gravação · 128 KiB · fila 1"]
+    ] },
+    { group: "Desempenho aleatório", description: "Acessos em blocos de 4 KiB; úteis para observar operações pequenas e concorrentes.", kinds: [
+      ["random_small_read", "Leitura · fila 1"],
+      ["random_small_write", "Gravação · fila 1"],
+      ["random_large_read", "Leitura · fila 32"],
+      ["random_large_write", "Gravação · fila 32"]
+    ] }
+  ];
+  const threshold = { notebook_hdd: 60, desktop_hdd: 120, sata_ssd: 400, nvme: 1500 };
+
+  measurementSpecs.forEach((group) => {
+    const section = createSection(group.group, group.description);
+    const grid = document.createElement("div");
+    grid.className = "storage-measurement-grid";
+    group.kinds.forEach(([kind, label]) => {
+      const measurement = measurements.find((item) => item.kind === kind);
+      const card = document.createElement("article");
+      card.className = "storage-measurement-card";
+      const name = document.createElement("span");
+      name.textContent = label;
+      const value = document.createElement("strong");
+      const valid = measurement && measurement.value !== null && measurement.value !== undefined &&
+        Number.isFinite(Number(measurement.value));
+      value.textContent = valid ? fmt(measurement.value) : "Indisponível";
+      const unit = document.createElement("small");
+      unit.textContent = valid ? (measurement.unit || "") : (measurement?.reason || "Medição não retornada.");
+      card.append(name, value, unit);
+      if (measurement && measurement.bytes_transferred !== null && measurement.bytes_transferred !== undefined) {
+        const detail = document.createElement("small");
+        detail.className = "storage-measurement-meta";
+        detail.textContent = bytes(measurement.bytes_transferred) + " transferidos · " +
+          fmt(measurement.duration_ms) + " ms";
+        card.appendChild(detail);
+      }
+      if ((kind === "seq_large_read" || kind === "seq_large_write") && threshold[report.class]) {
+        const reference = document.createElement("small");
+        reference.className = "storage-measurement-reference";
+        reference.textContent = "Referência interna da classe: ≥ " + threshold[report.class] + " MB/s";
+        card.appendChild(reference);
+      }
+      grid.appendChild(card);
+    });
+    section.appendChild(grid);
   });
 
   const smart = report.smart || {};
-  addItem("SMART", smart.usable ? "Dados SMART utilizáveis retornados." : "Dados SMART utilizáveis indisponíveis; isso não significa que o disco esteja saudável.",
-    smart.source ? "Fontes: " + smart.source : "Fonte SMART indisponível.");
-  addItem("Previsão de falha SMART", smart.predicted_failure === true ? "O provedor sinalizou previsão de falha."
-    : smart.predicted_failure === false ? "O provedor não sinalizou previsão de falha."
-    : "Indisponível: o provedor não expôs o campo.");
-  addItem("Setores realocados", smartValue(smart.reallocated));
-  addItem("Setores pendentes", smartValue(smart.pending));
-  addItem("Setores incorrigíveis", smartValue(smart.uncorrectable));
-  addItem("Erros CRC da interface", smartValue(smart.interface_crc_before) + " → " + smartValue(smart.interface_crc_after),
-    "Comparação antes/depois do teste; aumento indica revisar cabo/porta.");
-  addItem("Desgaste SMART", smart.wear_percent === null || smart.wear_percent === undefined
-    ? "Indisponível" : smartValue(smart.wear_percent, "%") + " de desgaste",
-    smart.wear_limit_percent === null || smart.wear_limit_percent === undefined
-      ? "Limite do dispositivo indisponível" : "Limite informado: " + smartValue(smart.wear_limit_percent, "%"));
-  addItem("Temperatura SMART", smartValue(smart.temperature_c, " °C"));
-  addItem("Modo PIO", smart.pio_mode === true ? "Detectado" : smart.pio_mode === false ? "Não detectado" : "Indisponível");
-  addItem("Link SATA lento", smart.slow_sata_link === true ? "Detectado" : smart.slow_sata_link === false ? "Não detectado" : "Indisponível");
-  if (smart.usb_slow === true) addItem("Interface USB", "Velocidade baixa; revisar cabo/gabinete. Não é usada para condenar o disco.");
+  const smartSection = createSection("Dados SMART", smart.usable
+    ? "Informações disponibilizadas pelo dispositivo e pelo provedor do Windows."
+    : "O dispositivo ou controlador não expôs dados SMART utilizáveis. Ausência de leitura não significa que esteja saudável.");
+  const smartState = document.createElement("p");
+  smartState.className = "storage-report-notice " + (smart.usable ? "neutral" : "warning");
+  if (smart.predicted_failure === true) {
+    smartState.className = "storage-report-notice danger";
+    smartState.textContent = "O provedor SMART sinalizou previsão de falha.";
+  } else if (smart.predicted_failure === false) {
+    smartState.textContent = "O provedor não sinalizou previsão de falha. Isso não garante, isoladamente, a saúde do dispositivo.";
+  } else {
+    smartState.textContent = "Previsão de falha não informada pelo provedor.";
+  }
+  smartSection.appendChild(smartState);
+
+  const smartGrid = document.createElement("div");
+  smartGrid.className = "storage-smart-grid";
+  [
+    ["Setores realocados", smartValue(smart.reallocated)],
+    ["Setores pendentes", smartValue(smart.pending)],
+    ["Setores incorrigíveis", smartValue(smart.uncorrectable)],
+    ["Desgaste informado", smartValue(smart.wear_percent, "%")],
+    ["Temperatura", smartValue(smart.temperature_c, " °C")],
+    ["Erros CRC · antes → depois", smartValue(smart.interface_crc_before) + " → " + smartValue(smart.interface_crc_after)]
+  ].forEach(([label, value]) => {
+    const card = document.createElement("article");
+    card.className = "storage-smart-card";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const amount = document.createElement("strong");
+    amount.textContent = value;
+    card.append(name, amount);
+    smartGrid.appendChild(card);
+  });
+  smartSection.appendChild(smartGrid);
+  if (smart.wear_limit_percent !== null && smart.wear_limit_percent !== undefined) {
+    const wearLimit = document.createElement("p");
+    wearLimit.className = "storage-report-footnote";
+    wearLimit.textContent = "Limite de desgaste informado pelo dispositivo: " + fmt(smart.wear_limit_percent) + "%.";
+    smartSection.appendChild(wearLimit);
+  }
+  if (smart.usb_slow === true) {
+    const usbNotice = document.createElement("p");
+    usbNotice.className = "storage-report-notice warning";
+    usbNotice.textContent = "A conexão USB apresentou leitura baixa. Vale revisar cabo, porta ou gabinete; esse resultado não é usado para condenar o disco.";
+    smartSection.appendChild(usbNotice);
+  }
 
   const attributes = Array.isArray(smart.attributes) ? smart.attributes : [];
-  if (attributes.length) {
-    const item = addItem("Atributos SMART brutos", attributes.length + " atributo(s) retornado(s).");
-    const details = document.createElement("details");
-    const summary = document.createElement("summary");
-    summary.textContent = "Ver todos os atributos SMART";
-    const rows = document.createElement("ul");
-    attributes.forEach((attribute) => {
-      const row = document.createElement("li");
-      row.textContent = "ID " + attribute.id + " · " + (attribute.name || "Atributo") +
-        " · atual " + (attribute.current ?? "Indisponível") +
-        " · pior " + (attribute.worst ?? "Indisponível") +
-        " · limite " + (attribute.threshold ?? "Indisponível") +
-        " · bruto " + (attribute.raw_value ?? "Indisponível");
-      rows.appendChild(row);
-    });
-    details.append(summary, rows);
-    item.appendChild(details);
-  }
   const metrics = Array.isArray(smart.reliability_metrics) ? smart.reliability_metrics : [];
-  if (metrics.length) {
-    const item = addItem("Métricas de confiabilidade adicionais", metrics.length + " métrica(s).");
-    const rows = document.createElement("ul");
-    metrics.forEach((metric) => {
-      const row = document.createElement("li");
-      row.textContent = (metric.name || "Métrica") + ": " + (metric.value ?? "Indisponível");
-      rows.appendChild(row);
-    });
-    item.appendChild(rows);
+  if (attributes.length || metrics.length || smart.source) {
+    const details = document.createElement("details");
+    details.className = "storage-technical-details";
+    const summary = document.createElement("summary");
+    summary.textContent = "Detalhes técnicos e dados brutos";
+    details.appendChild(summary);
+    if (smart.source) {
+      const source = document.createElement("p");
+      source.textContent = "Fontes: " + smart.source;
+      details.appendChild(source);
+    }
+    if (metrics.length) {
+      const metricHeading = document.createElement("h5");
+      metricHeading.textContent = "Métricas adicionais";
+      const metricList = document.createElement("ul");
+      metrics.forEach((metric) => {
+        const item = document.createElement("li");
+        item.textContent = (metric.name || "Métrica") + ": " + (metric.value ?? "Indisponível");
+        metricList.appendChild(item);
+      });
+      details.append(metricHeading, metricList);
+    }
+    if (attributes.length) {
+      const attributeHeading = document.createElement("h5");
+      attributeHeading.textContent = "Atributos SMART brutos";
+      const attributeList = document.createElement("ul");
+      attributes.forEach((attribute) => {
+        const item = document.createElement("li");
+        item.textContent = "ID " + attribute.id + " · " + (attribute.name || "Atributo") +
+          " · atual " + (attribute.current ?? "Indisponível") +
+          " · pior " + (attribute.worst ?? "Indisponível") +
+          " · limite " + (attribute.threshold ?? "Indisponível") +
+          " · bruto " + (attribute.raw_value ?? "Indisponível");
+        attributeList.appendChild(item);
+      });
+      details.append(attributeHeading, attributeList);
+    }
+    smartSection.appendChild(details);
   }
 
-  if (report.space_available === false) addItem("Benchmark não executado",
-    "Espaço livre insuficiente para criar o arquivo de teste com a margem de segurança.");
-  (report.issues || []).forEach((issue) => addItem("Aviso de coleta", String(issue)));
+  if (report.space_available === false) {
+    const warning = document.createElement("p");
+    warning.className = "storage-report-notice warning";
+    warning.textContent = "Benchmark não executado: o volume não tinha pelo menos 320 MiB livres para criar o arquivo temporário de 256 MiB com margem de segurança. A coleta SMART foi mantida quando disponível.";
+    entry.appendChild(warning);
+  }
+  const issues = Array.isArray(report.issues) ? report.issues : [];
+  if (issues.length) {
+    const issueSection = createSection("Avisos da coleta");
+    const issueList = document.createElement("ul");
+    issueList.className = "storage-issue-list";
+    issues.forEach((issue) => {
+      const item = document.createElement("li");
+      item.textContent = String(issue);
+      issueList.appendChild(item);
+    });
+    issueSection.appendChild(issueList);
+  }
+
+  if (append) {
+    const separator = document.createElement("li");
+    separator.className = "storage-report-separator";
+    separator.textContent = "Próxima unidade";
+    list.appendChild(separator);
+  }
+  list.appendChild(entry);
 }
+
+
 function diagnosticExecutionLabel(status) {
   return {
     running: "em execução",
@@ -1983,11 +2094,13 @@ async function loadDiagnosticHistory(selectLatest = false) {
     const storageReports = results[1];
     const cpuReports = results[2];
     list.replaceChildren();
-    const combined = [
-      ...storageReports.map((report) => ({ report, storage: true, cpu: false })),
-      ...cpuReports.map((report) => ({ report, storage: false, cpu: true })),
-      ...reports.map((report) => ({ report, storage: false, cpu: false }))
-    ].sort((a, b) => String(b.report.started_at || "").localeCompare(String(a.report.started_at || "")));
+    const combined = (storageOnly
+      ? storageReports.map((report) => ({ report, storage: true, cpu: false }))
+      : [
+        ...storageReports.map((report) => ({ report, storage: true, cpu: false })),
+        ...cpuReports.map((report) => ({ report, storage: false, cpu: true })),
+        ...reports.map((report) => ({ report, storage: false, cpu: false }))
+      ]).sort((a, b) => String(b.report.started_at || "").localeCompare(String(a.report.started_at || "")));
 
     if (!combined.length) {
       const empty = document.createElement("li");
@@ -2615,9 +2728,11 @@ function normalizeStorageDisk(entry) {
   return {
     ...disk,
     id,
+    disk_number: diskNumber === undefined || diskNumber === null ? Number(id.split(":")[0]) : Number(diskNumber),
     model: disk.model || disk.Model || "Disco",
     volume: volume || (driveLetter ? String(driveLetter).toUpperCase() + ":\\" : ""),
     capacity_bytes: disk.capacity_bytes ?? disk.CapacityBytes ?? disk.size_bytes ?? disk.Size,
+    volume_capacity_bytes: disk.volume_capacity_bytes ?? disk.VolumeCapacityBytes ?? disk.volume_size_bytes ?? disk.Size,
     free_bytes: disk.free_bytes ?? disk.FreeBytes ?? disk.SizeRemaining,
     class: diskClass,
     bus_type: bus || "Barramento desconhecido"
@@ -2637,60 +2752,88 @@ async function refreshStorageDisks(preserveSelection = true) {
   list.replaceChildren();
   const loading = document.createElement("li");
   loading.className = "storage-disk-empty";
-  loading.textContent = "Localizando unidades...";
+  loading.textContent = "Localizando discos e volumes...";
   list.appendChild(loading);
   runButton.disabled = true;
+
+  const formatBytes = (value) => value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) >= 0
+    ? (Number(value) / (1024 ** 3)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " GiB"
+    : "não informado";
 
   try {
     let result = await Qboa.listStorageDisks();
     if (!Array.isArray(result) && result && Array.isArray(result.disks)) result = result.disks;
     const entries = Array.isArray(result) ? result.flat(Infinity).map(normalizeStorageDisk).filter(Boolean) : [];
     const disks = Array.from(new Map(entries.map((disk) => [disk.id, disk])).values());
+    const groups = new Map();
+    disks.forEach((disk) => {
+      const key = Number.isFinite(disk.disk_number) ? "disk:" + disk.disk_number : "volume:" + disk.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(disk);
+    });
     list.replaceChildren();
 
     if (!disks.length) {
       const empty = document.createElement("li");
       empty.className = "storage-disk-empty";
-      empty.textContent = "Nenhuma unidade com letra de volume foi identificada. Atualize a lista ou confira se o Windows expõe o disco.";
+      empty.textContent = "Nenhum volume com letra foi identificado. Unidades sem letra não podem receber este benchmark.";
       list.appendChild(empty);
     }
 
-    disks.forEach((disk, index) => {
-      const item = document.createElement("li");
-      item.className = "storage-disk-option";
-      const label = document.createElement("label");
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.value = disk.id;
-      checkbox.dataset.storageDisk = "true";
-      checkbox.checked = preserveSelection ? previous.has(disk.id) : index === 0;
-      const description = document.createElement("span");
-      description.className = "storage-disk-description";
-      const name = document.createElement("strong");
-      name.textContent = (disk.volume ? disk.volume + " · " : "") + disk.model;
-      const meta = document.createElement("small");
-      const bytes = Number(disk.capacity_bytes);
-      const capacity = disk.capacity_bytes !== undefined && disk.capacity_bytes !== null && Number.isFinite(bytes) && bytes > 0
-        ? (bytes / (1024 ** 3)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " GiB"
-        : "capacidade indisponível";
+    let index = 0;
+    groups.forEach((volumes) => {
+      const first = volumes[0];
+      const group = document.createElement("li");
+      group.className = "storage-disk-group";
+      const heading = document.createElement("div");
+      heading.className = "storage-disk-group-heading";
+      const model = document.createElement("strong");
+      model.textContent = first.model || "Disco físico";
+      const physicalMeta = document.createElement("small");
       const classNames = {
-        notebook_hdd: "HD notebook", desktop_hdd: "HD desktop", sata_ssd: "SSD SATA",
-        nvme: "NVMe", usb: "USB", unknown: "classe desconhecida"
+        notebook_hdd: "HD de notebook", desktop_hdd: "HD de desktop", sata_ssd: "SSD SATA",
+        nvme: "SSD NVMe", usb: "Armazenamento USB", unknown: "Classe não identificada"
       };
-      meta.textContent = (classNames[disk.class] || "classe desconhecida") + " · " + disk.bus_type +
-        " · " + capacity + (disk.smart_available === true ? " · SMART disponível" : "");
-      description.append(name, meta);
-      label.append(checkbox, description);
-      item.appendChild(label);
-      list.appendChild(item);
-      checkbox.addEventListener("change", () => {
-        if (selectAll) {
-          const boxes = Array.from(list.querySelectorAll('input[type="checkbox"][data-storage-disk]'));
-          selectAll.checked = boxes.length > 0 && boxes.every((box) => box.checked);
-          selectAll.indeterminate = boxes.some((box) => box.checked) && !selectAll.checked;
-        }
-        runButton.disabled = selectedStorageDiskIds().length === 0;
+      physicalMeta.textContent = "Disco " + first.disk_number + " · " +
+        (classNames[first.class] || classNames.unknown) + " · " + first.bus_type +
+        " · Capacidade física: " + formatBytes(first.capacity_bytes);
+      heading.append(model, physicalMeta);
+      group.appendChild(heading);
+
+      const volumeList = document.createElement("ul");
+      volumeList.className = "storage-disk-volumes";
+      volumes.forEach((disk) => {
+        const item = document.createElement("li");
+        item.className = "storage-disk-option";
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = disk.id;
+        checkbox.dataset.storageDisk = "true";
+        checkbox.checked = preserveSelection ? previous.has(disk.id) : index === 0;
+        index++;
+        const description = document.createElement("span");
+        description.className = "storage-disk-description";
+        const name = document.createElement("strong");
+        name.textContent = disk.volume || "Volume sem letra";
+        const meta = document.createElement("small");
+        meta.textContent = "Volume: " + formatBytes(disk.volume_capacity_bytes) +
+          " · Livre: " + formatBytes(disk.free_bytes);
+        description.append(name, meta);
+        label.append(checkbox, description);
+        item.appendChild(label);
+        volumeList.appendChild(item);
+        checkbox.addEventListener("change", () => {
+          if (selectAll) {
+            const boxes = Array.from(list.querySelectorAll('input[type="checkbox"][data-storage-disk]'));
+            selectAll.checked = boxes.length > 0 && boxes.every((box) => box.checked);
+            selectAll.indeterminate = boxes.some((box) => box.checked) && !selectAll.checked;
+          }
+          runButton.disabled = selectedStorageDiskIds().length === 0;
+        });
       });
+      group.appendChild(volumeList);
+      list.appendChild(group);
     });
 
     if (selectAll) {
@@ -2701,8 +2844,8 @@ async function refreshStorageDisks(preserveSelection = true) {
     }
     runButton.disabled = selectedStorageDiskIds().length === 0;
     document.getElementById("diagnostic-status").textContent = disks.length
-      ? disks.length + " unidade(s) identificada(s). Marque uma ou mais para testar."
-      : "Nenhuma unidade elegível encontrada.";
+      ? disks.length + " volume(s) em " + groups.size + " disco(s) físico(s). Selecione os volumes que deseja testar."
+      : "Nenhum volume elegível encontrado.";
   } catch (error) {
     list.replaceChildren();
     const failed = document.createElement("li");
@@ -2791,13 +2934,16 @@ function openDiagnosticModal(target = null, mode = "quick") {
     toolbar.append(selectAllLabel, refreshButton);
 
     const label = document.createElement("label");
-    label.textContent = "Unidades a testar";
+    label.textContent = "Volumes que receberão o teste";
     label.htmlFor = "storage-disk-list";
+    const help = document.createElement("p");
+    help.className = "storage-disk-help";
+    help.textContent = "O QBoa agrupa os volumes pelo disco físico. O benchmark cria um arquivo temporário de 256 MiB no volume escolhido e exige pelo menos 320 MiB livres. Não escreve diretamente nos setores do disco; o arquivo é removido ao final.";
     const list = document.createElement("ul");
     list.id = "storage-disk-list";
     list.className = "storage-disk-list";
-    list.setAttribute("aria-label", "Selecione as unidades para o teste");
-    picker.append(toolbar, label, list);
+    list.setAttribute("aria-label", "Selecione os volumes para o teste");
+    picker.append(toolbar, label, help, list);
     modal.querySelector(".diagnostic-modal-actions").before(picker);
     runButton.disabled = true;
 
