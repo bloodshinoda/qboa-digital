@@ -35,7 +35,7 @@ internal static class Program
 
         try
         {
-            if (mode is "gpu-discover" or "gpu-stream")
+            if (mode is "gpu-discover" or "gpu-stream" or "gpu-stream-cpu-fallback")
             {
                 using var gpuMonitor = new GpuHardwareSession();
                 gpuMonitor.Open();
