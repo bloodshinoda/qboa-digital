@@ -40,6 +40,7 @@ let cpuTestSessionSnapshot = null;
 let cpuInventorySnapshot = null;
 let cpuTestSamples = [];
 let activeStorageBenchmark = null;
+let lastStorageActivityLogAt = 0;
 let gpuTestSessionSnapshot = null;
 let gpuInventorySnapshot = null;
 const diagnosticActivityTargets = new Map();
@@ -1950,6 +1951,13 @@ function renderStorageBenchmarkProgress(payload) {
   }).join(" ");
   state.path.setAttribute("d", points);
   state.path.setAttribute("aria-label", "Última amostra: " + format(sample[primaryKey]) + " " + primaryUnit);
+  const now = Date.now();
+  if (now - lastStorageActivityLogAt >= 1000) {
+    lastStorageActivityLogAt = now;
+    appendConsole("Armazenamento · " + storageMeasurementLabel(payload.kind) + ": " +
+      format(sample[primaryKey]) + " " + primaryUnit + " · " +
+      format(sample[secondaryKey]) + " " + secondaryUnit);
+  }
 }
 
 function appendStorageSparkline(card, samples, primaryKey) {
@@ -3923,6 +3931,8 @@ async function runDiagnostic(mode, target = null) {
   try {
     if (target === "armazenamento") {
       activeStorageBenchmark = null;
+      lastStorageActivityLogAt = 0;
+      appendConsole("Diagnóstico de armazenamento iniciado.");
       const selectedIds = selectedStorageDiskIds();
       if (!selectedIds.length) throw new Error("Marque uma ou mais unidades antes de iniciar o teste.");
       let completed = 0;
@@ -3949,6 +3959,7 @@ async function runDiagnostic(mode, target = null) {
         }
       }
       await loadDiagnosticHistory(false);
+      appendConsole("Diagnóstico de armazenamento finalizado · " + completed + " unidade(s) concluída(s) · " + failures.length + " ocorrência(s).");
       if (!completed && failures.length) {
         status.textContent = "Nenhuma unidade concluiu o teste. Consulte os erros listados.";
       } else if (failures.length) {
