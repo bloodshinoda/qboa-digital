@@ -189,7 +189,8 @@ fn classify_adapter(adapter: &GpuAdapter) -> String {
         if name.contains("radeon rx") || name.contains(" rx ") || name.contains("radeon pro") {
             return "dedicated".into();
         }
-        if name.contains("radeon graphics")
+        if name.contains("radeon(tm) graphics")
+            || name.contains("radeon graphics")
             || [
                 "radeon 890m", "radeon 880m", "radeon 860m", "radeon 840m",
                 "radeon 820m", "radeon 790m", "radeon 780m", "radeon 760m",
