@@ -173,7 +173,9 @@ Abrir ou exportar um relatório histórico não deve disparar uma nova coleta. N
 - Limitar tamanho e validar identificadores/arquivos ao carregar históricos.
 - Relatório corrompido ou de versão futura não pode derrubar a tela nem ser sobrescrito silenciosamente.
 
-A política de retenção e a inclusão de identificadores persistentes como número de série e endereço MAC deverão ser decididas antes de habilitar esses campos na exportação padrão.
+- Números de série e endereços MAC podem ser coletados e preservados no inventário local quando disponíveis, mas sua inclusão em exportações é opcional e vem desativada por padrão.
+- Cada exportação deve oferecer uma opção explícita para incluir esses identificadores, explicar que podem identificar o equipamento ou a interface de rede e aplicar a escolha somente à exportação solicitada, sem alterar o inventário original.
+- A opção deve estar disponível para cada formato de exportação e não pode ser ativada implicitamente por preferências anteriores sem indicação visível ao usuário.
 
 ## 9. Reuso e integração com o código existente
 
