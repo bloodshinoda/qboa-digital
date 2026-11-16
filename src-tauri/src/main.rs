@@ -2615,17 +2615,15 @@ fn execute_storage_script(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("Não foi possível iniciar o coletor de armazenamento: {error}"))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Não foi possível acompanhar a saída do coletor de armazenamento.".to_string())?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| "Não foi possível acompanhar os erros do coletor de armazenamento.".to_string())?;
+        let mut child = command.spawn().map_err(|error| {
+            format!("Não foi possível iniciar o coletor de armazenamento: {error}")
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            "Não foi possível acompanhar a saída do coletor de armazenamento.".to_string()
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            "Não foi possível acompanhar os erros do coletor de armazenamento.".to_string()
+        })?;
         let stderr_reader = std::thread::spawn(move || {
             let mut content = String::new();
             let mut reader = BufReader::new(stderr);
@@ -2638,13 +2636,16 @@ fn execute_storage_script(
         let mut line = String::new();
         loop {
             line.clear();
-            let bytes_read = stdout_reader
-                .read_line(&mut line)
-                .map_err(|error| format!("Falha ao ler a saída do coletor de armazenamento: {error}"))?;
+            let bytes_read = stdout_reader.read_line(&mut line).map_err(|error| {
+                format!("Falha ao ler a saída do coletor de armazenamento: {error}")
+            })?;
             if bytes_read == 0 {
                 break;
             }
-            if let Some(sample) = line.trim_end_matches(['\r', '\n']).strip_prefix("QBOA_PROGRESS|") {
+            if let Some(sample) = line
+                .trim_end_matches(|character| character == '\r' || character == '\n')
+                .strip_prefix("QBOA_PROGRESS|")
+            {
                 if let Some(app) = app {
                     let fields: Vec<&str> = sample.split('|').collect();
                     if fields.len() == 6 {
@@ -2655,7 +2656,14 @@ fn execute_storage_script(
                             fields[4].parse::<f64>(),
                             fields[5].parse::<f64>(),
                         );
-                        if let (Ok(elapsed_ms), Ok(bytes_transferred), Ok(operations), Ok(mb_per_second), Ok(iops)) = parsed {
+                        if let (
+                            Ok(elapsed_ms),
+                            Ok(bytes_transferred),
+                            Ok(operations),
+                            Ok(mb_per_second),
+                            Ok(iops),
+                        ) = parsed
+                        {
                             if mb_per_second.is_finite() && iops.is_finite() {
                                 let _ = app.emit(
                                     "qboa-storage-benchmark-progress",
@@ -2677,9 +2685,9 @@ fn execute_storage_script(
                 stdout_content.push_str(&line);
             }
         }
-        let status = child
-            .wait()
-            .map_err(|error| format!("Não foi possível aguardar o coletor de armazenamento: {error}"))?;
+        let status = child.wait().map_err(|error| {
+            format!("Não foi possível aguardar o coletor de armazenamento: {error}")
+        })?;
         let stderr_content = stderr_reader
             .join()
             .unwrap_or_else(|_| "Falha ao recuperar a saída de erro do coletor.".to_string());
