@@ -151,7 +151,6 @@ pub(crate) fn is_active() -> bool {
         .is_some_and(|entry| matches!(entry.snapshot.lifecycle.as_str(), "running" | "cancelling"))
 }
 
-
 fn classify_adapter(adapter: &GpuAdapter) -> String {
     let name = adapter.name.to_ascii_lowercase();
     let compatibility = adapter
@@ -178,9 +177,15 @@ fn classify_adapter(adapter: &GpuAdapter) -> String {
         if name.contains("arc") {
             return "dedicated".into();
         }
-        if ["uhd", "iris", "hd graphics", "intel graphics", "xe graphics"]
-            .iter()
-            .any(|token| name.contains(token))
+        if [
+            "uhd",
+            "iris",
+            "hd graphics",
+            "intel graphics",
+            "xe graphics",
+        ]
+        .iter()
+        .any(|token| name.contains(token))
         {
             return "integrated".into();
         }
@@ -192,11 +197,24 @@ fn classify_adapter(adapter: &GpuAdapter) -> String {
         if name.contains("radeon(tm) graphics")
             || name.contains("radeon graphics")
             || [
-                "radeon 890m", "radeon 880m", "radeon 860m", "radeon 840m",
-                "radeon 820m", "radeon 790m", "radeon 780m", "radeon 760m",
-                "radeon 740m", "radeon 680m", "radeon 660m", "radeon 650m",
-                "radeon vega 3", "radeon vega 6", "radeon vega 7",
-                "radeon vega 8", "radeon vega 10", "radeon vega 11",
+                "radeon 890m",
+                "radeon 880m",
+                "radeon 860m",
+                "radeon 840m",
+                "radeon 820m",
+                "radeon 790m",
+                "radeon 780m",
+                "radeon 760m",
+                "radeon 740m",
+                "radeon 680m",
+                "radeon 660m",
+                "radeon 650m",
+                "radeon vega 3",
+                "radeon vega 6",
+                "radeon vega 7",
+                "radeon vega 8",
+                "radeon vega 10",
+                "radeon vega 11",
             ]
             .iter()
             .any(|token| name.contains(token))
@@ -641,7 +659,10 @@ fn run_test<R: Runtime>(
                     .as_deref()
                     .filter(|v| !v.trim().is_empty());
                 let source = raw.temperature_source.as_deref().unwrap_or("gpu");
-                if temperature.is_none() || sensor.is_none() || source != inventory.temperature_source {
+                if temperature.is_none()
+                    || sensor.is_none()
+                    || source != inventory.temperature_source
+                {
                     status = "sensor_lost".into();
                     break;
                 }
@@ -837,7 +858,11 @@ fn start_telemetry_process(app_data_dir: &Path, use_cpu_fallback: bool) -> Resul
     use std::os::windows::process::CommandExt;
     let executable = cpu_diagnostic::extract_hardware_monitor(app_data_dir)?;
     Command::new(executable)
-        .arg(if use_cpu_fallback { "gpu-stream-cpu-fallback" } else { "gpu-stream" })
+        .arg(if use_cpu_fallback {
+            "gpu-stream-cpu-fallback"
+        } else {
+            "gpu-stream"
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .creation_flags(0x08000000)
@@ -845,10 +870,7 @@ fn start_telemetry_process(app_data_dir: &Path, use_cpu_fallback: bool) -> Resul
         .map_err(|e| format!("Não foi possível iniciar telemetria da GPU: {e}"))
 }
 #[cfg(not(target_os = "windows"))]
-fn start_telemetry_process(
-    _app_data_dir: &Path,
-    _use_cpu_fallback: bool,
-) -> Result<Child, String> {
+fn start_telemetry_process(_app_data_dir: &Path, _use_cpu_fallback: bool) -> Result<Child, String> {
     Err("A telemetria de GPU exige Windows.".into())
 }
 
@@ -1348,27 +1370,51 @@ mod tests {
             adapter_type: String::new(),
         };
         assert_eq!(
-            classify_adapter(&adapter("Intel(R) UHD Graphics 770", "Intel Corporation", "PCI\\VEN_8086")),
+            classify_adapter(&adapter(
+                "Intel(R) UHD Graphics 770",
+                "Intel Corporation",
+                "PCI\\VEN_8086"
+            )),
             "integrated"
         );
         assert_eq!(
-            classify_adapter(&adapter("Intel(R) Arc(TM) A770", "Intel Corporation", "PCI\\VEN_8086")),
+            classify_adapter(&adapter(
+                "Intel(R) Arc(TM) A770",
+                "Intel Corporation",
+                "PCI\\VEN_8086"
+            )),
             "dedicated"
         );
         assert_eq!(
-            classify_adapter(&adapter("NVIDIA GeForce RTX 4060", "NVIDIA", "PCI\\VEN_10DE")),
+            classify_adapter(&adapter(
+                "NVIDIA GeForce RTX 4060",
+                "NVIDIA",
+                "PCI\\VEN_10DE"
+            )),
             "dedicated"
         );
         assert_eq!(
-            classify_adapter(&adapter("AMD Radeon(TM) Graphics", "Advanced Micro Devices", "PCI\\VEN_1002")),
+            classify_adapter(&adapter(
+                "AMD Radeon(TM) Graphics",
+                "Advanced Micro Devices",
+                "PCI\\VEN_1002"
+            )),
             "integrated"
         );
         assert_eq!(
-            classify_adapter(&adapter("AMD Radeon RX 7600", "Advanced Micro Devices", "PCI\\VEN_1002")),
+            classify_adapter(&adapter(
+                "AMD Radeon RX 7600",
+                "Advanced Micro Devices",
+                "PCI\\VEN_1002"
+            )),
             "dedicated"
         );
         assert_eq!(
-            classify_adapter(&adapter("Adaptador desconhecido", "Fabricante", "PCI\\VEN_FFFF")),
+            classify_adapter(&adapter(
+                "Adaptador desconhecido",
+                "Fabricante",
+                "PCI\\VEN_FFFF"
+            )),
             "unknown"
         );
     }
