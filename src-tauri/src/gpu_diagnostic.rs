@@ -39,6 +39,14 @@ impl GpuTestProfile {
             Self::Extended => 1800,
         }
     }
+
+    fn dispatch_batch_size(self) -> u32 {
+        match self {
+            Self::Quick => 4,
+            Self::Standard => 8,
+            Self::Extended => 12,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -606,105 +614,91 @@ fn run_test<R: Runtime>(
     let mut status = "completed".to_string();
     let mut engine_error: Option<String> = None;
     let mut last_sensor = Instant::now();
+    let batch_size = profile.dispatch_batch_size();
     while started.elapsed() < Duration::from_secs(target) {
         if cancel.load(Ordering::Acquire) {
             status = "cancelled".into();
             break;
         }
-        let active_until = Instant::now() + Duration::from_millis(650);
-        while Instant::now() < active_until && started.elapsed() < Duration::from_secs(target) {
-            if cancel.load(Ordering::Acquire) {
-                status = "cancelled".into();
+
+        // Agrupa vários dispatches antes de ler o resultado. Isso reduz a
+        // sincronização CPU/GPU e mantém a fila gráfica ocupada sem pausas fixas.
+        match engine.dispatch_batch_and_verify(batch_size) {
+            Ok(found) => {
+                errors = errors.saturating_add(found);
+                dispatches = dispatches.saturating_add(batch_size as u64);
+            }
+            Err(error) => {
+                status = "device_error".into();
+                engine_error = Some(error);
                 break;
             }
-            match engine.dispatch_and_verify() {
-                Ok(found) => {
-                    errors = errors.saturating_add(found);
-                    dispatches = dispatches.saturating_add(1);
-                }
-                Err(error) => {
-                    status = "device_error".into();
-                    engine_error = Some(error);
-                    break;
-                }
-            }
         }
-        if status != "completed" {
-            break;
+
+        let mut newest_sample = None;
+        while let Ok((line, received_at)) = receiver.try_recv() {
+            newest_sample = Some((line, received_at));
         }
-        thread::sleep(Duration::from_millis(350));
-        match receiver.recv_timeout(Duration::from_millis(300)) {
-            Ok((mut line, mut received_at)) => {
-                // Se a GPU demorar a concluir um lote, consome a amostra mais nova
-                // em vez de acumular leituras antigas e atrasar a proteção térmica.
-                while let Ok((next_line, next_received_at)) = receiver.try_recv() {
-                    line = next_line;
-                    received_at = next_received_at;
-                }
-                if received_at.elapsed() >= Duration::from_secs(3) {
-                    status = "sensor_lost".into();
-                    break;
-                }
-                let raw: RawTelemetry = match serde_json::from_str(&line) {
-                    Ok(value) => value,
-                    Err(_) => {
-                        status = "sensor_lost".into();
-                        break;
-                    }
-                };
-                let elapsed = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let temperature = raw.temperature_c.filter(|v| valid_temperature(*v));
-                let sensor = raw
-                    .temperature_sensor
-                    .as_deref()
-                    .filter(|v| !v.trim().is_empty());
-                let source = raw.temperature_source.as_deref().unwrap_or("gpu");
-                if temperature.is_none()
-                    || sensor.is_none()
-                    || source != inventory.temperature_source
-                {
-                    status = "sensor_lost".into();
-                    break;
-                }
-                let temperature = temperature.unwrap();
-                last_sensor = Instant::now();
-                let sample = GpuTelemetrySample {
-                    elapsed_ms: elapsed,
-                    timestamp_utc: raw.timestamp_utc,
-                    temperature_c: Some(temperature),
-                    temperature_sensor: raw.temperature_sensor,
-                    temperature_source: Some(source.to_string()),
-                    utilization_percent: raw.utilization_percent.filter(|v| valid_percent(*v)),
-                    frequency_mhz: raw
-                        .frequency_mhz
-                        .filter(|v| v.is_finite() && *v > 0.0 && *v < 100000.0),
-                };
-                samples.push(sample.clone());
-                publish_progress(
-                    app,
-                    session_id,
-                    elapsed,
-                    target * 1000,
-                    &sample,
-                    dispatches,
-                    errors,
-                );
-                if temperature >= THERMAL_STOP_C {
-                    status = "thermal_limit_reached".into();
-                    break;
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if last_sensor.elapsed() >= Duration::from_secs(3) {
-                    status = "sensor_lost".into();
-                    break;
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
+        if let Some((line, received_at)) = newest_sample {
+            // Consome apenas a leitura mais recente para não atrasar a proteção térmica.
+            if received_at.elapsed() >= Duration::from_secs(3) {
                 status = "sensor_lost".into();
                 break;
             }
+            let raw: RawTelemetry = match serde_json::from_str(&line) {
+                Ok(value) => value,
+                Err(_) => {
+                    status = "sensor_lost".into();
+                    break;
+                }
+            };
+            let elapsed = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+            let temperature = raw.temperature_c.filter(|v| valid_temperature(*v));
+            let sensor = raw
+                .temperature_sensor
+                .as_deref()
+                .filter(|v| !v.trim().is_empty());
+            let source = raw.temperature_source.as_deref().unwrap_or("gpu");
+            if temperature.is_none()
+                || sensor.is_none()
+                || source != inventory.temperature_source
+            {
+                status = "sensor_lost".into();
+                break;
+            }
+            let temperature = temperature.unwrap();
+            last_sensor = Instant::now();
+            let sample = GpuTelemetrySample {
+                elapsed_ms: elapsed,
+                timestamp_utc: raw.timestamp_utc,
+                temperature_c: Some(temperature),
+                temperature_sensor: raw.temperature_sensor,
+                temperature_source: Some(source.to_string()),
+                utilization_percent: raw.utilization_percent.filter(|v| valid_percent(*v)),
+                frequency_mhz: raw
+                    .frequency_mhz
+                    .filter(|v| v.is_finite() && *v > 0.0 && *v < 100000.0),
+            };
+            samples.push(sample.clone());
+            publish_progress(
+                app,
+                session_id,
+                elapsed,
+                target * 1000,
+                &sample,
+                dispatches,
+                errors,
+            );
+            if temperature >= THERMAL_STOP_C {
+                status = "thermal_limit_reached".into();
+                break;
+            }
+        } else if last_sensor.elapsed() >= Duration::from_secs(3) {
+            status = "sensor_lost".into();
+            break;
         }
+
+        thread::yield_now();
     }
     drop(engine);
     let _ = child.0.kill();
@@ -1127,7 +1121,7 @@ void main(uint3 tid : SV_DispatchThreadID) {
         Ok(())
     }
 
-    fn dispatch_and_verify(&mut self) -> Result<u64, String> {
+    fn dispatch_batch_and_verify(&mut self, batch_size: u32) -> Result<u64, String> {
         let dispatch: unsafe extern "system" fn(*mut c_void, u32, u32, u32) =
             unsafe { method(self.context, 41) };
         let copy: unsafe extern "system" fn(*mut c_void, *mut c_void, *mut c_void) =
@@ -1142,10 +1136,11 @@ void main(uint3 tid : SV_DispatchThreadID) {
         ) -> i32 = unsafe { method(self.context, 14) };
         let unmap: unsafe extern "system" fn(*mut c_void, *mut c_void, u32) =
             unsafe { method(self.context, 15) };
-        unsafe {
-            dispatch(self.context, 16, 1, 1);
-            copy(self.context, self.staging, self.output);
+        let batch_size = batch_size.clamp(1, 16);
+        for _ in 0..batch_size {
+            unsafe { dispatch(self.context, 16, 1, 1); }
         }
+        unsafe { copy(self.context, self.staging, self.output); }
         let mut mapped = Mapped {
             data: std::ptr::null_mut(),
             row_pitch: 0,
@@ -1332,7 +1327,7 @@ impl D3d11Engine {
     fn new() -> Result<Self, String> {
         Err("O motor Direct3D 11 exige Windows 10/11.".into())
     }
-    fn dispatch_and_verify(&mut self) -> Result<u64, String> {
+    fn dispatch_batch_and_verify(&mut self, _batch_size: u32) -> Result<u64, String> {
         Err("Direct3D 11 indisponível.".into())
     }
 }
@@ -1349,6 +1344,9 @@ mod tests {
         assert_eq!(GpuTestProfile::Quick.duration_seconds(), 300);
         assert_eq!(GpuTestProfile::Standard.duration_seconds(), 900);
         assert_eq!(GpuTestProfile::Extended.duration_seconds(), 1800);
+        assert_eq!(GpuTestProfile::Quick.dispatch_batch_size(), 4);
+        assert_eq!(GpuTestProfile::Standard.dispatch_batch_size(), 8);
+        assert_eq!(GpuTestProfile::Extended.dispatch_batch_size(), 12);
     }
     #[test]
     fn telemetry_ranges_are_validated() {
