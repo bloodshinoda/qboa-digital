@@ -182,10 +182,12 @@ internal static class Program
             var gpuSensors = UpdatedGpuHardware().SelectMany(item => item.Sensors)
                 .Where(sensor => sensor.Value.HasValue && double.IsFinite(sensor.Value.Value))
                 .ToArray();
-            var gpuTemperature = gpuSensors.Where(sensor => sensor.SensorType == SensorType.Temperature &&
-                    sensor.Value is > 0 and <= 150)
-                .OrderByDescending(sensor => sensor.Value).FirstOrDefault();
-            var cpuTemperature = gpuTemperature is null && allowCpuFallback
+            var gpuTemperature = allowCpuFallback
+                ? null
+                : gpuSensors.Where(sensor => sensor.SensorType == SensorType.Temperature &&
+                        sensor.Value is > 0 and <= 150)
+                    .OrderByDescending(sensor => sensor.Value).FirstOrDefault();
+            var cpuTemperature = allowCpuFallback
                 ? ReadCpuTemperatures().OrderByDescending(sensor => sensor.Value).FirstOrDefault()
                 : null;
             var temperature = gpuTemperature?.Value ?? cpuTemperature?.Value;
