@@ -46,14 +46,25 @@ pub(crate) struct GpuAdapter {
     pub name: String,
     pub driver_version: Option<String>,
     pub memory_bytes: Option<u64>,
+    #[serde(default)]
+    pub adapter_compatibility: Option<String>,
+    #[serde(default)]
+    pub pnp_device_id: Option<String>,
+    #[serde(default)]
+    pub adapter_type: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct GpuInventory {
     pub adapters: Vec<GpuAdapter>,
     pub sensor_available: bool,
+    pub gpu_sensor_available: bool,
+    pub cpu_sensor_available: bool,
+    pub integrated_gpu_detected: bool,
+    pub temperature_source: String,
     pub sensor_provider: Option<String>,
     pub temperature_sensors: Vec<String>,
+    pub cpu_temperature_sensors: Vec<String>,
     pub sensor_note: String,
 }
 
@@ -63,6 +74,7 @@ pub(crate) struct GpuTelemetrySample {
     pub timestamp_utc: String,
     pub temperature_c: Option<f64>,
     pub temperature_sensor: Option<String>,
+    pub temperature_source: Option<String>,
     pub utilization_percent: Option<f64>,
     pub frequency_mhz: Option<f64>,
 }
@@ -74,6 +86,7 @@ pub(crate) struct GpuTestReport {
     pub adapter_names: Vec<String>,
     pub driver_versions: Vec<String>,
     pub api: String,
+    pub temperature_source: String,
     pub profile: GpuTestProfile,
     pub target_duration_seconds: u64,
     pub duration_ms: u64,
@@ -112,6 +125,7 @@ struct RawTelemetry {
     timestamp_utc: String,
     temperature_c: Option<f64>,
     temperature_sensor: Option<String>,
+    temperature_source: Option<String>,
     utilization_percent: Option<f64>,
     frequency_mhz: Option<f64>,
 }
@@ -136,6 +150,38 @@ pub(crate) fn is_active() -> bool {
         .is_some_and(|entry| matches!(entry.snapshot.lifecycle.as_str(), "running" | "cancelling"))
 }
 
+
+fn classify_adapter(adapter: &GpuAdapter) -> String {
+    let name = adapter.name.to_ascii_lowercase();
+    let compatibility = adapter.adapter_compatibility.as_deref().unwrap_or("").to_ascii_lowercase();
+    let pnp = adapter.pnp_device_id.as_deref().unwrap_or("").to_ascii_uppercase();
+    let intel = compatibility.contains("intel") || pnp.contains("VEN_8086") || name.contains("intel");
+    let nvidia = compatibility.contains("nvidia") || pnp.contains("VEN_10DE") || name.contains("nvidia");
+    let amd = compatibility.contains("advanced micro devices") || compatibility.contains("amd")
+        || pnp.contains("VEN_1002") || name.contains("amd") || name.contains("radeon");
+    if intel {
+        if name.contains("arc") { return "dedicated".into(); }
+        if ["uhd", "iris", "hd graphics", "intel graphics", "xe graphics"]
+            .iter().any(|token| name.contains(token)) {
+            return "integrated".into();
+        }
+    }
+    if amd {
+        if name.contains("radeon rx") || name.contains(" rx ") || name.contains("radeon pro") {
+            return "dedicated".into();
+        }
+        if name.contains("radeon(tm) graphics") || name == "radeon graphics"
+            || name.contains("radeon 780m") || name.contains("radeon 760m")
+            || name.contains("radeon 680m") || name.contains("radeon 660m")
+            || name.contains("radeon vega 3") || name.contains("radeon vega 6")
+            || name.contains("radeon vega 8") {
+            return "integrated".into();
+        }
+    }
+    if nvidia { return "dedicated".into(); }
+    "unknown".into()
+}
+
 pub(crate) fn collect_inventory(app_data_dir: &Path) -> Result<GpuInventory, String> {
     #[cfg(not(target_os = "windows"))]
     {
@@ -151,51 +197,61 @@ $items=@(Get-CimInstance Win32_VideoController | ForEach-Object {
     name=[string]$_.Name
     driver_version=if ($_.DriverVersion) {[string]$_.DriverVersion} else {$null}
     memory_bytes=if ($_.AdapterRAM -and [uint64]$_.AdapterRAM -gt 0) {[uint64]$_.AdapterRAM} else {$null}
+    adapter_compatibility=if ($_.AdapterCompatibility) {[string]$_.AdapterCompatibility} else {$null}
+    pnp_device_id=if ($_.PNPDeviceID) {[string]$_.PNPDeviceID} else {$null}
   }
 })
 if ($items.Count -eq 0) { throw 'O Windows não identificou adaptadores gráficos.' }
 ConvertTo-Json -InputObject $items -Depth 4 -Compress
 "#;
         let output = cpu_diagnostic::run_powershell_once(script)?;
-        let adapters: Vec<GpuAdapter> = serde_json::from_str(&output)
+        let mut adapters: Vec<GpuAdapter> = serde_json::from_str(&output)
             .or_else(|_| serde_json::from_str::<GpuAdapter>(&output).map(|item| vec![item]))
             .map_err(|e| format!("Inventário de GPU inválido: {e}"))?;
+        for adapter in &mut adapters {
+            adapter.adapter_type = classify_adapter(adapter);
+        }
         let discovery = run_hardware_monitor_once(app_data_dir, "gpu-discover")?;
         let value: serde_json::Value = serde_json::from_str(&discovery)
             .map_err(|e| format!("Resposta de sensores de GPU inválida: {e}"))?;
-        let sensors = value
-            .get("sensors")
-            .and_then(|v| v.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| {
-                        item.get("name")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let available = value
-            .get("available")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
+        let read_sensor_names = |key: &str| {
+            value.get(key).and_then(|v| v.as_array())
+                .map(|items| items.iter().filter_map(|item| {
+                    item.get("name").and_then(|v| v.as_str()).map(str::to_string)
+                }).collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        let sensors = read_sensor_names("sensors");
+        let cpu_sensors = read_sensor_names("cpu_temperature_sensors");
+        let gpu_available = value.get("available").and_then(|v| v.as_bool()).unwrap_or(false)
             && !sensors.is_empty();
-        let note = value
-            .get("note")
-            .and_then(|v| v.as_str())
-            .unwrap_or(if available {
-                "Sensores térmicos de GPU detectados."
-            } else {
-                "Nenhum sensor térmico compatível de GPU foi encontrado. O teste não será iniciado."
-            })
-            .to_string();
+        let cpu_available = !cpu_sensors.is_empty();
+        let integrated_gpu_detected = !adapters.is_empty()
+            && adapters.iter().all(|adapter| adapter.adapter_type == "integrated");
+        let use_cpu_fallback = !gpu_available && integrated_gpu_detected && cpu_available;
+        let available = gpu_available || use_cpu_fallback;
+        let temperature_source = if gpu_available { "gpu" } else if use_cpu_fallback { "cpu" } else { "none" };
+        let note = if gpu_available {
+            "Sensor térmico próprio da GPU disponível. O teste será protegido pela temperatura do chip gráfico.".to_string()
+        } else if use_cpu_fallback {
+            "GPU integrada identificada. Como ela não expõe temperatura própria, o teste usará a temperatura da CPU como referência térmica indireta. A temperatura exibida será identificada como CPU.".to_string()
+        } else if integrated_gpu_detected {
+            "GPU integrada identificada, mas não há sensor térmico válido da CPU para servir como referência de segurança. O teste permanecerá indisponível.".to_string()
+        } else {
+            value.get("note").and_then(|v| v.as_str())
+                .unwrap_or("Nenhum sensor térmico próprio da GPU foi encontrado. O teste não será iniciado sem monitoramento térmico confiável.")
+                .to_string()
+        };
         Ok(GpuInventory {
             adapters,
             sensor_available: available,
+            gpu_sensor_available: gpu_available,
+            cpu_sensor_available: cpu_available,
+            integrated_gpu_detected,
+            temperature_source: temperature_source.into(),
             sensor_provider: available.then(|| "LibreHardwareMonitorLib 0.9.6 (integrado)".into()),
             temperature_sensors: sensors,
+            cpu_temperature_sensors: cpu_sensors,
             sensor_note: note,
         })
     }
@@ -207,7 +263,7 @@ pub(crate) fn start<R: Runtime>(
     profile: GpuTestProfile,
     inventory: GpuInventory,
 ) -> Result<GpuTestSessionSnapshot, String> {
-    if !inventory.sensor_available {
+    if !inventory.sensor_available || inventory.temperature_source == "none" {
         return Err(inventory.sensor_note);
     }
     let session_id = format!(
@@ -399,7 +455,7 @@ fn run_test<R: Runtime>(
     inventory: &GpuInventory,
     cancel: &AtomicBool,
 ) -> Result<GpuTestReport, String> {
-    let child = start_telemetry_process(app_data_dir)?;
+    let child = start_telemetry_process(app_data_dir, inventory.temperature_source == "cpu")?;
     let mut child = TelemetryProcess(child);
     let stdout = child
         .0
@@ -437,14 +493,18 @@ fn run_test<R: Runtime>(
             .temperature_sensor
             .as_deref()
             .filter(|v| !v.trim().is_empty())
-            .ok_or("O coletor não identificou a origem da temperatura da GPU.")?
+            .ok_or("O coletor não identificou a origem da referência térmica.")?
             .to_string();
+        let source = raw.temperature_source.as_deref().unwrap_or("gpu");
+        if source != inventory.temperature_source {
+            return Err("A origem da leitura térmica mudou durante a pré-verificação. O teste não foi iniciado.".into());
+        }
         if temp >= THERMAL_STOP_C {
             return Err(format!("A GPU já está a {temp:.1} °C antes do teste. Aguarde resfriar abaixo de {THERMAL_STOP_C:.0} °C."));
         }
-        first = Some((raw, temp, sensor));
+        first = Some((raw, temp, sensor, source.to_string()));
     }
-    let (first_raw, first_temp, first_sensor) =
+    let (first_raw, first_temp, first_sensor, first_source) =
         first.ok_or("Pré-verificação térmica da GPU incompleta.")?;
 
     let mut engine = D3d11Engine::new()?;
@@ -456,6 +516,7 @@ fn run_test<R: Runtime>(
         timestamp_utc: first_raw.timestamp_utc,
         temperature_c: Some(first_temp),
         temperature_sensor: Some(first_sensor),
+        temperature_source: Some(first_source),
         utilization_percent: first_raw.utilization_percent.filter(|v| valid_percent(*v)),
         frequency_mhz: first_raw
             .frequency_mhz
@@ -518,7 +579,8 @@ fn run_test<R: Runtime>(
                     .temperature_sensor
                     .as_deref()
                     .filter(|v| !v.trim().is_empty());
-                if temperature.is_none() || sensor.is_none() {
+                let source = raw.temperature_source.as_deref().unwrap_or("gpu");
+                if temperature.is_none() || sensor.is_none() || source != inventory.temperature_source {
                     status = "sensor_lost".into();
                     break;
                 }
@@ -529,6 +591,7 @@ fn run_test<R: Runtime>(
                     timestamp_utc: raw.timestamp_utc,
                     temperature_c: Some(temperature),
                     temperature_sensor: raw.temperature_sensor,
+                    temperature_source: Some(source.to_string()),
                     utilization_percent: raw.utilization_percent.filter(|v| valid_percent(*v)),
                     frequency_mhz: raw
                         .frequency_mhz
@@ -579,10 +642,13 @@ fn run_test<R: Runtime>(
     }
     match status.as_str() {
         "thermal_limit_reached" => report.warnings.push(format!("Teste interrompido ao atingir o limite térmico conservador do QBoa ({THERMAL_STOP_C:.0} °C); isso não representa o limite oficial do fabricante.")),
-        "sensor_lost" => report.warnings.push("A telemetria térmica da GPU foi perdida; a carga foi encerrada e as amostras parciais foram preservadas.".into()),
+        "sensor_lost" => report.warnings.push("A referência térmica foi perdida; a carga foi encerrada e as amostras parciais foram preservadas.".into()),
         "cancelled" => report.warnings.push("Teste cancelado pelo usuário; os dados parciais foram preservados.".into()),
         "device_error" => report.warnings.push(engine_error.unwrap_or_else(|| "O dispositivo Direct3D apresentou erro.".into())),
         _ => {}
+    }
+    if inventory.temperature_source == "cpu" {
+        report.warnings.push("A temperatura registrada é da CPU e serve somente como referência térmica indireta para a GPU integrada; não representa a temperatura real do chip gráfico.".into());
     }
     report.warnings.push("O motor executa carga sintética por compute shader Direct3D 11 no adaptador de hardware padrão selecionado pelo Windows. Em sistemas híbridos, o inventário lista todos os adaptadores, mas o laudo não associa com precisão o dispositivo D3D ao nome WMI. Não testa todos os recursos gráficos, toda a VRAM nem certifica estabilidade universal.".into());
     persist_report(app_data_dir, &report)?;
@@ -628,6 +694,7 @@ fn build_report(
             .filter_map(|a| a.driver_version.clone())
             .collect(),
         api: "Direct3D 11 Compute Shader (hardware)".into(),
+        temperature_source: inventory.temperature_source.clone(),
         profile,
         target_duration_seconds: profile.duration_seconds(),
         duration_ms,
@@ -705,11 +772,11 @@ impl Drop for TelemetryProcess {
 }
 
 #[cfg(target_os = "windows")]
-fn start_telemetry_process(app_data_dir: &Path) -> Result<Child, String> {
+fn start_telemetry_process(app_data_dir: &Path, use_cpu_fallback: bool) -> Result<Child, String> {
     use std::os::windows::process::CommandExt;
     let executable = cpu_diagnostic::extract_hardware_monitor(app_data_dir)?;
     Command::new(executable)
-        .arg("gpu-stream")
+        .arg(if use_cpu_fallback { "gpu-stream-cpu-fallback" } else { "gpu-stream" })
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .creation_flags(0x08000000)
@@ -717,7 +784,7 @@ fn start_telemetry_process(app_data_dir: &Path) -> Result<Child, String> {
         .map_err(|e| format!("Não foi possível iniciar telemetria da GPU: {e}"))
 }
 #[cfg(not(target_os = "windows"))]
-fn start_telemetry_process(_app_data_dir: &Path) -> Result<Child, String> {
+fn start_telemetry_process(_app_data_dir: &Path, _use_cpu_fallback: bool) -> Result<Child, String> {
     Err("A telemetria de GPU exige Windows.".into())
 }
 
