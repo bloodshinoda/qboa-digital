@@ -2644,7 +2644,7 @@ fn execute_storage_script(
             if bytes_read == 0 {
                 break;
             }
-            if let Some(sample) = line.trim_end_matches(['\\r', '\\n']).strip_prefix("QBOA_PROGRESS|") {
+            if let Some(sample) = line.trim_end_matches(['\r', '\n']).strip_prefix("QBOA_PROGRESS|") {
                 if let Some(app) = app {
                     let fields: Vec<&str> = sample.split('|').collect();
                     if fields.len() == 6 {
