@@ -3902,7 +3902,8 @@ async function runDiagnostic(mode, target = null) {
         status.textContent = "Testando unidade " + (index + 1) + " de " + selectedIds.length + " · " + diskId + "...";
         try {
           const report = await Qboa.runStorageDiagnostic(diskId);
-          renderStorageReport(report, completed > 0 || failures.length > 0);
+          const hasLiveBenchmark = Boolean(document.querySelector("#diagnostic-results .storage-live-benchmark"));
+          renderStorageReport(report, completed > 0 || failures.length > 0 || hasLiveBenchmark);
           completed++;
           if (report.execution_status === "partial") failures.push((report.disk_name || diskId) + ": teste parcial");
         } catch (error) {
