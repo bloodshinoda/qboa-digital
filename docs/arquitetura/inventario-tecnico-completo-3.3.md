@@ -207,3 +207,218 @@ Critérios de aceite:
 - Históricos continuam legíveis após atualização do aplicativo.
 - Exportações correspondem exatamente à coleta selecionada.
 - Nenhum teste de carga, benchmark ou reparo é disparado pelo inventário.
+
+## 11. Modelo de dados tipado e contratos por categoria
+
+Esta seção é normativa para a implementação. Os nomes representam os tipos Rust canônicos; JSON usa snake_case. Estados, classificações e unidades conhecidas devem ser enums/tipos, não strings livres.
+
+### 11.1 Tipos escalares e unidades
+
+| Conceito | Tipo | Regra |
+|---|---|---|
+| Identificadores internos | UUID v4 | Nunca usar hostname como chave |
+| Data/hora | DateTime<Utc>, RFC 3339 | Sempre UTC |
+| Duração | u64 | Milissegundos |
+| Capacidade/tamanho | u64 | Bytes |
+| Frequência | u64 ou f64 | MHz |
+| Taxa de link | u64 | Bits por segundo |
+| Percentual | f64 | 0–100; rejeitar NaN/infinito |
+| Endereço IP | std::net::IpAddr | Representação canônica |
+| Versões externas | Option<String> | Não presumir formato semântico |
+
+Normalizar strings vazias para ausência quando a fonte as usa como “não informado”. Preservar códigos desconhecidos em raw_value quando úteis. Não converter ausência em zero, false ou string vazia.
+
+### 11.2 Evidência comum
+
+Tipos comuns:
+
+- InventoryValueState: Available, NotDetected, NotApplicable, Unavailable, Error.
+- InventoryConfidence: Confirmed, Identified, Estimated, Unavailable.
+- InventorySource: provider: String, member: Option<String>, native_code: Option<String>.
+- Observed<T>: value: Option<T>, state: InventoryValueState, confidence: InventoryConfidence, source: Option<InventorySource>, collected_at: DateTime<Utc>, note: Option<String>.
+- InventoryIssue: code: String estável, message: String segura para UI, source: Option<InventorySource>, native_code: Option<String>.
+- CategoryCollection<T>: state, started_at, finished_at, duration_ms, data: Option<T>, issues: Vec<InventoryIssue>, warnings: Vec<String>.
+
+Invariantes de Observed<T>:
+- available exige value; confiança confirmada/identificada, ou estimada com nota explicativa.
+- not_detected, not_applicable, unavailable e error exigem value = None.
+- not_detected significa enumeração concluída sem correspondência; não prova ausência física.
+- not_applicable significa que a propriedade não se aplica ao contexto.
+- unavailable significa que a fonte não expõe o dado ou não há método suportado.
+- error significa que uma consulta aplicável falhou e exige InventoryIssue.
+- confidence = unavailable somente com state = unavailable.
+- Uma propriedade com erro não invalida as demais propriedades da categoria.
+- Uma coleção disponível pode ser vazia somente quando a enumeração terminou com sucesso. Falha de enumeração é error, nunca lista vazia.
+- Itens de uma coleção podem ter propriedades indisponíveis sem invalidar os outros itens.
+
+### 11.3 Raiz persistida
+
+TechnicalInventory:
+- schema_version: u32 (inicialmente 1)
+- inventory_id: UUID
+- app_version: String
+- machine: MachineIdentity
+- started_at, finished_at: DateTime<Utc>
+- duration_ms: u64
+- collection_status: InventoryRunStatus
+- categories: InventoryCategories
+- warnings: Vec<String>
+
+InventoryRunStatus: Completed, Partial, Failed.
+
+MachineIdentity:
+- computer_name, manufacturer, model: Observed<String>
+- device_kind: Observed<DeviceKind>
+- is_virtual_machine: Observed<bool>
+
+DeviceKind: Desktop, Laptop, Tablet, Workstation, Server, VirtualMachine, Unknown.
+
+InventoryCategories contém uma CategoryCollection tipada para cada chave estável:
+- system: SystemCategory
+- firmware: FirmwareCategory
+- cpu: CpuCategory
+- memory: MemoryCategory
+- gpu: GpuCategory
+- storage: StorageCategory
+- displays: DisplayCategory
+- network: NetworkCategory
+- audio_peripherals: AudioPeripheralCategory
+- power: PowerCategory
+- software: SoftwareCategory
+- drivers: DriverCategory
+
+Não incluir serial SMBIOS, UUID de hardware ou MAC na identidade resumida da máquina.
+
+### 11.4 Contratos das doze categorias
+
+Todos os campos escalares abaixo são Observed<T>, exceto quando indicado como Vec<T> ou estrutura composta. Campos que a fonte não expõe devem ser unavailable, não omitidos silenciosamente.
+
+**A. Sistema e equipamento — SystemCategory**
+- os_name, os_edition, os_version, display_version: Observed<String>
+- build_number, ubr: Observed<u32>
+- architecture: Observed<OsArchitecture> (X86, X64, Arm64, Unknown)
+- ui_language, system_locale: Observed<String>
+- install_date, boot_time: Observed<DateTime<Utc>>
+- computer_name, domain_or_workgroup: Observed<String>
+- device_kind: Observed<DeviceKind>
+- Não coletar usuário logado, SID, nome de perfil ou caminhos pessoais.
+
+**B. Placa-mãe e firmware — FirmwareCategory**
+- motherboard: MotherboardInfo com manufacturer, product, version e serial_number: Observed<Sensitive<String>>.
+- bios: BiosInfo com vendor, version, release_date e mode: Observed<FirmwareMode>.
+- FirmwareMode: Uefi, Legacy, Unknown.
+- tpm: TpmInfo com present, ready, enabled, activated, spec_version e manufacturer, cada propriedade observada independentemente.
+- secure_boot_enabled: Observed<bool>.
+- Não inferir compatibilidade com Windows 11 ou conformidade de segurança.
+
+**C. CPU — CpuCategory**
+- processors: Vec<ProcessorInfo>, suportando múltiplos sockets.
+- ProcessorInfo: name, manufacturer, processor_id, socket, architecture, physical_cores, logical_processors, base_clock_mhz, max_clock_mhz, virtualization_firmware_enabled, virtualization_supported, l1_cache_bytes, l2_cache_bytes, l3_cache_bytes.
+- Frequências e contagens são dados reportados pela fonte, não benchmark nem frequência instantânea.
+- Não coletar temperatura, consumo ou utilização como requisito do inventário.
+
+**D. RAM — MemoryCategory**
+- total_physical_bytes, available_physical_bytes, total_virtual_bytes, available_virtual_bytes, reported_slot_count.
+- modules: Vec<MemoryModuleInfo>.
+- MemoryModuleInfo: locator, bank_label, capacity_bytes, manufacturer, part_number, memory_type, form_factor, configured_speed_mhz, smbios_speed_mhz, data_width_bits, total_width_bits, configured_voltage_mv.
+- MemoryTechnology: DDR, DDR2, DDR3, DDR4, DDR5, LPDDR3, LPDDR4, LPDDR4X, LPDDR5, LPDDR5X, Unknown; preservar código SMBIOS bruto.
+- MemoryFormFactor: Dimm, Sodimm, Onboard, RowOfChips, Unknown.
+- Timings CAS e perfis XMP/EXPO ficam unavailable sem fonte confiável; nunca deduzir pelo clock.
+
+**E. GPU — GpuCategory**
+- adapters: Vec<GpuAdapterInfo>.
+- GpuAdapterInfo: name, vendor, device_id, pnp_device_id: Observed<Sensitive<String>>, adapter_kind, driver_provider, driver_version, driver_date, dedicated_memory_bytes, shared_memory_bytes, is_primary, active_outputs.
+- GpuAdapterKind: Integrated, Dedicated, Virtual, Unknown.
+- graphics_apis: Vec<GraphicsApiInfo>, somente capacidades obtidas por consulta leve e confiável.
+- Memória compartilhada nunca deve ser apresentada como VRAM dedicada. is_primary só pode ser true quando a API resolver sem ambiguidade.
+- Não executar shader, benchmark ou teste de estabilidade para preencher inventário.
+
+**F. Armazenamento — StorageCategory**
+- physical_disks: Vec<PhysicalDiskInfo>; volumes: Vec<VolumeInfo>.
+- PhysicalDiskInfo: model, manufacturer, serial_number: Observed<Sensitive<String>>, firmware_revision, interface_type, media_type, bus_type, capacity_bytes, logical_sector_bytes, physical_sector_bytes.
+- StorageMediaType: Hdd, Ssd, Scm, Unknown.
+- VolumeInfo: volume_id, drive_letter, mount_points, label, file_system, capacity_bytes, free_bytes, associated_disk_ids.
+- Não presumir NVMe/SSD pela velocidade ou nome. Não executar SMART prolongado, benchmark, leitura integral, reparo ou teste de superfície.
+
+**G. Monitores — DisplayCategory**
+- displays: Vec<DisplayInfo>.
+- DisplayInfo: manufacturer, model, friendly_name, edid_product_code, serial_number: Observed<Sensitive<String>>, connection_type, connection_state, is_primary, current_mode, native_mode.
+- DisplayConnectionState: Connected, Disconnected, Unknown.
+- DisplayMode: width_px: u32, height_px: u32, refresh_rate_millihz: u32, bits_per_color: Option<u8>.
+- Não apresentar monitor desconectado como conectado; não inferir modelo sem EDID.
+
+**H. Rede — NetworkCategory**
+- adapters: Vec<NetworkAdapterInfo>.
+- NetworkAdapterInfo: name, description, manufacturer, interface_kind, is_physical, status, link_speed_bps, mac_address: Observed<Sensitive<String>>, driver_provider, driver_version, dhcp_enabled, ipv4: Vec<IpConfiguration>, ipv6: Vec<IpConfiguration>, gateways: Vec<IpAddr>, dns_servers: Vec<IpAddr>, interface_metric.
+- IpConfiguration: address: IpAddr, prefix_length: u8, is_temporary: Option<bool>.
+- NetworkLinkState: Up, Down, Dormant, NotPresent, Unknown.
+- Enumerar adaptadores físicos e virtuais. Não executar ping, DNS ativo, traceroute, teste de porta ou throughput.
+
+**I. Áudio e periféricos — AudioPeripheralCategory**
+- audio_devices: Vec<AudioDeviceInfo>; peripherals: Vec<PeripheralInfo>.
+- AudioDeviceInfo: name, manufacturer, device_id, device_role, is_default, state, driver_version.
+- AudioDeviceRole: Input, Output, Controller, Unknown.
+- PeripheralInfo: name, manufacturer, device_class, bus_type, connection_state, driver_version, is_present.
+- Classes relevantes: USB, Bluetooth, câmera, biometria, touchscreen, caneta, teclado e mouse.
+- Não coletar teclas, imagens, áudio, impressões digitais ou conteúdo de dispositivos.
+
+**J. Bateria e energia — PowerCategory**
+- batteries: Vec<BatteryInfo>; ac_power_state: Observed<AcPowerState>; active_power_scheme: Observed<PowerSchemeInfo>.
+- BatteryInfo: name, manufacturer, chemistry, design_capacity_mwh, full_charge_capacity_mwh, remaining_capacity_mwh, charge_percent, cycle_count, status.
+- AcPowerState: Online, Offline, Unknown.
+- Em desktop sem bateria, enumeração concluída vazia e estado not_applicable; não gerar falha.
+- Não executar descarga nem alterar plano, suspensão ou política de energia.
+
+**K. Softwares — SoftwareCategory**
+- applications: Vec<InstalledApplicationInfo>.
+- InstalledApplicationInfo: display_name, display_version, publisher, architecture, install_date, install_scope, source_registry, estimated_size_bytes, uninstall_entry_id.
+- InstallScope: Machine, User, Unknown.
+- uninstall_entry_id é opaco; nunca executar comandos de desinstalação.
+- Deduplicar entradas equivalentes preservando escopo/origem quando diferentes. Não executar binários nem varrer diretórios pessoais. Não prometer cobertura de aplicativos portáteis.
+
+**L. Drivers — DriverCategory**
+- devices: Vec<DriverDeviceInfo>.
+- DriverDeviceInfo: device_instance_id: Sensitive<String>, friendly_name, device_class, manufacturer, driver_provider, driver_version, driver_date, inf_name, problem_code: Observed<u32>, status, is_present.
+- PnpDeviceState: Started, Disabled, Error, Unknown.
+- O identificador PnP é sensível e deve ser omitido nas exportações padrão.
+- Não instalar, atualizar, remover ou habilitar drivers.
+
+### 11.5 Estados das categorias e execução
+
+- available: coleta concluída e dados retornados; campos individuais ainda podem estar indisponíveis.
+- not_detected: enumeração válida sem elementos correspondentes.
+- not_applicable: categoria/propriedade não se aplica ao contexto.
+- unavailable: plataforma/provedor não oferece método suportado.
+- error: falha operacional; preencher issues com código e origem.
+- Completed: todas as categorias processadas sem erro operacional; not_detected/not_applicable/unavailable são resultados válidos.
+- Partial: pelo menos uma categoria falhou, mas outra foi processada.
+- Failed: falha da orquestração ou nenhuma categoria pôde ser processada. Preservar metadados e erros; não criar inventário vazio apresentado como sucesso.
+
+### 11.6 Identificadores sensíveis e exportação
+
+Tipos:
+- Sensitive<T> { value: T, classification: SensitiveDataKind }
+- SensitiveDataKind: HardwareSerial, NetworkMac, PnpInstanceId.
+- InventoryExportOptions { include_sensitive_identifiers: bool }, default false.
+
+O inventário local pode preservar serial, MAC e identificadores PnP quando coletados. O exportador deve aplicar redação em uma cópia/visão de exportação, sem mutar o histórico. A opção deve ser explícita em cada exportação, começar sempre false e informar quais classes serão incluídas. Preferências anteriores não podem ativá-la silenciosamente.
+
+### 11.7 Serialização, compatibilidade e validação
+
+- schema_version = 1 na primeira versão. Mudança incompatível exige incremento e migração explícita.
+- Campos opcionais ausentes são None; não serializar strings vazias como substituto.
+- Enums em snake_case; valores numéricos preservam unidades e não são armazenados formatados.
+- Ordenar coleções por identificador estável/nome normalizado; nunca usar posição de enumeração como identidade.
+- Validar: percentuais 0–100; prefixo IP dentro do limite da família; free_bytes <= capacity_bytes quando ambos conhecidos; finished_at >= started_at; duração coerente; consistência entre state e value.
+- Limitar tamanhos de strings, listas e arquivos; tratar dados externos como não confiáveis; nenhum campo pode ser interpretado como comando ou caminho executável.
+- Relatório de versão futura não pode ser sobrescrito silenciosamente. Abrir somente se o leitor puder preservar os dados sem perda; caso contrário, informar incompatibilidade.
+- Testes obrigatórios: round-trip JSON; todos os estados; estado/valor inconsistente; categoria parcial; lista vazia válida versus falha de enumeração; enum desconhecido; timestamps; limites numéricos; redação; schema futuro; arquivo truncado/corrompido.
+
+### 11.8 Limites para a implementação
+
+- Criar módulo independente technical_inventory para modelos, validação e orquestração; coletores separados por domínio.
+- Não concentrar consultas em main.rs.
+- Não reutilizar structs de teste/diagnóstico que carregam sensores, sessões, progresso ou benchmark. Adaptar somente lógica de identificação.
+- memory_inventory.rs pode fornecer dados tipados de módulos, sem tornar seu formato atual de UI o contrato persistido.
+- capability_inventory.rs continua dono da aba Capacidades; compartilhar funções de baixo nível quando adequado, sem acoplar o formato CapabilityInventory à persistência do inventário.
+- Primeira fatia: modelos comuns, serialização, validação e testes unitários. Sem UI e sem coletar todas as categorias nesta etapa.
