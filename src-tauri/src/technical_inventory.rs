@@ -868,6 +868,16 @@ mod tests {
         }
     }
 
+    fn mark_failed<T>(item: &mut CategoryCollection<T>) {
+        item.state = InventoryValueState::Error;
+        item.issues.push(InventoryIssue {
+            code: "orchestration_failed".into(),
+            message: "Falha simulada".into(),
+            source: None,
+            native_code: None,
+        });
+    }
+
     fn sample(status: InventoryRunStatus) -> TechnicalInventory {
         let mut system: CategoryCollection<SystemCategory> = category();
         let mut firmware: CategoryCollection<FirmwareCategory> = category();
@@ -1038,28 +1048,18 @@ mod tests {
                 native_code: None,
             });
         } else {
-            for item in [
-                &mut system,
-                &mut firmware,
-                &mut cpu,
-                &mut memory,
-                &mut gpu,
-                &mut storage,
-                &mut displays,
-                &mut network,
-                &mut audio_peripherals,
-                &mut power,
-                &mut software,
-                &mut drivers,
-            ] {
-                item.state = InventoryValueState::Error;
-                item.issues.push(InventoryIssue {
-                    code: "orchestration_failed".into(),
-                    message: "Falha simulada".into(),
-                    source: None,
-                    native_code: None,
-                });
-            }
+            mark_failed(&mut system);
+            mark_failed(&mut firmware);
+            mark_failed(&mut cpu);
+            mark_failed(&mut memory);
+            mark_failed(&mut gpu);
+            mark_failed(&mut storage);
+            mark_failed(&mut displays);
+            mark_failed(&mut network);
+            mark_failed(&mut audio_peripherals);
+            mark_failed(&mut power);
+            mark_failed(&mut software);
+            mark_failed(&mut drivers);
         }
 
         TechnicalInventory {
