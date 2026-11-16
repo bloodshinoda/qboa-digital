@@ -1160,7 +1160,9 @@ void main(uint3 tid : SV_DispatchThreadID) {
             }
             return Err("A GPU retornou um buffer de leitura vazio.".into());
         }
-        let values = unsafe { std::slice::from_raw_parts(mapped.data as *const u32, GPU_THREAD_COUNT as usize * 4) };
+        let values = unsafe {
+            std::slice::from_raw_parts(mapped.data as *const u32, GPU_THREAD_COUNT as usize * 4)
+        };
         let mut errors = 0u64;
         for id in 0..GPU_THREAD_COUNT {
             let expected = reference(id);
