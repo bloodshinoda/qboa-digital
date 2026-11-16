@@ -505,6 +505,18 @@ if ($mode -eq 'selftest') {
         }
 
         foreach ($spec in (Get-MeasurementSpec)) {
+            $samples = New-Object 'System.Collections.Generic.List[object]'
+            $progressScript = {
+                param($elapsedMs, $totalBytes, $totalOperations, $mbPerSecond, $iops)
+                $samples.Add([pscustomobject]@{
+                    elapsed_ms = [long]$elapsedMs
+                    bytes_transferred = [long]$totalBytes
+                    operations = [long]$totalOperations
+                    mb_per_second = [Math]::Round([double]$mbPerSecond, 2)
+                    iops = [Math]::Round([double]$iops, 2)
+                })
+            }.GetNewClosure()
+            $progressCallback = [System.Action[long,long,long,double,double]]$progressScript
             $result = [QboaStorageBench]::Run(
                 $selfTestPath,
                 $selfTestFileBytes,
@@ -513,16 +525,26 @@ if ($mode -eq 'selftest') {
                 [bool]$spec.write,
                 [bool]$spec.random,
                 $selfTestMaxBytes,
-                5000
+                5000,
+                $progressCallback
             )
             $seconds = [double]$result.DurationMs / 1000.0
             if ($seconds -le 0 -or $result.Bytes -le 0 -or $result.Operations -le 0) {
                 throw ('A medição de autoteste não produziu I/O: ' + $spec.kind)
             }
+            if ($samples.Count -eq 0) {
+                throw ('O callback não produziu amostras de desempenho: ' + $spec.kind)
+            }
+            $mbPerSecond = [Math]::Round(([double]$result.Bytes / 1048576.0 / $seconds), 2)
+            $iops = [Math]::Round(([double]$result.Operations / $seconds), 2)
             if ($spec.unit -eq 'MB/s') {
-                $measuredValue = [Math]::Round(([double]$result.Bytes / 1048576.0 / $seconds), 2)
+                $measuredValue = $mbPerSecond
+                $secondaryValue = $iops
+                $secondaryUnit = 'IOPS'
             } else {
-                $measuredValue = [Math]::Round(([double]$result.Operations / $seconds), 2)
+                $measuredValue = $iops
+                $secondaryValue = $mbPerSecond
+                $secondaryUnit = 'MB/s'
             }
             $selfTestResults += [pscustomobject]@{
                 kind = $spec.kind
@@ -532,6 +554,11 @@ if ($mode -eq 'selftest') {
                 write = [bool]$spec.write
                 random = [bool]$spec.random
                 value = $measuredValue
+                secondary_value = $secondaryValue
+                secondary_unit = $secondaryUnit
+                mb_per_second = $mbPerSecond
+                iops = $iops
+                sample_count = $samples.Count
                 bytes_transferred = [long]$result.Bytes
                 duration_ms = [Math]::Round($result.DurationMs, 2)
                 operations = [long]$result.Operations
