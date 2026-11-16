@@ -20,14 +20,14 @@ internal static class Program
     private sealed record Telemetry(string TimestampUtc, double? TemperatureC, string? TemperatureSensor,
         double? CpuUtilizationPercent, double? FrequencyMhz);
     private sealed record GpuSensorInfo(string Name, string Identifier, double Value);
-    private sealed record GpuDiscovery(bool Available, string Provider, IReadOnlyList<GpuSensorInfo> Sensors, string Note);
+    private sealed record GpuDiscovery(bool Available, string Provider, IReadOnlyList<GpuSensorInfo> Sensors, IReadOnlyList<GpuSensorInfo> CpuTemperatureSensors, string Note);
     private sealed record GpuTelemetry(string TimestampUtc, double? TemperatureC, string? TemperatureSensor,
-        double? UtilizationPercent, double? FrequencyMhz);
+        string? TemperatureSource, double? UtilizationPercent, double? FrequencyMhz);
 
     public static int Main(string[] args)
     {
         var mode = args.FirstOrDefault()?.Trim().ToLowerInvariant();
-        if (mode is not ("discover" or "stream" or "gpu-discover" or "gpu-stream"))
+        if (mode is not ("discover" or "stream" or "gpu-discover" or "gpu-stream" or "gpu-stream-cpu-fallback"))
         {
             Console.Error.WriteLine("Modo inválido. Use discover, stream, gpu-discover ou gpu-stream.");
             return 2;
@@ -42,17 +42,20 @@ internal static class Program
                 if (mode == "gpu-discover")
                 {
                     var sensors = gpuMonitor.ReadGpuTemperatures();
+                    var cpuSensors = gpuMonitor.ReadCpuTemperatures();
                     var available = sensors.Count > 0;
                     var note = available
-                        ? "Sensores térmicos de GPU detectados pelo coletor integrado."
-                        : "O coletor integrado não encontrou sensores térmicos válidos de GPU neste hardware. O teste de estabilidade não será iniciado.";
-                    Console.WriteLine(JsonSerializer.Serialize(new GpuDiscovery(available, Provider, sensors, note), JsonOptions));
+                        ? "Sensores térmicos próprios da GPU detectados pelo coletor integrado."
+                        : cpuSensors.Count > 0
+                            ? "Nenhum sensor próprio da GPU foi encontrado; sensores térmicos da CPU estão disponíveis como referência alternativa."
+                            : "Não foram encontrados sensores térmicos válidos na GPU nem na CPU.";
+                    Console.WriteLine(JsonSerializer.Serialize(new GpuDiscovery(available, Provider, sensors, cpuSensors, note), JsonOptions));
                     return 0;
                 }
 
                 while (true)
                 {
-                    Console.WriteLine(JsonSerializer.Serialize(gpuMonitor.ReadTelemetry(), JsonOptions));
+                    Console.WriteLine(JsonSerializer.Serialize(gpuMonitor.ReadTelemetry(mode == "gpu-stream-cpu-fallback"), JsonOptions));
                     Console.Out.Flush();
                     Thread.Sleep(TimeSpan.FromSeconds(1));
                 }
@@ -126,7 +129,7 @@ internal static class Program
 
     private sealed class GpuHardwareSession : IDisposable
     {
-        private readonly Computer _computer = new() { IsGpuEnabled = true };
+        private readonly Computer _computer = new() { IsGpuEnabled = true, IsCpuEnabled = true };
         public void Open() => _computer.Open();
 
         private static bool IsGpu(IHardware hardware) =>
@@ -160,23 +163,43 @@ internal static class Program
                 .Where(sensor => double.IsFinite(sensor.Value) && sensor.Value is > 0 and <= 150)
                 .ToArray();
 
-        public GpuTelemetry ReadTelemetry()
+        public IReadOnlyList<GpuSensorInfo> ReadCpuTemperatures()
         {
-            var sensors = UpdatedGpuHardware().SelectMany(item => item.Sensors)
+            foreach (var hardware in _computer.Hardware.Where(item => item.HardwareType == HardwareType.Cpu))
+                Update(hardware);
+            return _computer.Hardware
+                .Where(item => item.HardwareType == HardwareType.Cpu)
+                .SelectMany(Enumerate)
+                .SelectMany(item => item.Sensors)
+                .Where(sensor => sensor.SensorType == SensorType.Temperature && sensor.Value.HasValue)
+                .Select(sensor => new GpuSensorInfo(sensor.Name, sensor.Identifier.ToString(), sensor.Value!.Value))
+                .Where(sensor => double.IsFinite(sensor.Value) && sensor.Value is > 0 and <= 150)
+                .ToArray();
+        }
+
+        public GpuTelemetry ReadTelemetry(bool allowCpuFallback)
+        {
+            var gpuSensors = UpdatedGpuHardware().SelectMany(item => item.Sensors)
                 .Where(sensor => sensor.Value.HasValue && double.IsFinite(sensor.Value.Value))
                 .ToArray();
-            var temperature = sensors.Where(sensor => sensor.SensorType == SensorType.Temperature &&
+            var gpuTemperature = gpuSensors.Where(sensor => sensor.SensorType == SensorType.Temperature &&
                     sensor.Value is > 0 and <= 150)
                 .OrderByDescending(sensor => sensor.Value).FirstOrDefault();
-            var utilization = sensors.Where(sensor => sensor.SensorType == SensorType.Load &&
+            var cpuTemperature = gpuTemperature is null && allowCpuFallback
+                ? ReadCpuTemperatures().OrderByDescending(sensor => sensor.Value).FirstOrDefault()
+                : null;
+            var temperature = gpuTemperature?.Value ?? cpuTemperature?.Value;
+            var temperatureSensor = gpuTemperature?.Name ?? cpuTemperature?.Name;
+            var temperatureSource = gpuTemperature is not null ? "gpu" : cpuTemperature is not null ? "cpu" : null;
+            var utilization = gpuSensors.Where(sensor => sensor.SensorType == SensorType.Load &&
                     sensor.Value is >= 0 and <= 100)
                 .OrderByDescending(sensor => sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .FirstOrDefault();
-            var frequency = sensors.Where(sensor => sensor.SensorType == SensorType.Clock &&
+            var frequency = gpuSensors.Where(sensor => sensor.SensorType == SensorType.Clock &&
                     sensor.Value is > 0 and < 100000)
                 .OrderByDescending(sensor => sensor.Value).FirstOrDefault();
             return new GpuTelemetry(DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                temperature?.Value, temperature?.Name, utilization?.Value, frequency?.Value);
+                temperature, temperatureSensor, temperatureSource, utilization?.Value, frequency?.Value);
         }
 
         public void Dispose() => _computer.Close();
