@@ -3056,6 +3056,76 @@ mod tests {
     use super::*;
 
     #[test]
+    fn c08_inicio_concorrente_registra_no_maximo_uma_operacao_ativa() {
+        use std::sync::{Arc, Barrier};
+
+        let safety = Arc::new(Mutex::new(SafetyManager::new()));
+        let barrier = Arc::new(Barrier::new(3));
+        let mut workers = Vec::new();
+
+        for task_id in ["limpeza_leve", "diagnostico_sfc"] {
+            let safety = Arc::clone(&safety);
+            let barrier = Arc::clone(&barrier);
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+
+                // Mantém a mesma ordem de sincronização usada pelos comandos:
+                // gate global primeiro, registro protegido pelo SafetyManager depois.
+                let _start_guard = operation_start_gate()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                safety
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .try_register_execution(task_id)
+            }));
+        }
+
+        barrier.wait();
+
+        let results: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("worker de início não pode entrar em panic"))
+            .collect();
+
+        assert_eq!(
+            results.iter().filter(|result| result.is_ok()).count(),
+            1,
+            "somente uma das operações concorrentes pode ser aceita"
+        );
+        assert_eq!(
+            results.iter().filter(|result| result.is_err()).count(),
+            1,
+            "a operação concorrente deve ser recusada enquanto a vencedora estiver ativa"
+        );
+        assert!(safety
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_task_running());
+    }
+
+    #[test]
+    fn c08_operacao_em_cancelamento_continua_bloqueando_novo_inicio() {
+        let mut safety = SafetyManager::new();
+        let active = safety.try_register_execution("limpeza_leve").unwrap();
+
+        assert!(safety.cancel_execution(&active.execution_id));
+        assert!(safety.is_task_running());
+        assert!(safety.try_register_execution("diagnostico_sfc").is_err());
+    }
+
+    #[test]
+    fn c08_operacao_terminal_libera_novo_inicio() {
+        let mut safety = SafetyManager::new();
+        let active = safety.try_register_execution("limpeza_leve").unwrap();
+
+        safety.finish_execution(&active.execution_id, "completed");
+
+        assert!(!safety.is_task_running());
+        assert!(safety.try_register_execution("diagnostico_sfc").is_ok());
+    }
+
+    #[test]
     fn desligamento_depende_da_opcao_atual_e_de_resultado_nao_cancelado() {
         assert!(should_schedule_shutdown(true, "completed"));
         assert!(should_schedule_shutdown(true, "partial"));
