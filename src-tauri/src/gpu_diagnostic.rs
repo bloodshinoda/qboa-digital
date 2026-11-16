@@ -87,6 +87,7 @@ pub(crate) struct GpuTestReport {
     pub driver_versions: Vec<String>,
     pub api: String,
     #[serde(default)]
+    #[serde(default)]
     pub temperature_source: String,
     pub profile: GpuTestProfile,
     pub target_duration_seconds: u64,
@@ -154,16 +155,34 @@ pub(crate) fn is_active() -> bool {
 
 fn classify_adapter(adapter: &GpuAdapter) -> String {
     let name = adapter.name.to_ascii_lowercase();
-    let compatibility = adapter.adapter_compatibility.as_deref().unwrap_or("").to_ascii_lowercase();
-    let pnp = adapter.pnp_device_id.as_deref().unwrap_or("").to_ascii_uppercase();
-    let intel = compatibility.contains("intel") || pnp.contains("VEN_8086") || name.contains("intel");
-    let nvidia = compatibility.contains("nvidia") || pnp.contains("VEN_10DE") || name.contains("nvidia");
-    let amd = compatibility.contains("advanced micro devices") || compatibility.contains("amd")
-        || pnp.contains("VEN_1002") || name.contains("amd") || name.contains("radeon");
+    let compatibility = adapter
+        .adapter_compatibility
+        .as_deref()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let pnp = adapter
+        .pnp_device_id
+        .as_deref()
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    let intel =
+        compatibility.contains("intel") || pnp.contains("VEN_8086") || name.contains("intel");
+    let nvidia =
+        compatibility.contains("nvidia") || pnp.contains("VEN_10DE") || name.contains("nvidia");
+    let amd = compatibility.contains("advanced micro devices")
+        || compatibility.contains("amd")
+        || pnp.contains("VEN_1002")
+        || name.contains("amd")
+        || name.contains("radeon");
+
     if intel {
-        if name.contains("arc") { return "dedicated".into(); }
+        if name.contains("arc") {
+            return "dedicated".into();
+        }
         if ["uhd", "iris", "hd graphics", "intel graphics", "xe graphics"]
-            .iter().any(|token| name.contains(token)) {
+            .iter()
+            .any(|token| name.contains(token))
+        {
             return "integrated".into();
         }
     }
@@ -171,15 +190,23 @@ fn classify_adapter(adapter: &GpuAdapter) -> String {
         if name.contains("radeon rx") || name.contains(" rx ") || name.contains("radeon pro") {
             return "dedicated".into();
         }
-        if name.contains("radeon(tm) graphics") || name == "radeon graphics"
-            || name.contains("radeon 780m") || name.contains("radeon 760m")
-            || name.contains("radeon 680m") || name.contains("radeon 660m")
-            || name.contains("radeon vega 3") || name.contains("radeon vega 6")
-            || name.contains("radeon vega 8") {
+        if name.contains("radeon graphics")
+            || [
+                "radeon 890m", "radeon 880m", "radeon 860m", "radeon 840m",
+                "radeon 820m", "radeon 790m", "radeon 780m", "radeon 760m",
+                "radeon 740m", "radeon 680m", "radeon 660m", "radeon 650m",
+                "radeon vega 3", "radeon vega 6", "radeon vega 7",
+                "radeon vega 8", "radeon vega 10", "radeon vega 11",
+            ]
+            .iter()
+            .any(|token| name.contains(token))
+        {
             return "integrated".into();
         }
     }
-    if nvidia { return "dedicated".into(); }
+    if nvidia {
+        return "dedicated".into();
+    }
     "unknown".into()
 }
 
@@ -216,22 +243,42 @@ ConvertTo-Json -InputObject $items -Depth 4 -Compress
         let value: serde_json::Value = serde_json::from_str(&discovery)
             .map_err(|e| format!("Resposta de sensores de GPU inválida: {e}"))?;
         let read_sensor_names = |key: &str| {
-            value.get(key).and_then(|v| v.as_array())
-                .map(|items| items.iter().filter_map(|item| {
-                    item.get("name").and_then(|v| v.as_str()).map(str::to_string)
-                }).collect::<Vec<_>>())
+            value
+                .get(key)
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            item.get("name")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string)
+                        })
+                        .collect::<Vec<_>>()
+                })
                 .unwrap_or_default()
         };
         let sensors = read_sensor_names("sensors");
         let cpu_sensors = read_sensor_names("cpu_temperature_sensors");
-        let gpu_available = value.get("available").and_then(|v| v.as_bool()).unwrap_or(false)
+        let gpu_available = value
+            .get("available")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
             && !sensors.is_empty();
         let cpu_available = !cpu_sensors.is_empty();
         let integrated_gpu_detected = !adapters.is_empty()
-            && adapters.iter().all(|adapter| adapter.adapter_type == "integrated");
+            && adapters
+                .iter()
+                .all(|adapter| adapter.adapter_type == "integrated");
         let use_cpu_fallback = !gpu_available && integrated_gpu_detected && cpu_available;
         let available = gpu_available || use_cpu_fallback;
-        let temperature_source = if gpu_available { "gpu" } else if use_cpu_fallback { "cpu" } else { "none" };
+        let temperature_source = if gpu_available {
+            "gpu"
+        } else if use_cpu_fallback {
+            "cpu"
+        } else {
+            "none"
+        };
         let note = if gpu_available {
             "Sensor térmico próprio da GPU disponível. O teste será protegido pela temperatura do chip gráfico.".to_string()
         } else if use_cpu_fallback {
@@ -498,11 +545,20 @@ fn run_test<R: Runtime>(
             .to_string();
         let source = raw.temperature_source.as_deref().unwrap_or("gpu");
         if source != inventory.temperature_source {
-            return Err("A origem da leitura térmica mudou durante a pré-verificação. O teste não foi iniciado.".into());
+            return Err(
+                "A origem da leitura térmica mudou durante a pré-verificação. O teste não foi iniciado."
+                    .into(),
+            );
         }
         if temp >= THERMAL_STOP_C {
-            let source_label = if source == "cpu" { "A CPU (referência térmica)" } else { "A GPU" };
-            return Err(format!("{source_label} já está a {temp:.1} °C antes do teste. Aguarde resfriar abaixo de {THERMAL_STOP_C:.0} °C."));
+            let source_label = if source == "cpu" {
+                "A CPU (referência térmica)"
+            } else {
+                "A GPU"
+            };
+            return Err(format!(
+                "{source_label} já está a {temp:.1} °C antes do teste. Aguarde resfriar abaixo de {THERMAL_STOP_C:.0} °C."
+            ));
         }
         first = Some((raw, temp, sensor, source.to_string()));
     }
@@ -786,7 +842,10 @@ fn start_telemetry_process(app_data_dir: &Path, use_cpu_fallback: bool) -> Resul
         .map_err(|e| format!("Não foi possível iniciar telemetria da GPU: {e}"))
 }
 #[cfg(not(target_os = "windows"))]
-fn start_telemetry_process(_app_data_dir: &Path, _use_cpu_fallback: bool) -> Result<Child, String> {
+fn start_telemetry_process(
+    _app_data_dir: &Path,
+    _use_cpu_fallback: bool,
+) -> Result<Child, String> {
     Err("A telemetria de GPU exige Windows.".into())
 }
 
