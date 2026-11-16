@@ -52,6 +52,7 @@ function diagnosticActivityTarget(reason) {
   if (reason.startsWith("starting:cpu")) return document.getElementById("cpu-test-result");
   if (reason.startsWith("starting:gpu")) return document.getElementById("gpu-test-result");
   if (reason.startsWith("starting:memory")) return document.getElementById("memory-test-result");
+  if (reason.startsWith("run:") && reason.endsWith(":armazenamento")) return document.querySelector("#diagnostic-results .storage-live-benchmark") || document.getElementById("diagnostic-results");
   if (reason.startsWith("run:")) return document.getElementById("diagnostic-status");
   // Sessões com gráfico ou barra de progresso já têm feedback visual próprio.
   return null;
@@ -485,7 +486,7 @@ function renderCards() {
     updateCard.tabIndex = 0;
     updateCard.setAttribute("role", "button");
     updateCard.setAttribute("aria-label", "Windows Update: restaurar o funcionamento das atualizações");
-    updateCard.innerHTML = '<h3>Windows Update</h3><p>Repara bloqueios locais conhecidos, recupera serviços essenciais e reativa tarefas de atualização.</p><small class="windows-update-recommendation">Recomendado para o Chuck</small>';
+    updateCard.innerHTML = '<h3>Windows Update</h3><p>Repara bloqueios locais conhecidos, recupera serviços essenciais e reativa tarefas de atualização.</p>';
     const openUpdate = () => openWindowsUpdateRepair();
     updateCard.addEventListener("click", openUpdate);
     updateCard.addEventListener("keydown", (event) => {
@@ -1838,6 +1839,15 @@ function renderStorageBenchmarkProgress(payload) {
   if (!activeStorageBenchmark) {
     const entry = document.createElement("li");
     entry.className = "storage-live-benchmark";
+    entry.classList.add("qboa-activity-target");
+    entry.dataset.activity = "working";
+    for (const [reason, target] of diagnosticActivityTargets) {
+      if (reason.startsWith("run:") && reason.endsWith(":armazenamento")) {
+        diagnosticActivityTargets.set(reason, entry);
+        refreshDiagnosticActivityTarget(target);
+        refreshDiagnosticActivityTarget(entry);
+      }
+    }
     const heading = document.createElement("div");
     heading.className = "storage-live-heading";
     const copy = document.createElement("div");
