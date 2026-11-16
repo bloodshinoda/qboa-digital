@@ -3085,7 +3085,11 @@ mod tests {
 
         let results: Vec<_> = workers
             .into_iter()
-            .map(|worker| worker.join().expect("worker de início não pode entrar em panic"))
+            .map(|worker| {
+                worker
+                    .join()
+                    .expect("worker de início não pode entrar em panic")
+            })
             .collect();
 
         assert_eq!(
