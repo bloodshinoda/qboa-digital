@@ -26,7 +26,7 @@ pub struct InventorySource {
     pub native_code: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Observed<T> {
     pub value: Option<T>,
     pub state: InventoryValueState,
