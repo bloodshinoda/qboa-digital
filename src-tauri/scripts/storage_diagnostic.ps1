@@ -244,6 +244,8 @@ function Get-DiskEntries {
             if ($letter -notmatch '^[A-Z]$') { continue }
             $capacity = $null
             if ($null -ne $disk.Size -and [long]$disk.Size -gt 0) { $capacity = [long]$disk.Size }
+            $volumeCapacity = $null
+            if ($null -ne $volume.Size -and [long]$volume.Size -gt 0) { $volumeCapacity = [long]$volume.Size }
             $free = $null
             if ($null -ne $volume.SizeRemaining) { $free = [long]$volume.SizeRemaining }
             $entries += [pscustomobject]@{
@@ -252,6 +254,7 @@ function Get-DiskEntries {
                 disk_number = $number
                 model = ([string]$disk.Model).Trim()
                 capacity_bytes = $capacity
+                volume_capacity_bytes = $volumeCapacity
                 volume = $letter + ':\'
                 free_bytes = $free
                 class = Get-ClassForDisk $disk $info $pd
@@ -637,6 +640,8 @@ $report = [pscustomobject]@{
     disk_name = $entry.model
     volume = $entry.volume
     capacity_bytes = $entry.capacity_bytes
+    volume_capacity_bytes = $entry.volume_capacity_bytes
+    free_bytes = $freeBytes
     class = $entry.class
     bus_type = $entry.bus_type
     measurements = @($measurements)
