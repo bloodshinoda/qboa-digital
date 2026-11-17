@@ -14,7 +14,6 @@ mod windows {
     use super::*;
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
-    use std::path::Path;
     use std::ptr;
 
     const HKEY_LOCAL_MACHINE: isize = 0x8000_0002u32 as isize;
@@ -339,8 +338,6 @@ mod windows {
         let started_at = now_utc().ok_or_else(|| {
             "Não foi possível obter o horário UTC do Windows para iniciar o inventário.".to_string()
         })?;
-        let current_version = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
-
         let os_name = registry_string("ProductName", &started_at);
         let os_edition = registry_string("EditionID", &started_at);
         let os_version = registry_string("CurrentVersion", &started_at);
@@ -426,7 +423,6 @@ mod windows {
             warnings,
         };
         collection.validate()?;
-        let _ = current_version;
         Ok((collection, machine))
     }
 
