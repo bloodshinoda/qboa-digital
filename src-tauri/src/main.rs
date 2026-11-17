@@ -3081,6 +3081,17 @@ fn get_technical_inventory_system_snapshot() -> Result<TechnicalInventorySystemS
 }
 
 #[derive(Clone, Serialize)]
+struct TechnicalInventoryFirmwareSnapshot {
+    firmware: technical_inventory::CategoryCollection<technical_inventory::FirmwareCategory>,
+}
+
+#[tauri::command]
+fn get_technical_inventory_firmware_snapshot() -> Result<TechnicalInventoryFirmwareSnapshot, String> {
+    let firmware = technical_inventory_collectors::collect_firmware_category()?;
+    Ok(TechnicalInventoryFirmwareSnapshot { firmware })
+}
+
+#[derive(Clone, Serialize)]
 struct ServiceProfileState {
     system: service_profiles::DetectedSystem,
     profile: service_profiles::ServiceProfileFile,
@@ -3547,6 +3558,7 @@ fn main() {
             get_gpu_diagnostic_reports,
             get_capability_inventory,
             get_technical_inventory_system_snapshot,
+            get_technical_inventory_firmware_snapshot,
             list_windows_services,
             manage_windows_service,
             repair_windows_update,
