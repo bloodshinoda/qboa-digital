@@ -645,8 +645,7 @@ mod windows {
             .take_while(|byte| *byte != 0)
             .map(char::from)
             .collect();
-        (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_graphic()))
-            .then_some(text)
+        (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_graphic())).then_some(text)
     }
 
     fn collect_tpm(at: &str) -> (TpmInfo, Option<String>) {
@@ -659,8 +658,8 @@ mod windows {
         use windows::Win32::System::Rpc::{RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE};
         use windows::Win32::System::Variant::VARIANT;
         use windows::Win32::System::Wmi::{
-            IEnumWbemClassObject, IWbemClassObject, IWbemLocator, WBEM_FLAG_FORWARD_ONLY,
-            WBEM_FLAG_RETURN_IMMEDIATELY, WBEM_INFINITE, WbemLocator,
+            IEnumWbemClassObject, IWbemClassObject, IWbemLocator, WbemLocator,
+            WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY, WBEM_INFINITE,
         };
 
         fn property_bool(object: &IWbemClassObject, name: windows::core::PCWSTR) -> Option<bool> {
@@ -675,13 +674,15 @@ mod windows {
             u32::try_from(&value).ok()
         }
 
-        fn property_string(object: &IWbemClassObject, name: windows::core::PCWSTR) -> Option<String> {
+        fn property_string(
+            object: &IWbemClassObject,
+            name: windows::core::PCWSTR,
+        ) -> Option<String> {
             let mut value = VARIANT::default();
             unsafe { object.Get(name, 0, &mut value, None, None) }.ok()?;
             let value = BSTR::try_from(&value).ok()?.to_string();
             let value = value.trim().to_string();
-            (!value.is_empty() && !value.eq_ignore_ascii_case("not supported"))
-                .then_some(value)
+            (!value.is_empty() && !value.eq_ignore_ascii_case("not supported")).then_some(value)
         }
 
         let init = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
@@ -691,28 +692,21 @@ mod windows {
                     at,
                     "Não foi possível inicializar COM para consultar o provedor nativo Win32_Tpm.",
                 ),
-                Some(format!("Falha ao inicializar COM para consulta do TPM: {init:?}")),
+                Some(format!(
+                    "Falha ao inicializar COM para consulta do TPM: {init:?}"
+                )),
             );
         }
 
         let result = (|| -> Result<TpmInfo, String> {
-            let locator: IWbemLocator = unsafe {
-                CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER)
-            }
-            .map_err(|error| format!("CoCreateInstance(WbemLocator): {error}"))?;
+            let locator: IWbemLocator =
+                unsafe { CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER) }
+                    .map_err(|error| format!("CoCreateInstance(WbemLocator): {error}"))?;
 
             let namespace = BSTR::from("ROOT\\CIMV2\\Security\\MicrosoftTpm");
             let empty = BSTR::new();
             let services = unsafe {
-                locator.ConnectServer(
-                    &namespace,
-                    &empty,
-                    &empty,
-                    &empty,
-                    0,
-                    &empty,
-                    None,
-                )
+                locator.ConnectServer(&namespace, &empty, &empty, &empty, 0, &empty, None)
             }
             .map_err(|error| format!("ConnectServer(Win32_Tpm): {error}"))?;
 
@@ -762,17 +756,34 @@ mod windows {
 
             let enabled = property_bool(object, w!("IsEnabled_InitialValue"))
                 .map(|value| observed(value, "WMI/Win32_Tpm", "IsEnabled_InitialValue", at))
-                .unwrap_or_else(|| unavailable(at, "O provedor Win32_Tpm não retornou IsEnabled_InitialValue."));
+                .unwrap_or_else(|| {
+                    unavailable(
+                        at,
+                        "O provedor Win32_Tpm não retornou IsEnabled_InitialValue.",
+                    )
+                });
             let activated = property_bool(object, w!("IsActivated_InitialValue"))
                 .map(|value| observed(value, "WMI/Win32_Tpm", "IsActivated_InitialValue", at))
-                .unwrap_or_else(|| unavailable(at, "O provedor Win32_Tpm não retornou IsActivated_InitialValue."));
+                .unwrap_or_else(|| {
+                    unavailable(
+                        at,
+                        "O provedor Win32_Tpm não retornou IsActivated_InitialValue.",
+                    )
+                });
             let spec_version = property_string(object, w!("SpecVersion"))
                 .map(|value| observed(value, "WMI/Win32_Tpm", "SpecVersion", at))
-                .unwrap_or_else(|| unavailable(at, "A versão da especificação não foi informada pelo TPM."));
+                .unwrap_or_else(|| {
+                    unavailable(at, "A versão da especificação não foi informada pelo TPM.")
+                });
             let manufacturer = property_u32(object, w!("ManufacturerId"))
                 .and_then(tpm_manufacturer_id)
                 .map(|value| observed(value, "WMI/Win32_Tpm", "ManufacturerId", at))
-                .unwrap_or_else(|| unavailable(at, "O identificador do fabricante do TPM não foi informado."));
+                .unwrap_or_else(|| {
+                    unavailable(
+                        at,
+                        "O identificador do fabricante do TPM não foi informado.",
+                    )
+                });
 
             let ready = property_string(object, w!("__PATH"))
                 .and_then(|path| {
@@ -823,7 +834,10 @@ mod windows {
                 .iter()
                 .any(|state| *state == InventoryValueState::Unavailable)
                 {
-                    Some("O TPM foi detectado, mas alguns atributos não puderam ser consultados.".into())
+                    Some(
+                        "O TPM foi detectado, mas alguns atributos não puderam ser consultados."
+                            .into(),
+                    )
                 } else {
                     None
                 };
