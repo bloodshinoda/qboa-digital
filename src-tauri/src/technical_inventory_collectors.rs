@@ -651,7 +651,6 @@ mod windows {
 
     fn collect_tpm(at: &str) -> (TpmInfo, Option<String>) {
         use windows::core::{w, BSTR};
-        use windows::Win32::Foundation::VARIANT_BOOL;
         use windows::Win32::System::Com::{
             CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CoUninitialize,
             CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOAC_NONE, RPC_C_AUTHN_LEVEL_CALL,
