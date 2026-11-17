@@ -649,20 +649,21 @@ mod windows {
     }
 
     fn collect_tpm(at: &str) -> (TpmInfo, Option<String>) {
-        use windows::core::{w, BSTR};
-        use windows::Win32::System::Com::{
+        use ::windows::core::{w, BSTR, PCWSTR};
+        use ::windows::Win32::System::Com::{
             CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CoUninitialize,
             CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOAC_NONE, RPC_C_AUTHN_LEVEL_CALL,
             RPC_C_IMP_LEVEL_IMPERSONATE,
         };
-        use windows::Win32::System::Rpc::{RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE};
-        use windows::Win32::System::Variant::VARIANT;
-        use windows::Win32::System::Wmi::{
+        use ::windows::Win32::System::Rpc::{RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE};
+        use ::windows::Win32::System::Variant::VARIANT;
+        use ::windows::Win32::System::Wmi::{
             IEnumWbemClassObject, IWbemClassObject, IWbemLocator, WbemLocator,
-            WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY, WBEM_INFINITE,
+            WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY, WBEM_GENERIC_FLAG_TYPE,
+            WBEM_INFINITE,
         };
 
-        fn property_bool(object: &IWbemClassObject, name: windows::core::PCWSTR) -> Option<bool> {
+        fn property_bool(object: &IWbemClassObject, name: PCWSTR) -> Option<bool> {
             let mut value = VARIANT::default();
             unsafe { object.Get(name, 0, &mut value, None, None) }.ok()?;
             bool::try_from(&value).ok()
@@ -676,7 +677,7 @@ mod windows {
 
         fn property_string(
             object: &IWbemClassObject,
-            name: windows::core::PCWSTR,
+            name: PCWSTR,
         ) -> Option<String> {
             let mut value = VARIANT::default();
             unsafe { object.Get(name, 0, &mut value, None, None) }.ok()?;
@@ -741,9 +742,10 @@ mod windows {
             let mut objects = [None];
             let mut returned = 0;
             unsafe {
-                enumerator
-                    .Next(WBEM_INFINITE, &mut objects, &mut returned)
-                    .map_err(|error| format!("IEnumWbemClassObject::Next: {error}"))?;
+                let status = enumerator.Next(WBEM_INFINITE, &mut objects, &mut returned);
+                if status.is_err() {
+                    return Err(format!("IEnumWbemClassObject::Next: {status:?}"));
+                }
             }
 
             if returned == 0 {
@@ -794,7 +796,7 @@ mod windows {
                         services.ExecMethod(
                             &path,
                             &method,
-                            0,
+                            WBEM_GENERIC_FLAG_TYPE(0),
                             None,
                             None,
                             Some(&mut output),
