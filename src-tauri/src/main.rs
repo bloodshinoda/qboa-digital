@@ -3086,7 +3086,8 @@ struct TechnicalInventoryFirmwareSnapshot {
 }
 
 #[tauri::command]
-fn get_technical_inventory_firmware_snapshot() -> Result<TechnicalInventoryFirmwareSnapshot, String> {
+fn get_technical_inventory_firmware_snapshot() -> Result<TechnicalInventoryFirmwareSnapshot, String>
+{
     let firmware = technical_inventory_collectors::collect_firmware_category()?;
     Ok(TechnicalInventoryFirmwareSnapshot { firmware })
 }
