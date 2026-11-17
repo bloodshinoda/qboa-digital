@@ -4,10 +4,9 @@
 //! PowerShell, não altera o Windows e não depende do módulo Capacidades.
 
 use crate::technical_inventory::{
-    BiosInfo, CategoryCollection, DeviceKind, FirmwareCategory, FirmwareMode,
-    InventoryConfidence, InventoryIssue, InventorySource, InventoryValueState, MachineIdentity,
-    MotherboardInfo, Observed, OsArchitecture, Sensitive, SensitiveDataKind, SystemCategory,
-    TpmInfo,
+    BiosInfo, CategoryCollection, DeviceKind, FirmwareCategory, FirmwareMode, InventoryConfidence,
+    InventoryIssue, InventorySource, InventoryValueState, MachineIdentity, MotherboardInfo,
+    Observed, OsArchitecture, Sensitive, SensitiveDataKind, SystemCategory, TpmInfo,
 };
 use std::time::Instant;
 
@@ -561,17 +560,15 @@ mod windows {
     fn firmware_mode(at: &str) -> Observed<FirmwareMode> {
         let mut firmware_type = 0u32;
         if unsafe { GetFirmwareType(&mut firmware_type) } == 0 {
-            return unavailable(at, "GetFirmwareType não conseguiu identificar o modo de inicialização.");
+            return unavailable(
+                at,
+                "GetFirmwareType não conseguiu identificar o modo de inicialização.",
+            );
         }
         let (value, member) = match firmware_type {
             1 => (FirmwareMode::Legacy, "FIRMWARE_TYPE_BIOS"),
             2 => (FirmwareMode::Uefi, "FIRMWARE_TYPE_UEFI"),
-            _ => {
-                return unavailable(
-                    at,
-                    "O Windows retornou um tipo de firmware desconhecido.",
-                )
-            }
+            _ => return unavailable(at, "O Windows retornou um tipo de firmware desconhecido."),
         };
         observed(value, "kernel32!GetFirmwareType", member, at)
     }
@@ -627,8 +624,8 @@ mod windows {
         }
     }
 
-    pub(super) fn collect_firmware_category(
-    ) -> Result<CategoryCollection<FirmwareCategory>, String> {
+    pub(super) fn collect_firmware_category() -> Result<CategoryCollection<FirmwareCategory>, String>
+    {
         let started = Instant::now();
         let started_at = now_utc().ok_or_else(|| {
             "Não foi possível obter o horário UTC para iniciar a coleta de placa-mãe e firmware."
@@ -931,11 +928,8 @@ mod windows {
         #[test]
         fn smbios_type_2_resolves_motherboard_fields() {
             let table = [
-                2, 8, 0, 0, 1, 2, 3, 4,
-                b'A', b'C', b'M', b'E', 0,
-                b'P', b'C', b'H', b'-', b'B', b'5', b'5', b'0', b'M', 0,
-                b'1', b'.', b'0', 0,
-                b'S', b'N', b'1', b'2', b'3', 0, 0,
+                2, 8, 0, 0, 1, 2, 3, 4, b'A', b'C', b'M', b'E', 0, b'P', b'C', b'H', b'-', b'B',
+                b'5', b'5', b'0', b'M', 0, b'1', b'.', b'0', 0, b'S', b'N', b'1', b'2', b'3', 0, 0,
                 127, 4, 0, 0,
             ];
             assert_eq!(
@@ -952,11 +946,8 @@ mod windows {
         #[test]
         fn smbios_type_0_resolves_bios_fields() {
             let table = [
-                0, 9, 0, 0, 1, 2, 0, 0, 3,
-                b'A', b'M', b'I', 0,
-                b'F', b'1', b'.', b'2', 0,
-                b'1', b'1', b'/', b'1', b'7', b'/', b'2', b'0', b'2', b'6', 0, 0,
-                127, 4, 0, 0,
+                0, 9, 0, 0, 1, 2, 0, 0, 3, b'A', b'M', b'I', 0, b'F', b'1', b'.', b'2', 0, b'1',
+                b'1', b'/', b'1', b'7', b'/', b'2', b'0', b'2', b'6', 0, 0, 127, 4, 0, 0,
             ];
             assert_eq!(
                 smbios_strings(&table, 0, &[4, 5, 8]).unwrap(),
@@ -1004,8 +995,7 @@ pub(crate) fn collect_system_category(
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn collect_firmware_category(
-) -> Result<CategoryCollection<FirmwareCategory>, String> {
+pub(crate) fn collect_firmware_category() -> Result<CategoryCollection<FirmwareCategory>, String> {
     windows::collect_firmware_category()
 }
 
