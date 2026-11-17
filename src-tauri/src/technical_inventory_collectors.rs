@@ -323,7 +323,7 @@ mod windows {
                         .iter()
                         .map(|index| {
                             let string_index =
-                                table.get(offset + index).copied().unwrap_or(0) as usize;
+                                table.get(offset + *index).copied().unwrap_or(0) as usize;
                             if string_index == 0 {
                                 String::new()
                             } else {
@@ -338,6 +338,31 @@ mod windows {
                         .collect(),
                 );
             }
+            offset = strings_end + 2;
+        }
+        None
+    }
+
+    fn smbios_byte_field(table: &[u8], wanted_type: u8, field_offset: usize) -> Option<u8> {
+        let mut offset = 0usize;
+        while offset.checked_add(4)? <= table.len() {
+            let structure_type = table[offset];
+            let formatted_length = table[offset + 1] as usize;
+            if formatted_length < 4 || offset.checked_add(formatted_length)? > table.len() {
+                return None;
+            }
+            if structure_type == 127 {
+                break;
+            }
+            if structure_type == wanted_type {
+                return (field_offset < formatted_length)
+                    .then(|| table[offset + field_offset]);
+            }
+            let strings_start = offset + formatted_length;
+            let strings_end = table[strings_start..]
+                .windows(2)
+                .position(|pair| pair == [0, 0])
+                .map(|position| strings_start + position)?;
             offset = strings_end + 2;
         }
         None
@@ -421,10 +446,7 @@ mod windows {
         .iter()
         .any(|signature| vm_text.contains(signature));
 
-        let chassis = smbios_strings(&table, 3, &[5])
-            .and_then(|values| values.first().cloned())
-            .and_then(|value| value.parse::<u8>().ok())
-            .map(|value| value & 0x7f);
+        let chassis = smbios_byte_field(&table, 3, 5).map(|value| value & 0x7f);
         let kind = if is_vm {
             Some(DeviceKind::VirtualMachine)
         } else {
@@ -665,6 +687,14 @@ mod windows {
                 b'X', 0, 0, 127, 4, 0, 0,
             ];
             assert_eq!(smbios_strings(&table, 1, &[4, 5]).unwrap(), vec!["ACME".to_string(), "Model X".to_string()]);
+        }
+
+        #[test]
+        fn smbios_chassis_type_is_read_from_the_formatted_structure() {
+            let table = [
+                3, 6, 0, 0, 1, 3, b'A', b'C', b'M', b'E', 0, 0, 127, 4, 0, 0,
+            ];
+            assert_eq!(smbios_byte_field(&table, 3, 5), Some(3));
         }
 
         #[test]
