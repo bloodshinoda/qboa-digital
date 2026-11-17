@@ -39,6 +39,9 @@ mod windows {
     }
 
     #[repr(C)]
+    struct OsVersionInfo { size: u32, major: u32, minor: u32, build: u32, platform_id: u32, service_pack: [u16; 128], service_pack_major: u16, service_pack_minor: u16, suite_mask: u16, product_type: u8, reserved: u8 }
+
+    #[repr(C)]
     struct SystemInfo {
         processor_architecture: u16,
         reserved: u16,
@@ -63,7 +66,12 @@ mod windows {
         fn GetUserDefaultUILanguage() -> u16;
         fn LCIDToLocaleName(locale: u32, name: *mut u16, count: i32, flags: u32) -> i32;
         fn GetSystemDefaultLocaleName(name: *mut u16, count: i32) -> i32;
+        fn GetSystemFirmwareTable(provider: u32, table_id: u32, buffer: *mut c_void, size: u32) -> u32;
     }
+    #[link(name = "ntdll")]
+    unsafe extern "system" { fn RtlGetVersion(version: *mut OsVersionInfo) -> i32; }
+    #[link(name = "netapi32")]
+    unsafe extern "system" { fn NetGetJoinInformation(server: *const u16, name: *mut *mut u16, status: *mut u32) -> u32; fn NetApiBufferFree(buffer: *mut c_void) -> u32; }
 
     #[link(name = "advapi32")]
     unsafe extern "system" {
@@ -224,6 +232,80 @@ mod windows {
             .unwrap_or_else(|| unavailable(at, "Valor não informado pelo Registro do Windows."))
     }
 
+    fn os_version(at: &str) -> Observed<String> {
+        let mut v = OsVersionInfo { size: std::mem::size_of::<OsVersionInfo>() as u32, major: 0, minor: 0, build: 0, platform_id: 0, service_pack: [0; 128], service_pack_major: 0, service_pack_minor: 0, suite_mask: 0, product_type: 0, reserved: 0 };
+        if unsafe { RtlGetVersion(&mut v) } != 0 { return unavailable(at, "RtlGetVersion não conseguiu identificar a versão do Windows."); }
+        observed(format!("{}.{}.{}", v.major, v.minor, v.build), "ntdll!RtlGetVersion", "major.minor.build", at)
+    }
+
+    fn domain_or_workgroup(at: &str) -> Observed<String> {
+        let mut name = ptr::null_mut();
+        let mut status = 0u32;
+        if unsafe { NetGetJoinInformation(ptr::null(), &mut name, &mut status) } != 0 || name.is_null() {
+            return unavailable(at, "NetGetJoinInformation não retornou domínio ou grupo de trabalho.");
+        }
+        let mut len = 0usize;
+        unsafe { while *name.add(len) != 0 { len += 1; } }
+        let value = unsafe { String::from_utf16_lossy(std::slice::from_raw_parts(name, len)) };
+        unsafe { NetApiBufferFree(name.cast()); }
+        if value.trim().is_empty() { return unavailable(at, "O Windows retornou um nome de associação vazio."); }
+        observed(value, "Netapi32!NetGetJoinInformation", match status { 1 => "workgroup", 2 => "domain", _ => "join_name" }, at)
+    }
+
+    fn smbios_strings(table: &[u8], wanted_type: u8, indexes: &[usize]) -> Option<Vec<String>> {
+        let mut offset = 0usize;
+        while offset.checked_add(4)? <= table.len() {
+            let kind = table[offset];
+            let length = table[offset + 1] as usize;
+            if length < 4 || offset.checked_add(length)? > table.len() { return None; }
+            if kind == 127 { break; }
+            let start = offset + length;
+            let end = table[start..].windows(2).position(|p| p == [0, 0]).map(|p| start + p)?;
+            if kind == wanted_type {
+                let strings: Vec<&[u8]> = if end == start { vec![] } else { table[start..end].split(|b| *b == 0).collect() };
+                return Some(indexes.iter().map(|index| {
+                    let string_index = table.get(offset + index).copied().unwrap_or(0) as usize;
+                    if string_index == 0 { String::new() } else {
+                        strings.get(string_index - 1).map(|b| String::from_utf8_lossy(b).trim().to_string()).unwrap_or_default()
+                    }
+                }).collect());
+            }
+            offset = end + 2;
+        }
+        None
+    }
+
+    fn smbios_table() -> Option<Vec<u8>> {
+        const RSMB: u32 = 0x5253_4D42;
+        let size = unsafe { GetSystemFirmwareTable(RSMB, 0, ptr::null_mut(), 0) };
+        if !(8..=1_048_576).contains(&size) { return None; }
+        let mut buffer = vec![0u8; size as usize];
+        let written = unsafe { GetSystemFirmwareTable(RSMB, 0, buffer.as_mut_ptr().cast(), size) };
+        if written < 8 || written > size { return None; }
+        buffer.truncate(written as usize);
+        let length = u32::from_le_bytes(buffer[4..8].try_into().ok()?) as usize;
+        if length > buffer.len().saturating_sub(8) { return None; }
+        Some(buffer[8..8 + length].to_vec())
+    }
+
+    fn hardware_identity(at: &str) -> (Observed<String>, Observed<String>, Observed<DeviceKind>, Observed<bool>) {
+        let Some(table) = smbios_table() else {
+            return (unavailable(at, "Tabela SMBIOS indisponível."), unavailable(at, "Tabela SMBIOS indisponível."), unavailable(at, "Tipo de equipamento não identificado via SMBIOS."), unavailable(at, "Sem evidência SMBIOS conclusiva de virtualização."));
+        };
+        let fields = smbios_strings(&table, 1, &[4, 5]).unwrap_or_default();
+        let make = fields.first().cloned().unwrap_or_default();
+        let model = fields.get(1).cloned().unwrap_or_default();
+        let manufacturer = if !make.is_empty() && !is_placeholder(&make) { observed(make.clone(), "kernel32!GetSystemFirmwareTable/SMBIOS", "Type 1 Manufacturer", at) } else { unavailable(at, "Fabricante não informado na estrutura SMBIOS Type 1.") };
+        let model = if !model.is_empty() && !is_placeholder(&model) { observed(model.clone(), "kernel32!GetSystemFirmwareTable/SMBIOS", "Type 1 Product Name", at) } else { unavailable(at, "Modelo não informado na estrutura SMBIOS Type 1.") };
+        let vm_text = format!("{make} {model}").to_ascii_lowercase();
+        let is_vm = ["vmware", "virtualbox", "qemu", "kvm", "xen", "parallels", "virtual machine", "microsoft corporation virtual"].iter().any(|v| vm_text.contains(v));
+        let chassis = smbios_strings(&table, 3, &[5]).and_then(|v| v.first().cloned()).and_then(|v| v.parse::<u8>().ok()).map(|v| v & 0x7f);
+        let kind = if is_vm { Some(DeviceKind::VirtualMachine) } else { chassis.and_then(|v| match v { 3..=7 | 13 | 15 | 16 | 35 | 36 => Some(DeviceKind::Desktop), 8..=10 | 14 | 31 | 32 => Some(DeviceKind::Laptop), 30 => Some(DeviceKind::Tablet), 17 | 23 => Some(DeviceKind::Server), _ => None }) };
+        let device_kind = kind.map(|v| observed(v, "kernel32!GetSystemFirmwareTable/SMBIOS", "Type 3 Chassis Type / Type 1 signature", at)).unwrap_or_else(|| unavailable(at, "Tipo de equipamento não reconhecido pela estrutura SMBIOS."));
+        let vm = if is_vm { observed(true, "kernel32!GetSystemFirmwareTable/SMBIOS", "Type 1 virtual hardware signature", at) } else { unavailable(at, "Nenhuma assinatura SMBIOS conclusiva de VM; ausência de assinatura não comprova hardware físico.") };
+        (manufacturer, model, device_kind, vm)
+    }
+
     fn architecture(at: &str) -> Observed<OsArchitecture> {
         let mut info = std::mem::MaybeUninit::<SystemInfo>::zeroed();
         unsafe { GetNativeSystemInfo(info.as_mut_ptr()) };
@@ -337,7 +419,7 @@ mod windows {
         })?;
         let os_name = registry_string("ProductName", &started_at);
         let os_edition = registry_string("EditionID", &started_at);
-        let os_version = registry_string("CurrentVersion", &started_at);
+        let os_version = os_version(&started_at);
         let display_version = registry_string("DisplayVersion", &started_at);
         let build_text = registry_string("CurrentBuildNumber", &started_at);
         let build_number = match build_text
@@ -356,32 +438,8 @@ mod windows {
         let boot_time = boot_time(&started_at);
         let computer_name = computer_name(&started_at);
 
-        let domain = read_registry_string(
-            r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
-            "Domain",
-        );
-        let domain_or_workgroup = domain
-            .map(|value| {
-                observed(
-                    value,
-                    "Windows Registry",
-                    "Tcpip\\Parameters\\Domain",
-                    &started_at,
-                )
-            })
-            .unwrap_or_else(|| {
-                unavailable(
-                    &started_at,
-                    "Domínio ou grupo de trabalho não identificado.",
-                )
-            });
-
-        // A classificação do equipamento depende de evidência SMBIOS/WMI e será
-        // preenchida pelo coletor de firmware/equipamento, sem inferência por nome.
-        let device_kind = unavailable(
-            &started_at,
-            "Classificação depende da enumeração SMBIOS/Win32_ComputerSystem.",
-        );
+        let domain_or_workgroup = domain_or_workgroup(&started_at);
+        let (manufacturer, model, device_kind, is_virtual_machine) = hardware_identity(&started_at);
 
         let data = SystemCategory {
             os_name,
@@ -402,19 +460,10 @@ mod windows {
 
         let machine = MachineIdentity {
             computer_name,
-            manufacturer: unavailable(
-                &started_at,
-                "Fabricante será obtido pelo coletor de SMBIOS/Win32_ComputerSystem.",
-            ),
-            model: unavailable(
-                &started_at,
-                "Modelo será obtido pelo coletor de SMBIOS/Win32_ComputerSystem.",
-            ),
+            manufacturer,
+            model,
             device_kind,
-            is_virtual_machine: unavailable(
-                &started_at,
-                "Detecção de virtualização será implementada com evidência SMBIOS/WMI.",
-            ),
+            is_virtual_machine,
         };
 
         let mut warnings = Vec::new();
@@ -425,7 +474,7 @@ mod windows {
             );
         }
         let finished_at = now_utc().unwrap_or_else(|| started_at.clone());
-        let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let duration_ms = started.elapsed().as_millis().max(1).min(u64::MAX as u128) as u64;
         let collection = CategoryCollection {
             state: InventoryValueState::Available,
             started_at,
@@ -448,6 +497,12 @@ mod windows {
             assert!(is_placeholder("To Be Filled By O.E.M."));
             assert!(is_placeholder("System Product Name"));
             assert!(!is_placeholder("ASUSTeK COMPUTER INC."));
+        }
+
+        #[test]
+        fn smbios_parser_resolves_indexed_strings() {
+            let table = [1, 6, 0, 0, 1, 2, b'A', b'C', b'M', b'E', 0, b'M', b'o', b'd', b'e', b'l', b' ', b'X', 0, 0, 127, 4, 0, 0];
+            assert_eq!(smbios_strings(&table, 1, &[4, 5]).unwrap(), vec!["ACME".to_string(), "Model X".to_string()]);
         }
 
         #[test]
