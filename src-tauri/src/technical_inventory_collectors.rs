@@ -612,8 +612,7 @@ mod windows {
         }
     }
 
-    fn unavailable_tpm(at: &str) -> TpmInfo {
-        let note = "A coleta nativa do estado do TPM ainda não foi implementada.";
+    fn unavailable_tpm(at: &str, note: &str) -> TpmInfo {
         TpmInfo {
             present: unavailable(at, note),
             ready: unavailable(at, note),
@@ -621,6 +620,220 @@ mod windows {
             activated: unavailable(at, note),
             spec_version: unavailable(at, note),
             manufacturer: unavailable(at, note),
+        }
+    }
+
+    fn not_applicable_tpm(at: &str) -> TpmInfo {
+        let note = "Campo não aplicável porque nenhum TPM foi detectado.";
+        TpmInfo {
+            present: observed(false, "WMI/Win32_Tpm", "instância ausente", at),
+            ready: not_applicable(at, note),
+            enabled: not_applicable(at, note),
+            activated: not_applicable(at, note),
+            spec_version: not_applicable(at, note),
+            manufacturer: not_applicable(at, note),
+        }
+    }
+
+    fn tpm_manufacturer_id(value: u32) -> Option<String> {
+        if value == 0 {
+            return None;
+        }
+        let bytes = value.to_be_bytes();
+        let text: String = bytes
+            .into_iter()
+            .take_while(|byte| *byte != 0)
+            .map(char::from)
+            .collect();
+        (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_graphic()))
+            .then_some(text)
+    }
+
+    fn collect_tpm(at: &str) -> (TpmInfo, Option<String>) {
+        use windows::core::{w, BSTR};
+        use windows::Win32::Foundation::VARIANT_BOOL;
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CoUninitialize,
+            CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOAC_NONE, RPC_C_AUTHN_LEVEL_CALL,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+        };
+        use windows::Win32::System::Rpc::{RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE};
+        use windows::Win32::System::Variant::VARIANT;
+        use windows::Win32::System::Wmi::{
+            IEnumWbemClassObject, IWbemClassObject, IWbemLocator, WBEM_FLAG_FORWARD_ONLY,
+            WBEM_FLAG_RETURN_IMMEDIATELY, WBEM_INFINITE, WbemLocator,
+        };
+
+        fn property_bool(object: &IWbemClassObject, name: windows::core::PCWSTR) -> Option<bool> {
+            let mut value = VARIANT::default();
+            unsafe { object.Get(name, 0, &mut value, None, None) }.ok()?;
+            bool::try_from(&value).ok()
+        }
+
+        fn property_u32(object: &IWbemClassObject, name: windows::core::PCWSTR) -> Option<u32> {
+            let mut value = VARIANT::default();
+            unsafe { object.Get(name, 0, &mut value, None, None) }.ok()?;
+            u32::try_from(&value).ok()
+        }
+
+        fn property_string(object: &IWbemClassObject, name: windows::core::PCWSTR) -> Option<String> {
+            let mut value = VARIANT::default();
+            unsafe { object.Get(name, 0, &mut value, None, None) }.ok()?;
+            let value = BSTR::try_from(&value).ok()?.to_string();
+            let value = value.trim().to_string();
+            (!value.is_empty() && !value.eq_ignore_ascii_case("not supported"))
+                .then_some(value)
+        }
+
+        let init = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        if init.is_err() {
+            return (
+                unavailable_tpm(
+                    at,
+                    "Não foi possível inicializar COM para consultar o provedor nativo Win32_Tpm.",
+                ),
+                Some(format!("Falha ao inicializar COM para consulta do TPM: {init:?}")),
+            );
+        }
+
+        let result = (|| -> Result<TpmInfo, String> {
+            let locator: IWbemLocator = unsafe {
+                CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER)
+            }
+            .map_err(|error| format!("CoCreateInstance(WbemLocator): {error}"))?;
+
+            let namespace = BSTR::from("ROOT\\CIMV2\\Security\\MicrosoftTpm");
+            let empty = BSTR::new();
+            let services = unsafe {
+                locator.ConnectServer(
+                    &namespace,
+                    &empty,
+                    &empty,
+                    &empty,
+                    0,
+                    &empty,
+                    None,
+                )
+            }
+            .map_err(|error| format!("ConnectServer(Win32_Tpm): {error}"))?;
+
+            unsafe {
+                CoSetProxyBlanket(
+                    &services,
+                    RPC_C_AUTHN_WINNT,
+                    RPC_C_AUTHZ_NONE,
+                    None,
+                    RPC_C_AUTHN_LEVEL_CALL,
+                    RPC_C_IMP_LEVEL_IMPERSONATE,
+                    None,
+                    EOAC_NONE,
+                )
+            }
+            .map_err(|error| format!("CoSetProxyBlanket(Win32_Tpm): {error}"))?;
+
+            let language = BSTR::from("WQL");
+            let query = BSTR::from(
+                "SELECT IsEnabled_InitialValue, IsActivated_InitialValue, SpecVersion, ManufacturerId FROM Win32_Tpm",
+            );
+            let enumerator: IEnumWbemClassObject = unsafe {
+                services.ExecQuery(
+                    &language,
+                    &query,
+                    WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+                    None,
+                )
+            }
+            .map_err(|error| format!("ExecQuery(Win32_Tpm): {error}"))?;
+
+            let mut objects = [None];
+            let mut returned = 0;
+            unsafe {
+                enumerator
+                    .Next(WBEM_INFINITE, &mut objects, &mut returned)
+                    .map_err(|error| format!("IEnumWbemClassObject::Next: {error}"))?;
+            }
+
+            if returned == 0 {
+                return Ok(not_applicable_tpm(at));
+            }
+
+            let object = objects[0]
+                .as_ref()
+                .ok_or_else(|| "O provedor Win32_Tpm retornou uma instância vazia.".to_string())?;
+
+            let enabled = property_bool(object, w!("IsEnabled_InitialValue"))
+                .map(|value| observed(value, "WMI/Win32_Tpm", "IsEnabled_InitialValue", at))
+                .unwrap_or_else(|| unavailable(at, "O provedor Win32_Tpm não retornou IsEnabled_InitialValue."));
+            let activated = property_bool(object, w!("IsActivated_InitialValue"))
+                .map(|value| observed(value, "WMI/Win32_Tpm", "IsActivated_InitialValue", at))
+                .unwrap_or_else(|| unavailable(at, "O provedor Win32_Tpm não retornou IsActivated_InitialValue."));
+            let spec_version = property_string(object, w!("SpecVersion"))
+                .map(|value| observed(value, "WMI/Win32_Tpm", "SpecVersion", at))
+                .unwrap_or_else(|| unavailable(at, "A versão da especificação não foi informada pelo TPM."));
+            let manufacturer = property_u32(object, w!("ManufacturerId"))
+                .and_then(tpm_manufacturer_id)
+                .map(|value| observed(value, "WMI/Win32_Tpm", "ManufacturerId", at))
+                .unwrap_or_else(|| unavailable(at, "O identificador do fabricante do TPM não foi informado."));
+
+            let ready = property_string(object, w!("__PATH"))
+                .and_then(|path| {
+                    let path = BSTR::from(path);
+                    let method = BSTR::from("IsReady");
+                    let mut output: Option<IWbemClassObject> = None;
+                    unsafe {
+                        services.ExecMethod(
+                            &path,
+                            &method,
+                            0,
+                            None,
+                            None,
+                            Some(&mut output),
+                            None,
+                        )
+                    }
+                    .ok()?;
+                    let output = output?;
+                    property_bool(&output, w!("IsReady"))
+                })
+                .map(|value| observed(value, "WMI/Win32_Tpm::IsReady", "IsReady", at))
+                .unwrap_or_else(|| unavailable(
+                    at,
+                    "O método Win32_Tpm::IsReady não pôde ser consultado; pode exigir privilégios administrativos.",
+                ));
+
+            Ok(TpmInfo {
+                present: observed(true, "WMI/Win32_Tpm", "instância detectada", at),
+                ready,
+                enabled,
+                activated,
+                spec_version,
+                manufacturer,
+            })
+        })();
+
+        unsafe { CoUninitialize() };
+        match result {
+            Ok(info) => {
+                let warning = if [
+                    info.ready.state,
+                    info.enabled.state,
+                    info.activated.state,
+                    info.spec_version.state,
+                    info.manufacturer.state,
+                ]
+                .iter()
+                .any(|state| *state == InventoryValueState::Unavailable)
+                {
+                    Some("O TPM foi detectado, mas alguns atributos não puderam ser consultados.".into())
+                } else {
+                    None
+                };
+                (info, warning)
+            }
+            Err(error) => (
+                unavailable_tpm(at, "A consulta nativa ao provedor Win32_Tpm falhou."),
+                Some(error),
+            ),
         }
     }
 
@@ -680,13 +893,15 @@ mod windows {
 
         let mode = firmware_mode(&started_at);
         let secure_boot = secure_boot_enabled(&started_at, &mode);
-        let tpm = unavailable_tpm(&started_at);
+        let (tpm, tpm_warning) = collect_tpm(&started_at);
 
         let mut warnings = Vec::new();
         if table.is_none() {
             warnings.push("A tabela SMBIOS não pôde ser consultada; dados de placa-mãe e BIOS podem ficar indisponíveis.".into());
         }
-        warnings.push("Os campos de TPM permanecem indisponíveis até a implementação do coletor nativo específico.".into());
+        if let Some(warning) = tpm_warning {
+            warnings.push(warning);
+        }
 
         let data = FirmwareCategory {
             motherboard: MotherboardInfo {
