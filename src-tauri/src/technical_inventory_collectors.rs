@@ -1000,7 +1000,6 @@ pub(crate) fn collect_firmware_category() -> Result<CategoryCollection<FirmwareC
 }
 
 #[cfg(not(target_os = "windows"))]
-pub(crate) fn collect_firmware_category(
-) -> Result<CategoryCollection<FirmwareCategory>, String> {
+pub(crate) fn collect_firmware_category() -> Result<CategoryCollection<FirmwareCategory>, String> {
     Err("O Inventário Técnico está disponível somente no Windows.".into())
 }
