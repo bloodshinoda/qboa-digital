@@ -59,11 +59,7 @@ mod windows {
         fn FileTimeToSystemTime(time: *const FileTime, system_time: *mut SystemTime) -> i32;
         fn GetNativeSystemInfo(info: *mut SystemInfo);
         fn GetTickCount64() -> u64;
-        fn GetComputerNameExW(
-            name_type: i32,
-            buffer: *mut u16,
-            size: *mut u32,
-        ) -> i32;
+        fn GetComputerNameExW(name_type: i32, buffer: *mut u16, size: *mut u32) -> i32;
         fn GetUserDefaultUILanguage() -> u16;
         fn LCIDToLocaleName(locale: u32, name: *mut u16, count: i32, flags: u32) -> i32;
         fn GetSystemDefaultLocaleName(name: *mut u16, count: i32) -> i32;
@@ -217,21 +213,15 @@ mod windows {
     }
 
     fn registry_string(name: &str, at: &str) -> Observed<String> {
-        read_registry_string(
-            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
-            name,
-        )
-        .map(|value| observed(value, "Windows Registry", name, at))
-        .unwrap_or_else(|| unavailable(at, "Valor não informado pelo Registro do Windows."))
+        read_registry_string(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", name)
+            .map(|value| observed(value, "Windows Registry", name, at))
+            .unwrap_or_else(|| unavailable(at, "Valor não informado pelo Registro do Windows."))
     }
 
     fn registry_dword(name: &str, at: &str) -> Observed<u32> {
-        read_registry_dword(
-            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
-            name,
-        )
-        .map(|value| observed(value, "Windows Registry", name, at))
-        .unwrap_or_else(|| unavailable(at, "Valor não informado pelo Registro do Windows."))
+        read_registry_dword(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", name)
+            .map(|value| observed(value, "Windows Registry", name, at))
+            .unwrap_or_else(|| unavailable(at, "Valor não informado pelo Registro do Windows."))
     }
 
     fn architecture(at: &str) -> Observed<OsArchitecture> {
@@ -249,7 +239,12 @@ mod windows {
                 )
             }
         };
-        observed(value, "kernel32!GetNativeSystemInfo", "wProcessorArchitecture", at)
+        observed(
+            value,
+            "kernel32!GetNativeSystemInfo",
+            "wProcessorArchitecture",
+            at,
+        )
     }
 
     fn computer_name(at: &str) -> Observed<String> {
@@ -271,8 +266,7 @@ mod windows {
     fn ui_language(at: &str) -> Observed<String> {
         let language = unsafe { GetUserDefaultUILanguage() };
         let mut buffer = vec![0u16; 85];
-        let written =
-            unsafe { LCIDToLocaleName(language as u32, buffer.as_mut_ptr(), 85, 0) };
+        let written = unsafe { LCIDToLocaleName(language as u32, buffer.as_mut_ptr(), 85, 0) };
         if written <= 1 {
             return unavailable(at, "Não foi possível resolver o idioma da interface.");
         }
@@ -312,7 +306,9 @@ mod windows {
         };
         file_time_to_iso(value)
             .map(|value| observed(value, "kernel32!GetTickCount64", "system_boot_time", at))
-            .unwrap_or_else(|| unavailable(at, "Não foi possível calcular o horário de inicialização."))
+            .unwrap_or_else(|| {
+                unavailable(at, "Não foi possível calcular o horário de inicialização.")
+            })
     }
 
     fn install_date(at: &str) -> Observed<String> {
@@ -333,7 +329,8 @@ mod windows {
             .unwrap_or_else(|| unavailable(at, "InstallDate não pôde ser convertido para UTC."))
     }
 
-    pub(super) fn collect() -> Result<(CategoryCollection<SystemCategory>, MachineIdentity), String> {
+    pub(super) fn collect() -> Result<(CategoryCollection<SystemCategory>, MachineIdentity), String>
+    {
         let started = Instant::now();
         let started_at = now_utc().ok_or_else(|| {
             "Não foi possível obter o horário UTC do Windows para iniciar o inventário.".to_string()
@@ -343,7 +340,11 @@ mod windows {
         let os_version = registry_string("CurrentVersion", &started_at);
         let display_version = registry_string("DisplayVersion", &started_at);
         let build_text = registry_string("CurrentBuildNumber", &started_at);
-        let build_number = match build_text.value.as_deref().and_then(|v| v.parse::<u32>().ok()) {
+        let build_number = match build_text
+            .value
+            .as_deref()
+            .and_then(|v| v.parse::<u32>().ok())
+        {
             Some(value) => observed(value, "Windows Registry", "CurrentBuildNumber", &started_at),
             None => unavailable(&started_at, "Build numérico não informado pelo Registro."),
         };
@@ -360,8 +361,20 @@ mod windows {
             "Domain",
         );
         let domain_or_workgroup = domain
-            .map(|value| observed(value, "Windows Registry", "Tcpip\\Parameters\\Domain", &started_at))
-            .unwrap_or_else(|| unavailable(&started_at, "Domínio ou grupo de trabalho não identificado."));
+            .map(|value| {
+                observed(
+                    value,
+                    "Windows Registry",
+                    "Tcpip\\Parameters\\Domain",
+                    &started_at,
+                )
+            })
+            .unwrap_or_else(|| {
+                unavailable(
+                    &started_at,
+                    "Domínio ou grupo de trabalho não identificado.",
+                )
+            });
 
         // A classificação do equipamento depende de evidência SMBIOS/WMI e será
         // preenchida pelo coletor de firmware/equipamento, sem inferência por nome.
