@@ -20,6 +20,7 @@ mod storage_diagnostic;
 mod system_compat;
 mod task_registry;
 mod technical_inventory;
+mod technical_inventory_collectors;
 mod tweak_profiles;
 mod windows_update;
 
