@@ -684,7 +684,13 @@ mod windows {
         }
 
         let init = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-        if init.is_err() {
+        let initialized_here = init.is_ok();
+        let apartment_already_initialized = init
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.code().0 == 0x80010106u32 as i32);
+
+        if !initialized_here && !apartment_already_initialized {
             return (
                 unavailable_tpm(
                     at,
@@ -820,7 +826,7 @@ mod windows {
             })
         })();
 
-        unsafe { CoUninitialize() };
+        if initialized_here {\n            unsafe { CoUninitialize() };\n        }
         match result {
             Ok(info) => {
                 let warning = if [
