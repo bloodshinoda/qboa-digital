@@ -3069,6 +3069,19 @@ async fn get_capability_inventory() -> Result<capability_inventory::CapabilityIn
 }
 
 #[derive(Clone, Serialize)]
+struct TechnicalInventorySystemSnapshot {
+    system: technical_inventory::CategoryCollection<technical_inventory::SystemCategory>,
+    machine: technical_inventory::MachineIdentity,
+}
+
+#[tauri::command]
+fn get_technical_inventory_system_snapshot(
+) -> Result<TechnicalInventorySystemSnapshot, String> {
+    let (system, machine) = technical_inventory_collectors::collect_system_category()?;
+    Ok(TechnicalInventorySystemSnapshot { system, machine })
+}
+
+#[derive(Clone, Serialize)]
 struct ServiceProfileState {
     system: service_profiles::DetectedSystem,
     profile: service_profiles::ServiceProfileFile,
@@ -3534,6 +3547,7 @@ fn main() {
             cancel_gpu_test,
             get_gpu_diagnostic_reports,
             get_capability_inventory,
+            get_technical_inventory_system_snapshot,
             list_windows_services,
             manage_windows_service,
             repair_windows_update,
