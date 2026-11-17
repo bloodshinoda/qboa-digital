@@ -249,7 +249,7 @@ mod windows {
         let value = unsafe { String::from_utf16_lossy(std::slice::from_raw_parts(name, len)) };
         unsafe { NetApiBufferFree(name.cast()); }
         if value.trim().is_empty() { return unavailable(at, "O Windows retornou um nome de associação vazio."); }
-        observed(value, "Netapi32!NetGetJoinInformation", match status { 1 => "workgroup", 2 => "domain", _ => "join_name" }, at)
+        observed(value, "Netapi32!NetGetJoinInformation", match status { 2 => "workgroup", 3 => "domain", _ => "join_name" }, at)
     }
 
     fn smbios_strings(table: &[u8], wanted_type: u8, indexes: &[usize]) -> Option<Vec<String>> {
