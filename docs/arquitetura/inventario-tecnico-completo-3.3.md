@@ -422,3 +422,45 @@ O inventário local pode preservar serial, MAC e identificadores PnP quando cole
 - memory_inventory.rs pode fornecer dados tipados de módulos, sem tornar seu formato atual de UI o contrato persistido.
 - capability_inventory.rs continua dono da aba Capacidades; compartilhar funções de baixo nível quando adequado, sem acoplar o formato CapabilityInventory à persistência do inventário.
 - Primeira fatia: modelos comuns, serialização, validação e testes unitários. Sem UI e sem coletar todas as categorias nesta etapa.
+
+## 12. Matriz de integração com Capacidades
+
+A aba **Capacidades** continua independente, disponível no Free e no Pro. Ela responde se um recurso ou dispositivo foi detectado, está desabilitado ou não pôde ser confirmado. O Inventário Técnico descreve componentes e configurações com dados tipados e maior profundidade. Uma mesma evidência pode alimentar as duas experiências, mas os relatórios e seus contratos não se misturam.
+
+### 12.1 Resumo de sistema já apresentado em Capacidades
+
+O objeto `CapabilityInventory.system` contém resumos de OS, arquitetura, fabricante, modelo, placa-mãe, processador, memória, GPU e tipo de equipamento. Esses campos são strings de apresentação e não devem ser copiados diretamente para o inventário.
+
+| Dado resumido em Capacidades | Destino tipado no Inventário | Regra |
+|---|---|---|
+| `os_name`, `os_version`, `os_build`, `architecture` | `system` | Recoletar em campos próprios, preservando edição, DisplayVersion, build e UBR separadamente. |
+| `manufacturer`, `model`, `device_type` | `machine` e `system.device_kind` | Reaproveitar a evidência de identificação, não a string formatada; preservar confiança e origem. |
+| `motherboard` | `firmware.motherboard` | Separar fabricante, produto, versão e serial sensível. |
+| `processor` | `cpu.processors[]` | Não importar resumo com clock/núcleos concatenados; coletar cada propriedade tipada. |
+| `memory` | `memory` | Não importar texto agregado; enumerar módulos e capacidades individualmente. |
+| `gpu` | `gpu.adapters[]` | Enumerar todos os adaptadores e distinguir memória dedicada/compartilhada. |
+
+### 12.2 Capacidades de dispositivos e destino no Inventário
+
+| ID atual em Capacidades | Destino no Inventário | O que não pode ser confundido |
+|---|---|---|
+| `bluetooth` | `audio_peripherals.peripherals[]` e `drivers.devices[]` | Recurso Bluetooth detectado não substitui fabricante, modelo, estado PnP e driver do adaptador. |
+| `wifi`, `ethernet` | `network.adapters[]` e `drivers.devices[]` | A capacidade resumida não substitui enumeração de interfaces, endereços e configuração passiva de rede. |
+| `touchscreen`, `pen`, `camera`, `biometrics` | `audio_peripherals.peripherals[]` e `drivers.devices[]` | Presença/estado do dispositivo não autoriza coletar conteúdo, imagens, digitais ou entradas do usuário. |
+| `audio` | `audio_peripherals.audio_devices[]` e `drivers.devices[]` | Distinguir controlador, endpoint de entrada/saída e driver. |
+| `battery` | `power.batteries[]` | A presença resumida não substitui capacidade, carga, química e estado; desktop sem bateria é resultado não aplicável, não erro. |
+| `tpm` | `firmware.tpm` | Presença, pronto, habilitado, ativado, versão e fabricante são propriedades independentes. |
+| `secure_boot` | `firmware.secure_boot_enabled` e `firmware.bios.mode` | Não inferir Secure Boot desabilitado quando a consulta falhar ou o firmware não for UEFI. |
+| `virtualization_firmware` | `cpu.processors[].virtualization_firmware_enabled` e `virtualization_supported` | Capacidade suportada e habilitação no firmware são fatos distintos. |
+| `hypervisor_active` | Sem equivalência direta no esquema atual | Hipervisor ativo no Windows não significa que o próprio computador seja uma máquina virtual. Não preencher `machine.is_virtual_machine` com esse dado. |
+| `hyper_v`, `wsl`, `virtual_machine_platform`, `sandbox` | Permanecem em Capacidades por enquanto | São estados de recursos/componentes opcionais do Windows; não há campo equivalente no contrato atual das 12 categorias. Não forçar sua inclusão em software instalado nem em identificação de hardware. |
+
+### 12.3 Regras de implementação e compartilhamento
+
+1. **Capacidades permanece dona da aba e do seu contrato.** Não migrar seus cards, estados ou resumo para a tela do Inventário e não condicionar Capacidades à licença Pro.
+2. **Não chamar `capability_inventory::collect()` pelo Inventário.** O coletor atual de Capacidades executa PowerShell e usa cmdlets como `Get-PnpDevice`, `Get-CimInstance`, `Get-Tpm`, `Confirm-SecureBootUEFI` e `Get-WindowsOptionalFeature`. Isso viola o contrato do Inventário, que exige coleta nativa em Rust/APIs Windows e não pode depender de PowerShell.
+3. **Reutilizar evidência, não resumos formatados.** Quando a mesma fonte nativa atender aos dois domínios, extrair a consulta para um módulo de baixo nível compartilhado e adaptar seu resultado aos dois modelos. Não fazer um domínio depender do JSON/struct do outro.
+4. **Preservar semânticas específicas.** `registered_not_present` em Capacidades não equivale automaticamente a `not_detected` no Inventário; desconhecido/erro de consulta não pode virar ausência confirmada.
+5. **Uma coleta não dispara a outra.** Abrir Capacidades não cria histórico de inventário; executar o Inventário não atualiza nem altera o estado visual de Capacidades. Cada experiência mantém seu próprio fluxo, relatório e disponibilidade.
+6. **Sem duplicar trabalho desnecessariamente.** Se futuramente houver um serviço comum de enumeração nativa PnP, ele poderá alimentar Capacidades e Inventário em uma única consulta por execução, desde que preserve os dois contratos e não introduza acoplamento de licença.
+7. **Migração de fonte é uma etapa separada.** A substituição futura de PowerShell em Capacidades pode aproveitar os módulos nativos criados para o Inventário, mas não deve ser incluída como requisito para concluir a primeira versão do Inventário.
