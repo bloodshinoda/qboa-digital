@@ -675,10 +675,7 @@ mod windows {
             u32::try_from(&value).ok()
         }
 
-        fn property_string(
-            object: &IWbemClassObject,
-            name: PCWSTR,
-        ) -> Option<String> {
+        fn property_string(object: &IWbemClassObject, name: PCWSTR) -> Option<String> {
             let mut value = VARIANT::default();
             unsafe { object.Get(name, 0, &mut value, None, None) }.ok()?;
             let value = BSTR::try_from(&value).ok()?.to_string();
