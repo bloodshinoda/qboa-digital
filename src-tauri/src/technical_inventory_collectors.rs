@@ -4,8 +4,10 @@
 //! PowerShell, não altera o Windows e não depende do módulo Capacidades.
 
 use crate::technical_inventory::{
-    CategoryCollection, DeviceKind, InventoryConfidence, InventoryIssue, InventorySource,
-    InventoryValueState, MachineIdentity, Observed, OsArchitecture, SystemCategory,
+    BiosInfo, CategoryCollection, DeviceKind, FirmwareCategory, FirmwareMode,
+    InventoryConfidence, InventoryIssue, InventorySource, InventoryValueState, MachineIdentity,
+    MotherboardInfo, Observed, OsArchitecture, Sensitive, SensitiveDataKind, SystemCategory,
+    TpmInfo,
 };
 use std::time::Instant;
 
@@ -84,6 +86,7 @@ mod windows {
             buffer: *mut c_void,
             size: u32,
         ) -> u32;
+        fn GetFirmwareType(firmware_type: *mut u32) -> i32;
     }
     #[link(name = "ntdll")]
     unsafe extern "system" {
@@ -508,6 +511,218 @@ mod windows {
         (manufacturer, model, device_kind, virtual_machine)
     }
 
+    fn not_applicable<T>(at: &str, note: &str) -> Observed<T> {
+        Observed {
+            value: None,
+            state: InventoryValueState::NotApplicable,
+            confidence: InventoryConfidence::Confirmed,
+            source: None,
+            collected_at: at.into(),
+            note: Some(note.into()),
+        }
+    }
+
+    fn smbios_string_values(
+        table: Option<&[u8]>,
+        structure_type: u8,
+        indexes: &[usize],
+        at: &str,
+        unavailable_note: &str,
+    ) -> Vec<Observed<String>> {
+        let Some(table) = table else {
+            return indexes
+                .iter()
+                .map(|_| unavailable(at, unavailable_note))
+                .collect();
+        };
+        let values = smbios_strings(table, structure_type, indexes).unwrap_or_default();
+        indexes
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                let value = values.get(index).cloned().unwrap_or_default();
+                if value.is_empty() || is_placeholder(&value) {
+                    unavailable(
+                        at,
+                        &format!("Campo SMBIOS Type {structure_type} ({field}) não informado."),
+                    )
+                } else {
+                    observed(
+                        value,
+                        "kernel32!GetSystemFirmwareTable/SMBIOS",
+                        &format!("Type {structure_type} string index field {field}"),
+                        at,
+                    )
+                }
+            })
+            .collect()
+    }
+
+    fn firmware_mode(at: &str) -> Observed<FirmwareMode> {
+        let mut firmware_type = 0u32;
+        if unsafe { GetFirmwareType(&mut firmware_type) } == 0 {
+            return unavailable(at, "GetFirmwareType não conseguiu identificar o modo de inicialização.");
+        }
+        let (value, member) = match firmware_type {
+            1 => (FirmwareMode::Legacy, "FIRMWARE_TYPE_BIOS"),
+            2 => (FirmwareMode::Uefi, "FIRMWARE_TYPE_UEFI"),
+            _ => {
+                return unavailable(
+                    at,
+                    "O Windows retornou um tipo de firmware desconhecido.",
+                )
+            }
+        };
+        observed(value, "kernel32!GetFirmwareType", member, at)
+    }
+
+    fn secure_boot_enabled(at: &str, mode: &Observed<FirmwareMode>) -> Observed<bool> {
+        match mode.value {
+            Some(FirmwareMode::Legacy) => not_applicable(
+                at,
+                "Secure Boot não se aplica ao modo de inicialização Legacy/BIOS.",
+            ),
+            Some(FirmwareMode::Uefi) => {
+                const SECURE_BOOT_KEY: &str =
+                    r"SYSTEM\CurrentControlSet\Control\SecureBoot\State";
+                match read_registry_dword(SECURE_BOOT_KEY, "UEFISecureBootEnabled") {
+                    Some(0) => observed(
+                        false,
+                        "Windows Registry",
+                        "UEFISecureBootEnabled",
+                        at,
+                    ),
+                    Some(1) => observed(
+                        true,
+                        "Windows Registry",
+                        "UEFISecureBootEnabled",
+                        at,
+                    ),
+                    Some(_) => unavailable(
+                        at,
+                        "O Registro retornou um valor inválido para UEFISecureBootEnabled.",
+                    ),
+                    None => unavailable(
+                        at,
+                        "O estado do Secure Boot não está disponível no Registro do Windows.",
+                    ),
+                }
+            }
+            _ => unavailable(
+                at,
+                "Não foi possível determinar o estado do Secure Boot sem identificar o modo de firmware.",
+            ),
+        }
+    }
+
+    fn unavailable_tpm(at: &str) -> TpmInfo {
+        let note = "A coleta nativa do estado do TPM ainda não foi implementada.";
+        TpmInfo {
+            present: unavailable(at, note),
+            ready: unavailable(at, note),
+            enabled: unavailable(at, note),
+            activated: unavailable(at, note),
+            spec_version: unavailable(at, note),
+            manufacturer: unavailable(at, note),
+        }
+    }
+
+    pub(super) fn collect_firmware_category(
+    ) -> Result<CategoryCollection<FirmwareCategory>, String> {
+        let started = Instant::now();
+        let started_at = now_utc().ok_or_else(|| {
+            "Não foi possível obter o horário UTC para iniciar a coleta de placa-mãe e firmware."
+                .to_string()
+        })?;
+
+        let table = smbios_table();
+        let motherboard_fields = smbios_string_values(
+            table.as_deref(),
+            2,
+            &[4, 5, 6, 7],
+            &started_at,
+            "Tabela SMBIOS indisponível.",
+        );
+        let bios_fields = smbios_string_values(
+            table.as_deref(),
+            0,
+            &[4, 5, 8],
+            &started_at,
+            "Tabela SMBIOS indisponível.",
+        );
+
+        let mut motherboard_fields = motherboard_fields.into_iter();
+        let motherboard_manufacturer = motherboard_fields.next().unwrap();
+        let motherboard_product = motherboard_fields.next().unwrap();
+        let motherboard_version = motherboard_fields.next().unwrap();
+        let motherboard_serial = motherboard_fields
+            .next()
+            .unwrap()
+            .value
+            .map(|value| Sensitive {
+                value,
+                classification: SensitiveDataKind::HardwareSerial,
+            });
+        let motherboard_serial_number = match motherboard_serial {
+            Some(value) => observed(
+                value,
+                "kernel32!GetSystemFirmwareTable/SMBIOS",
+                "Type 2 Serial Number",
+                &started_at,
+            ),
+            None => unavailable(
+                &started_at,
+                "Número de série da placa-mãe não informado pela estrutura SMBIOS Type 2.",
+            ),
+        };
+
+        let mut bios_fields = bios_fields.into_iter();
+        let bios_vendor = bios_fields.next().unwrap();
+        let bios_version = bios_fields.next().unwrap();
+        let bios_release_date = bios_fields.next().unwrap();
+
+        let mode = firmware_mode(&started_at);
+        let secure_boot = secure_boot_enabled(&started_at, &mode);
+        let tpm = unavailable_tpm(&started_at);
+
+        let mut warnings = Vec::new();
+        if table.is_none() {
+            warnings.push("A tabela SMBIOS não pôde ser consultada; dados de placa-mãe e BIOS podem ficar indisponíveis.".into());
+        }
+        warnings.push("Os campos de TPM permanecem indisponíveis até a implementação do coletor nativo específico.".into());
+
+        let data = FirmwareCategory {
+            motherboard: MotherboardInfo {
+                manufacturer: motherboard_manufacturer,
+                product: motherboard_product,
+                version: motherboard_version,
+                serial_number: motherboard_serial_number,
+            },
+            bios: BiosInfo {
+                vendor: bios_vendor,
+                version: bios_version,
+                release_date: bios_release_date,
+                mode,
+            },
+            tpm,
+            secure_boot_enabled: secure_boot,
+        };
+
+        let finished_at = now_utc().unwrap_or_else(|| started_at.clone());
+        let duration_ms = started.elapsed().as_millis().max(1).min(u64::MAX as u128) as u64;
+        let collection = CategoryCollection {
+            state: InventoryValueState::Available,
+            started_at,
+            finished_at,
+            duration_ms,
+            data: Some(data),
+            issues: Vec::<InventoryIssue>::new(),
+            warnings,
+        };
+        collection.validate()?;
+        Ok(collection)
+    }
+
     fn architecture(at: &str) -> Observed<OsArchitecture> {
         let mut info = std::mem::MaybeUninit::<SystemInfo>::zeroed();
         unsafe { GetNativeSystemInfo(info.as_mut_ptr()) };
@@ -714,6 +929,46 @@ mod windows {
         }
 
         #[test]
+        fn smbios_type_2_resolves_motherboard_fields() {
+            let table = [
+                2, 8, 0, 0, 1, 2, 3, 4,
+                b'A', b'C', b'M', b'E', 0,
+                b'P', b'C', b'H', b'-', b'B', b'5', b'5', b'0', b'M', 0,
+                b'1', b'.', b'0', 0,
+                b'S', b'N', b'1', b'2', b'3', 0, 0,
+                127, 4, 0, 0,
+            ];
+            assert_eq!(
+                smbios_strings(&table, 2, &[4, 5, 6, 7]).unwrap(),
+                vec![
+                    "ACME".to_string(),
+                    "PCH-B550M".to_string(),
+                    "1.0".to_string(),
+                    "SN123".to_string()
+                ]
+            );
+        }
+
+        #[test]
+        fn smbios_type_0_resolves_bios_fields() {
+            let table = [
+                0, 9, 0, 0, 1, 2, 0, 0, 3,
+                b'A', b'M', b'I', 0,
+                b'F', b'1', b'.', b'2', 0,
+                b'1', b'1', b'/', b'1', b'7', b'/', b'2', b'0', b'2', b'6', 0, 0,
+                127, 4, 0, 0,
+            ];
+            assert_eq!(
+                smbios_strings(&table, 0, &[4, 5, 8]).unwrap(),
+                vec![
+                    "AMI".to_string(),
+                    "F1.2".to_string(),
+                    "11/17/2026".to_string()
+                ]
+            );
+        }
+
+        #[test]
         fn smbios_chassis_type_is_read_from_the_formatted_structure() {
             let table = [3, 6, 0, 0, 1, 3, b'A', b'C', b'M', b'E', 0, 0, 127, 4, 0, 0];
             assert_eq!(smbios_byte_field(&table, 3, 5), Some(3));
@@ -745,5 +1000,17 @@ pub(crate) fn collect_system_category(
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn collect_system_category(
 ) -> Result<(CategoryCollection<SystemCategory>, MachineIdentity), String> {
+    Err("O Inventário Técnico está disponível somente no Windows.".into())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn collect_firmware_category(
+) -> Result<CategoryCollection<FirmwareCategory>, String> {
+    windows::collect_firmware_category()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn collect_firmware_category(
+) -> Result<CategoryCollection<FirmwareCategory>, String> {
     Err("O Inventário Técnico está disponível somente no Windows.".into())
 }
