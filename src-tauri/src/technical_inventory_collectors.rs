@@ -39,7 +39,19 @@ mod windows {
     }
 
     #[repr(C)]
-    struct OsVersionInfo { size: u32, major: u32, minor: u32, build: u32, platform_id: u32, service_pack: [u16; 128], service_pack_major: u16, service_pack_minor: u16, suite_mask: u16, product_type: u8, reserved: u8 }
+    struct OsVersionInfo {
+        size: u32,
+        major: u32,
+        minor: u32,
+        build: u32,
+        platform_id: u32,
+        service_pack: [u16; 128],
+        service_pack_major: u16,
+        service_pack_minor: u16,
+        suite_mask: u16,
+        product_type: u8,
+        reserved: u8,
+    }
 
     #[repr(C)]
     struct SystemInfo {
@@ -66,12 +78,22 @@ mod windows {
         fn GetUserDefaultUILanguage() -> u16;
         fn LCIDToLocaleName(locale: u32, name: *mut u16, count: i32, flags: u32) -> i32;
         fn GetSystemDefaultLocaleName(name: *mut u16, count: i32) -> i32;
-        fn GetSystemFirmwareTable(provider: u32, table_id: u32, buffer: *mut c_void, size: u32) -> u32;
+        fn GetSystemFirmwareTable(
+            provider: u32,
+            table_id: u32,
+            buffer: *mut c_void,
+            size: u32,
+        ) -> u32;
     }
     #[link(name = "ntdll")]
-    unsafe extern "system" { fn RtlGetVersion(version: *mut OsVersionInfo) -> i32; }
+    unsafe extern "system" {
+        fn RtlGetVersion(version: *mut OsVersionInfo) -> i32;
+    }
     #[link(name = "netapi32")]
-    unsafe extern "system" { fn NetGetJoinInformation(server: *const u16, name: *mut *mut u16, status: *mut u32) -> u32; fn NetApiBufferFree(buffer: *mut c_void) -> u32; }
+    unsafe extern "system" {
+        fn NetGetJoinInformation(server: *const u16, name: *mut *mut u16, status: *mut u32) -> u32;
+        fn NetApiBufferFree(buffer: *mut c_void) -> u32;
+    }
 
     #[link(name = "advapi32")]
     unsafe extern "system" {
@@ -329,9 +351,7 @@ mod windows {
                             } else {
                                 strings
                                     .get(string_index - 1)
-                                    .map(|bytes| {
-                                        String::from_utf8_lossy(bytes).trim().to_string()
-                                    })
+                                    .map(|bytes| String::from_utf8_lossy(bytes).trim().to_string())
                                     .unwrap_or_default()
                             }
                         })
@@ -355,8 +375,7 @@ mod windows {
                 break;
             }
             if structure_type == wanted_type {
-                return (field_offset < formatted_length)
-                    .then(|| table[offset + field_offset]);
+                return (field_offset < formatted_length).then(|| table[offset + field_offset]);
             }
             let strings_start = offset + formatted_length;
             let strings_end = table[strings_start..]
@@ -376,8 +395,7 @@ mod windows {
         }
 
         let mut buffer = vec![0u8; size as usize];
-        let written =
-            unsafe { GetSystemFirmwareTable(RSMB, 0, buffer.as_mut_ptr().cast(), size) };
+        let written = unsafe { GetSystemFirmwareTable(RSMB, 0, buffer.as_mut_ptr().cast(), size) };
         if written < 8 || written > size {
             return None;
         }
@@ -468,7 +486,10 @@ mod windows {
                 )
             })
             .unwrap_or_else(|| {
-                unavailable(at, "Tipo de equipamento não reconhecido pela estrutura SMBIOS.")
+                unavailable(
+                    at,
+                    "Tipo de equipamento não reconhecido pela estrutura SMBIOS.",
+                )
             });
         let virtual_machine = if is_vm {
             observed(
@@ -686,14 +707,15 @@ mod windows {
                 1, 6, 0, 0, 1, 2, b'A', b'C', b'M', b'E', 0, b'M', b'o', b'd', b'e', b'l', b' ',
                 b'X', 0, 0, 127, 4, 0, 0,
             ];
-            assert_eq!(smbios_strings(&table, 1, &[4, 5]).unwrap(), vec!["ACME".to_string(), "Model X".to_string()]);
+            assert_eq!(
+                smbios_strings(&table, 1, &[4, 5]).unwrap(),
+                vec!["ACME".to_string(), "Model X".to_string()]
+            );
         }
 
         #[test]
         fn smbios_chassis_type_is_read_from_the_formatted_structure() {
-            let table = [
-                3, 6, 0, 0, 1, 3, b'A', b'C', b'M', b'E', 0, 0, 127, 4, 0, 0,
-            ];
+            let table = [3, 6, 0, 0, 1, 3, b'A', b'C', b'M', b'E', 0, 0, 127, 4, 0, 0];
             assert_eq!(smbios_byte_field(&table, 3, 5), Some(3));
         }
 
