@@ -669,7 +669,7 @@ mod windows {
             bool::try_from(&value).ok()
         }
 
-        fn property_u32(object: &IWbemClassObject, name: windows::core::PCWSTR) -> Option<u32> {
+        fn property_u32(object: &IWbemClassObject, name: PCWSTR) -> Option<u32> {
             let mut value = VARIANT::default();
             unsafe { object.Get(name, 0, &mut value, None, None) }.ok()?;
             u32::try_from(&value).ok()
