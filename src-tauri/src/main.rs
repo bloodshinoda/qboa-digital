@@ -3075,8 +3075,7 @@ struct TechnicalInventorySystemSnapshot {
 }
 
 #[tauri::command]
-fn get_technical_inventory_system_snapshot(
-) -> Result<TechnicalInventorySystemSnapshot, String> {
+fn get_technical_inventory_system_snapshot() -> Result<TechnicalInventorySystemSnapshot, String> {
     let (system, machine) = technical_inventory_collectors::collect_system_category()?;
     Ok(TechnicalInventorySystemSnapshot { system, machine })
 }
