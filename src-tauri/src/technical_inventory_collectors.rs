@@ -685,10 +685,7 @@ mod windows {
 
         let init = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
         let initialized_here = init.is_ok();
-        let apartment_already_initialized = init
-            .as_ref()
-            .err()
-            .is_some_and(|error| error.code().0 == 0x80010106u32 as i32);
+        let apartment_already_initialized = init.0 == 0x80010106u32 as i32;
 
         if !initialized_here && !apartment_already_initialized {
             return (
