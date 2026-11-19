@@ -826,7 +826,9 @@ mod windows {
             })
         })();
 
-        if initialized_here {\n            unsafe { CoUninitialize() };\n        }
+        if initialized_here {
+            unsafe { CoUninitialize() };
+        }
         match result {
             Ok(info) => {
                 let warning = if [
