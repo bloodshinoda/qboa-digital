@@ -3081,6 +3081,17 @@ fn get_technical_inventory_system_snapshot() -> Result<TechnicalInventorySystemS
 }
 
 #[derive(Clone, Serialize)]
+struct TechnicalInventoryCpuSnapshot {
+    cpu: technical_inventory::CategoryCollection<technical_inventory::CpuCategory>,
+}
+
+#[tauri::command]
+fn get_technical_inventory_cpu_snapshot() -> Result<TechnicalInventoryCpuSnapshot, String> {
+    let cpu = technical_inventory_collectors::collect_cpu_category()?;
+    Ok(TechnicalInventoryCpuSnapshot { cpu })
+}
+
+#[derive(Clone, Serialize)]
 struct TechnicalInventoryFirmwareSnapshot {
     firmware: technical_inventory::CategoryCollection<technical_inventory::FirmwareCategory>,
 }
@@ -3560,6 +3571,7 @@ fn main() {
             get_capability_inventory,
             get_technical_inventory_system_snapshot,
             get_technical_inventory_firmware_snapshot,
+            get_technical_inventory_cpu_snapshot,
             list_windows_services,
             manage_windows_service,
             repair_windows_update,

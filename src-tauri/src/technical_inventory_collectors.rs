@@ -4,9 +4,10 @@
 //! PowerShell, não altera o Windows e não depende do módulo Capacidades.
 
 use crate::technical_inventory::{
-    BiosInfo, CategoryCollection, DeviceKind, FirmwareCategory, FirmwareMode, InventoryConfidence,
-    InventoryIssue, InventorySource, InventoryValueState, MachineIdentity, MotherboardInfo,
-    Observed, OsArchitecture, Sensitive, SensitiveDataKind, SystemCategory, TpmInfo,
+    BiosInfo, CategoryCollection, CpuArchitecture, CpuCategory, CpuInstructionSet, DeviceKind,
+    FirmwareCategory, FirmwareMode, InventoryConfidence, InventoryIssue, InventorySource,
+    InventoryValueState, MachineIdentity, MotherboardInfo, Observed, OsArchitecture, ProcessorInfo,
+    Sensitive, SensitiveDataKind, SystemCategory, TpmInfo,
 };
 use std::time::Instant;
 
@@ -86,6 +87,7 @@ mod windows {
             size: u32,
         ) -> u32;
         fn GetFirmwareType(firmware_type: *mut u32) -> i32;
+        fn IsProcessorFeaturePresent(feature: u32) -> i32;
     }
     #[link(name = "ntdll")]
     unsafe extern "system" {
@@ -854,6 +856,265 @@ mod windows {
         }
     }
 
+
+    #[derive(Default)]
+    struct SmbiosCpu {
+        socket: Option<String>,
+        manufacturer: Option<String>,
+        version: Option<String>,
+        processor_id: Option<String>,
+        max_clock_mhz: Option<u64>,
+        physical_cores: Option<u32>,
+        logical_processors: Option<u32>,
+        l1_cache_bytes: Option<u64>,
+        l2_cache_bytes: Option<u64>,
+        l3_cache_bytes: Option<u64>,
+    }
+
+    fn smbios_records(table: &[u8]) -> Vec<(u8, Vec<u8>, Vec<String>)> {
+        let mut records = Vec::new();
+        let mut offset = 0usize;
+        while offset.checked_add(4).is_some_and(|end| end <= table.len()) {
+            let kind = table[offset];
+            let length = table[offset + 1] as usize;
+            if length < 4 || offset.checked_add(length).is_none_or(|end| end > table.len()) {
+                break;
+            }
+            if kind == 127 {
+                break;
+            }
+            let strings_start = offset + length;
+            let Some(relative_end) = table[strings_start..].windows(2).position(|pair| pair == [0, 0]) else {
+                break;
+            };
+            let strings_end = strings_start + relative_end;
+            let strings = if strings_end == strings_start {
+                Vec::new()
+            } else {
+                table[strings_start..strings_end]
+                    .split(|byte| *byte == 0)
+                    .map(|value| String::from_utf8_lossy(value).trim().to_string())
+                    .collect()
+            };
+            records.push((kind, table[offset..offset + length].to_vec(), strings));
+            offset = strings_end + 2;
+        }
+        records
+    }
+
+    fn smbios_record_string(record: &[u8], strings: &[String], field: usize) -> Option<String> {
+        let index = *record.get(field)? as usize;
+        if index == 0 {
+            return None;
+        }
+        strings.get(index - 1).filter(|value| !value.is_empty() && !is_placeholder(value)).cloned()
+    }
+
+    fn smbios_u16(record: &[u8], offset: usize) -> Option<u16> {
+        Some(u16::from_le_bytes([*record.get(offset)?, *record.get(offset + 1)?]))
+    }
+
+    fn smbios_cache_size(record: &[u8]) -> Option<u64> {
+        let encoded = smbios_u16(record, 0x09)?;
+        if encoded != 0 && encoded != 0xffff {
+            let size = (encoded & 0x7fff) as u64;
+            return Some(if encoded & 0x8000 == 0 { size * 1024 } else { size * 64 * 1024 });
+        }
+        if record.len() >= 0x1b {
+            let extended = u32::from_le_bytes(record[0x17..0x1b].try_into().ok()?);
+            if extended != 0 && extended != u32::MAX {
+                return Some(extended as u64);
+            }
+        }
+        None
+    }
+
+    fn smbios_cpu_records(table: &[u8]) -> Vec<SmbiosCpu> {
+        let records = smbios_records(table);
+        let caches: std::collections::HashMap<u16, (u8, u64)> = records
+            .iter()
+            .filter(|(kind, _, _)| *kind == 7)
+            .filter_map(|(_, record, _)| {
+                let handle = smbios_u16(record, 0x02)?;
+                let level = (record.get(0x05).copied()? >> 5) & 0x07;
+                let size = smbios_cache_size(record)?;
+                Some((handle, (level, size)))
+            })
+            .collect();
+
+        records.iter().filter(|(kind, _, _)| *kind == 4).map(|(_, record, strings)| {
+            let cache_size = |offset: usize, wanted_level: u8| -> Option<u64> {
+                let handle = smbios_u16(record, offset)?;
+                caches.get(&handle).filter(|(level, _)| *level == wanted_level).map(|(_, size)| *size)
+            };
+            let core_count = record.get(0x23).copied().filter(|value| *value != 0 && *value != 0xff).map(u32::from)
+                .or_else(|| (record.len() >= 0x2c).then(|| u16::from_le_bytes([record[0x2a], record[0x2b]]) as u32).filter(|value| *value != 0 && *value != 0xffff));
+            let thread_count = record.get(0x25).copied().filter(|value| *value != 0 && *value != 0xff).map(u32::from)
+                .or_else(|| (record.len() >= 0x30).then(|| u16::from_le_bytes([record[0x2e], record[0x2f]]) as u32).filter(|value| *value != 0 && *value != 0xffff));
+            let max_clock = smbios_u16(record, 0x14).filter(|value| *value != 0 && *value != 0xffff).map(u64::from);
+            let processor_id = if record.len() >= 0x10 {
+                Some(record[0x08..0x10].iter().rev().map(|byte| format!("{byte:02X}")).collect::<Vec<_>>().join(""))
+            } else { None };
+            SmbiosCpu {
+                socket: smbios_record_string(record, strings, 0x04),
+                manufacturer: smbios_record_string(record, strings, 0x07),
+                version: smbios_record_string(record, strings, 0x10),
+                processor_id,
+                max_clock_mhz: max_clock,
+                physical_cores: core_count,
+                logical_processors: thread_count,
+                l1_cache_bytes: cache_size(0x1a, 1),
+                l2_cache_bytes: cache_size(0x1c, 2),
+                l3_cache_bytes: cache_size(0x1e, 3),
+            }
+        }).collect()
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn cpuid_cpu_identity() -> (Option<String>, Option<String>, Vec<CpuInstructionSet>, bool) {
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::{__cpuid, __cpuid_count};
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::{__cpuid, __cpuid_count};
+
+        let basic = unsafe { __cpuid(0) };
+        let vendor = [
+            basic.ebx.to_le_bytes(), basic.edx.to_le_bytes(), basic.ecx.to_le_bytes()
+        ].concat();
+        let vendor = String::from_utf8_lossy(&vendor).trim().to_string();
+
+        let extended = unsafe { __cpuid(0x8000_0000) }.eax;
+        let brand = if extended >= 0x8000_0004 {
+            let mut bytes = Vec::with_capacity(48);
+            for leaf in 0x8000_0002..=0x8000_0004 {
+                let value = unsafe { __cpuid(leaf) };
+                bytes.extend_from_slice(&value.eax.to_le_bytes());
+                bytes.extend_from_slice(&value.ebx.to_le_bytes());
+                bytes.extend_from_slice(&value.ecx.to_le_bytes());
+                bytes.extend_from_slice(&value.edx.to_le_bytes());
+            }
+            let value = String::from_utf8_lossy(&bytes).trim_matches(char::from(0)).trim().to_string();
+            (!value.is_empty()).then_some(value)
+        } else { None };
+
+        let mut sets = Vec::new();
+        let leaf1 = unsafe { __cpuid(1) };
+        let ecx = leaf1.ecx;
+        let edx = leaf1.edx;
+        if edx & (1 << 23) != 0 { sets.push(CpuInstructionSet::Mmx); }
+        if edx & (1 << 25) != 0 { sets.push(CpuInstructionSet::Sse); }
+        if edx & (1 << 26) != 0 { sets.push(CpuInstructionSet::Sse2); }
+        if ecx & (1 << 0) != 0 { sets.push(CpuInstructionSet::Sse3); }
+        if ecx & (1 << 9) != 0 { sets.push(CpuInstructionSet::Ssse3); }
+        if ecx & (1 << 19) != 0 { sets.push(CpuInstructionSet::Sse41); }
+        if ecx & (1 << 20) != 0 { sets.push(CpuInstructionSet::Sse42); }
+        if ecx & (1 << 25) != 0 { sets.push(CpuInstructionSet::Aes); }
+        if ecx & (1 << 28) != 0 { sets.push(CpuInstructionSet::Avx); }
+        if ecx & (1 << 12) != 0 { sets.push(CpuInstructionSet::Fma); }
+        if ecx & (1 << 29) != 0 { sets.push(CpuInstructionSet::F16c); }
+        let mut virtualization = ecx & (1 << 5) != 0;
+        if basic.eax >= 7 {
+            let leaf7 = unsafe { __cpuid_count(7, 0) };
+            if leaf7.ebx & (1 << 5) != 0 { sets.push(CpuInstructionSet::Avx2); }
+            if leaf7.ebx & (1 << 3) != 0 { sets.push(CpuInstructionSet::Bmi1); }
+            if leaf7.ebx & (1 << 8) != 0 { sets.push(CpuInstructionSet::Bmi2); }
+            if leaf7.ebx & (1 << 16) != 0 { sets.push(CpuInstructionSet::Avx512F); }
+            if leaf7.ebx & (1 << 29) != 0 { sets.push(CpuInstructionSet::Sha); }
+        }
+        if extended >= 0x8000_0001 {
+            let ext1 = unsafe { __cpuid(0x8000_0001) };
+            virtualization |= ext1.ecx & (1 << 2) != 0;
+        }
+        (Some(vendor), brand, sets, virtualization)
+    }
+
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    fn cpuid_cpu_identity() -> (Option<String>, Option<String>, Vec<CpuInstructionSet>, bool) {
+        (None, None, Vec::new(), false)
+    }
+
+    fn collect_cpu_category() -> Result<CategoryCollection<CpuCategory>, String> {
+        let started = Instant::now();
+        let started_at = now_utc().ok_or_else(|| {
+            "Não foi possível obter o horário UTC para iniciar a coleta da CPU.".to_string()
+        })?;
+        let table = smbios_table();
+        let smbios_processors = table.as_deref().map(smbios_cpu_records).unwrap_or_default();
+        let (cpuid_vendor, cpuid_brand, instruction_sets, virtualization_supported) = cpuid_cpu_identity();
+
+        let mut system_info = std::mem::MaybeUninit::<SystemInfo>::zeroed();
+        unsafe { GetNativeSystemInfo(system_info.as_mut_ptr()) };
+        let system_info = unsafe { system_info.assume_init() };
+        let (architecture, architecture_member) = match system_info.processor_architecture {
+            0 => (CpuArchitecture::X86, "PROCESSOR_ARCHITECTURE_INTEL"),
+            9 => (CpuArchitecture::X64, "PROCESSOR_ARCHITECTURE_AMD64"),
+            5 => (CpuArchitecture::Arm, "PROCESSOR_ARCHITECTURE_ARM"),
+            12 => (CpuArchitecture::Arm64, "PROCESSOR_ARCHITECTURE_ARM64"),
+            6 => (CpuArchitecture::Itanium, "PROCESSOR_ARCHITECTURE_IA64"),
+            _ => (CpuArchitecture::Unknown, "PROCESSOR_ARCHITECTURE_UNKNOWN"),
+        };
+        let logical_count = (system_info.number_of_processors > 0).then_some(system_info.number_of_processors);
+
+        let processors = if smbios_processors.is_empty() { vec![SmbiosCpu::default()] } else { smbios_processors };
+        let mut results = Vec::with_capacity(processors.len());
+        for smbios in processors {
+            let name = cpuid_brand.clone().or_else(|| smbios.version.clone());
+            let manufacturer = cpuid_vendor.clone().or_else(|| smbios.manufacturer.clone());
+            let physical_cores = smbios.physical_cores;
+            let logical_processors = smbios.logical_processors.or(logical_count);
+            let field = |value: Option<String>, member: &str, note: &str| {
+                value.map(|value| observed(value, "CPUID/SMBIOS", member, &started_at))
+                    .unwrap_or_else(|| unavailable(&started_at, note))
+            };
+            let number = |value: Option<u64>, member: &str, note: &str| {
+                value.map(|value| observed(value, "SMBIOS Type 4", member, &started_at))
+                    .unwrap_or_else(|| unavailable(&started_at, note))
+            };
+            let count = |value: Option<u32>, member: &str, note: &str| {
+                value.map(|value| observed(value, "SMBIOS Type 4 / kernel32!GetNativeSystemInfo", member, &started_at))
+                    .unwrap_or_else(|| unavailable(&started_at, note))
+            };
+            let virtualization = observed(virtualization_supported, "CPUID", "VMX/SVM", &started_at);
+            let firmware_enabled = unsafe { IsProcessorFeaturePresent(21) } != 0;
+            let info = ProcessorInfo {
+                name: field(name, "processor_brand_string", "Nome do processador não informado por CPUID ou SMBIOS."),
+                manufacturer: field(manufacturer, "vendor_id", "Fabricante não informado por CPUID ou SMBIOS."),
+                processor_id: field(smbios.processor_id, "Processor ID", "Identificador do processador não informado pelo SMBIOS Type 4."),
+                socket: field(smbios.socket, "Socket Designation", "Soquete não informado pelo SMBIOS Type 4."),
+                architecture: observed(architecture.clone(), "kernel32!GetNativeSystemInfo", architecture_member, &started_at),
+                physical_cores: count(physical_cores, "Core Count", "Quantidade de núcleos físicos não informada pelo SMBIOS Type 4."),
+                logical_processors: count(logical_processors, "Thread Count / NumberOfProcessors", "Quantidade de processadores lógicos não informada."),
+                max_clock_mhz: number(smbios.max_clock_mhz, "Max Speed", "Clock máximo não informado pelo SMBIOS Type 4."),
+                l1_cache_bytes: number(smbios.l1_cache_bytes, "L1 Cache Handle", "Cache L1 não informado pelo SMBIOS Type 4/7."),
+                l2_cache_bytes: number(smbios.l2_cache_bytes, "L2 Cache Handle", "Cache L2 não informado pelo SMBIOS Type 4/7."),
+                l3_cache_bytes: number(smbios.l3_cache_bytes, "L3 Cache Handle", "Cache L3 não informado pelo SMBIOS Type 4/7."),
+                virtualization_supported: virtualization,
+                virtualization_firmware_enabled: observed(firmware_enabled, "kernel32!IsProcessorFeaturePresent", "PF_VIRT_FIRMWARE_ENABLED", &started_at),
+                instruction_sets: observed(instruction_sets.clone(), "CPUID", "processor feature flags", &started_at),
+            };
+            info.validate()?;
+            results.push(info);
+        }
+
+        let warnings = if table.is_none() {
+            vec!["Tabela SMBIOS indisponível; socket, caches, clock máximo e contagem física podem não ser informados.".into()]
+        } else if results.iter().any(|processor| processor.physical_cores.value.is_none() || processor.max_clock_mhz.value.is_none()) {
+            vec!["Alguns atributos da CPU não foram informados pelo firmware SMBIOS.".into()]
+        } else { Vec::new() };
+
+        let collection = CategoryCollection {
+            state: InventoryValueState::Available,
+            started_at: started_at.clone(),
+            finished_at: now_utc().unwrap_or(started_at),
+            duration_ms: started.elapsed().as_millis().max(1).min(u64::MAX as u128) as u64,
+            data: Some(CpuCategory { processors: results }),
+            issues: Vec::<InventoryIssue>::new(),
+            warnings,
+        };
+        collection.validate()?;
+        Ok(collection)
+    }
+
     pub(super) fn collect_firmware_category() -> Result<CategoryCollection<FirmwareCategory>, String>
     {
         let started = Instant::now();
@@ -1223,6 +1484,16 @@ pub(crate) fn collect_system_category(
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn collect_system_category(
 ) -> Result<(CategoryCollection<SystemCategory>, MachineIdentity), String> {
+    Err("O Inventário Técnico está disponível somente no Windows.".into())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn collect_cpu_category() -> Result<CategoryCollection<CpuCategory>, String> {
+    windows::collect_cpu_category()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn collect_cpu_category() -> Result<CategoryCollection<CpuCategory>, String> {
     Err("O Inventário Técnico está disponível somente no Windows.".into())
 }
 
