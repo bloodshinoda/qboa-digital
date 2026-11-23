@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -398,7 +398,7 @@ fn start_telemetry_process(app_data_dir: &Path) -> Result<Child, String> {
     Command::new(executable)
         .arg("stream")
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .creation_flags(0x08000000)
         .spawn()
         .map_err(|e| format!("Não foi possível iniciar o monitoramento térmico integrado: {e}"))
@@ -628,8 +628,26 @@ fn run_test<R: Runtime>(
 
     let mut last_preflight_sample = None;
     for sample_number in 1..=3 {
-        let line = receiver.recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS))
-            .map_err(|_| "O coletor integrado não forneceu três leituras térmicas consecutivas. O teste não foi iniciado.".to_string())?;
+        let line = match receiver.recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS)) {
+            Ok(line) => line,
+            Err(receive_error) => {
+                let _ = child.0.kill();
+                let _ = child.0.wait();
+                let mut details = String::new();
+                if let Some(stderr) = child.0.stderr.as_mut() {
+                    let _ = stderr.read_to_string(&mut details);
+                }
+                let details = details.trim();
+                let detail_suffix = if details.is_empty() {
+                    String::new()
+                } else {
+                    format!(" Detalhes do coletor: {details}")
+                };
+                return Err(format!(
+                    "O coletor integrado não forneceu três leituras térmicas consecutivas; o teste não foi iniciado ({receive_error}).{detail_suffix}"
+                ));
+            }
+        };
         let raw: RawTelemetrySample = serde_json::from_str(&line)
             .map_err(|e| format!("A amostra térmica de pré-verificação é inválida: {e}"))?;
         let temperature = raw
