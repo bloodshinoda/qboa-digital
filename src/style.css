@@ -173,10 +173,10 @@ button {
 
 .card:hover {
   transform: translateY(-2px);
-  border-color: transparent;
-  background:
-    linear-gradient(var(--qboa-panel), var(--qboa-panel)) padding-box,
-    var(--rainbow) border-box;
+  border: 2px solid transparent;
+  border-image: var(--rainbow) 1;
+  border-radius: 0;
+  background: var(--qboa-panel);
 }
 
 .card h3 {
@@ -1096,7 +1096,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .cpu-test-chart-legend { display:flex; flex-wrap:wrap; gap:16px; font-size:.8rem; }
 .cpu-legend-temperature { color:#fbbf24; }
 .cpu-legend-usage { color:#60a5fa; }
-.cpu-legend-frequency { color:#a78bfa; }
+.cpu-legend-frequency { color:#2dd4bf; }
 .cpu-test-progress-heading strong { font-size:.9rem; }
 .cpu-test-progress-heading span { font-variant-numeric:tabular-nums; font-weight:800; }
 .cpu-test-progress-track { height:9px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.14); }

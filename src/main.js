@@ -2529,7 +2529,7 @@ function renderCpuFrequencyChart(samples) {
   const firstElapsed = Number(samples[0]?.elapsed_ms || 0);
   const lastElapsed = Number(samples[samples.length - 1]?.elapsed_ms || firstElapsed);
   const elapsedRange = Math.max(1, lastElapsed - firstElapsed);
-  ctx.strokeStyle = "#a78bfa";
+  ctx.strokeStyle = "#2dd4bf";
   ctx.lineWidth = 2;
   ctx.beginPath();
   let drawing = false;
