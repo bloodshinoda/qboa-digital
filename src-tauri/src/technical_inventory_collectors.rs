@@ -1123,6 +1123,99 @@ mod windows {
         (None, None, Vec::new(), false)
     }
 
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct CpuCacheSizes {
+        l1_bytes: Option<u64>,
+        l2_bytes: Option<u64>,
+        l3_bytes: Option<u64>,
+    }
+
+    fn cache_sizes_from_cpuid(
+        entries: &[(u32, u32, u32)],
+        logical_processors: Option<u32>,
+    ) -> CpuCacheSizes {
+        let mut sizes = CpuCacheSizes::default();
+
+        for &(eax, ebx, ecx) in entries {
+            let cache_type = eax & 0x1f;
+            if cache_type == 0 {
+                break;
+            }
+
+            let level = (eax >> 5) & 0x07;
+            let sharing_logical = ((eax >> 14) & 0x0fff).saturating_add(1);
+            let line_size = (ebx & 0x0fff).saturating_add(1) as u64;
+            let partitions = ((ebx >> 12) & 0x03ff).saturating_add(1) as u64;
+            let ways = ((ebx >> 22) & 0x03ff).saturating_add(1) as u64;
+            let sets = (ecx as u64).saturating_add(1);
+
+            let Some(instance_size) = line_size
+                .checked_mul(partitions)
+                .and_then(|value| value.checked_mul(ways))
+                .and_then(|value| value.checked_mul(sets))
+            else {
+                continue;
+            };
+
+            let instances = logical_processors
+                .map(|count| count.div_ceil(sharing_logical.max(1)))
+                .unwrap_or(1) as u64;
+            let total_size = instance_size.saturating_mul(instances);
+
+            let target = match (level, cache_type) {
+                (1, 1..=3) => &mut sizes.l1_bytes,
+                (2, 1..=3) => &mut sizes.l2_bytes,
+                (3, 1..=3) => &mut sizes.l3_bytes,
+                _ => continue,
+            };
+            *target = Some(target.unwrap_or(0).saturating_add(total_size));
+        }
+
+        sizes
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn cpuid_cpu_cache_sizes(logical_processors: Option<u32>) -> CpuCacheSizes {
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::{__cpuid, __cpuid_count};
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::{__cpuid, __cpuid_count};
+
+        let basic = unsafe { __cpuid(0) };
+        let vendor = [
+            basic.ebx.to_le_bytes(),
+            basic.edx.to_le_bytes(),
+            basic.ecx.to_le_bytes(),
+        ]
+        .concat();
+        let vendor = String::from_utf8_lossy(&vendor);
+        let extended_max = unsafe { __cpuid(0x8000_0000) }.eax;
+
+        let leaf = if vendor == "AuthenticAMD" && extended_max >= 0x8000_001d {
+            0x8000_001d
+        } else if basic.eax >= 4 {
+            4
+        } else {
+            return CpuCacheSizes::default();
+        };
+
+        let mut entries = Vec::new();
+        for subleaf in 0..32 {
+            let value = unsafe { __cpuid_count(leaf, subleaf) };
+            if value.eax & 0x1f == 0 {
+                break;
+            }
+            entries.push((value.eax, value.ebx, value.ecx));
+        }
+
+        cache_sizes_from_cpuid(&entries, logical_processors)
+    }
+
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    fn cpuid_cpu_cache_sizes(_logical_processors: Option<u32>) -> CpuCacheSizes {
+        CpuCacheSizes::default()
+    }
+
     pub(super) fn collect_cpu_category() -> Result<CategoryCollection<CpuCategory>, String> {
         let started = Instant::now();
         let started_at = now_utc().ok_or_else(|| {
@@ -1146,6 +1239,7 @@ mod windows {
         };
         let logical_count =
             (system_info.number_of_processors > 0).then_some(system_info.number_of_processors);
+        let cpuid_caches = cpuid_cpu_cache_sizes(logical_count);
 
         let processors = if smbios_processors.is_empty() {
             vec![SmbiosCpu::default()]
@@ -1167,6 +1261,18 @@ mod windows {
                 value
                     .map(|value| observed(value, "SMBIOS Type 4", member, &started_at))
                     .unwrap_or_else(|| unavailable(&started_at, note))
+            };
+            let cache_number = |cpuid_value: Option<u64>,
+                                smbios_value: Option<u64>,
+                                member: &str,
+                                note: &str| {
+                if let Some(value) = cpuid_value {
+                    observed(value, "CPUID deterministic cache parameters", member, &started_at)
+                } else if let Some(value) = smbios_value {
+                    observed(value, "SMBIOS Type 4/7", member, &started_at)
+                } else {
+                    unavailable(&started_at, note)
+                }
             };
             let count = |value: Option<u32>, member: &str, note: &str| {
                 value
@@ -1225,20 +1331,23 @@ mod windows {
                     "Max Speed",
                     "Clock máximo não informado pelo SMBIOS Type 4.",
                 ),
-                l1_cache_bytes: number(
+                l1_cache_bytes: cache_number(
+                    cpuid_caches.l1_bytes,
                     smbios.l1_cache_bytes,
-                    "L1 Cache Handle",
-                    "Cache L1 não informado pelo SMBIOS Type 4/7.",
+                    "L1 data + instruction caches",
+                    "Cache L1 não informado por CPUID ou SMBIOS.",
                 ),
-                l2_cache_bytes: number(
+                l2_cache_bytes: cache_number(
+                    cpuid_caches.l2_bytes,
                     smbios.l2_cache_bytes,
-                    "L2 Cache Handle",
-                    "Cache L2 não informado pelo SMBIOS Type 4/7.",
+                    "L2 cache capacity",
+                    "Cache L2 não informado por CPUID ou SMBIOS.",
                 ),
-                l3_cache_bytes: number(
+                l3_cache_bytes: cache_number(
+                    cpuid_caches.l3_bytes,
                     smbios.l3_cache_bytes,
-                    "L3 Cache Handle",
-                    "Cache L3 não informado pelo SMBIOS Type 4/7.",
+                    "L3 cache capacity",
+                    "Cache L3 não informado por CPUID ou SMBIOS.",
                 ),
                 virtualization_supported: virtualization,
                 virtualization_firmware_enabled: observed(
@@ -1574,6 +1683,36 @@ mod windows {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn cpuid_cache_sizes_sum_cache_instances_across_logical_processors() {
+            // L1D: 32 KiB/core; L1I: 32 KiB/core; L2: 512 KiB/core; L3: 16 MiB/package.
+            let entries = [
+                ((1 << 5) | (1 << 14) | 1, (31) | (0 << 12) | (7 << 22), 63),
+                ((1 << 5) | (1 << 14) | 2, (31) | (0 << 12) | (7 << 22), 63),
+                ((2 << 5) | (1 << 14) | 3, (63) | (0 << 12) | (7 << 22), 1023),
+                ((3 << 5) | (12 << 14) | 3, (63) | (0 << 12) | (15 << 22), 16383),
+            ];
+            let caches = cache_sizes_from_cpuid(&entries, Some(12));
+
+            assert_eq!(caches.l1_bytes, Some(6 * 64 * 1024));
+            assert_eq!(caches.l2_bytes, Some(6 * 512 * 1024));
+            assert_eq!(caches.l3_bytes, Some(16 * 1024 * 1024));
+        }
+
+        #[test]
+        fn cpuid_cache_sizes_stop_at_invalid_cache_type() {
+            let entries = [
+                ((1 << 5) | (1 << 14) | 1, 31 | (7 << 22), 63),
+                (0, 0, 0),
+                ((3 << 5) | (1 << 14) | 3, 63 | (15 << 22), 16383),
+            ];
+            let caches = cache_sizes_from_cpuid(&entries, Some(2));
+
+            assert_eq!(caches.l1_bytes, Some(64 * 1024));
+            assert_eq!(caches.l2_bytes, None);
+            assert_eq!(caches.l3_bytes, None);
+        }
 
         #[test]
         fn placeholder_values_are_not_reported_as_real_hardware() {
