@@ -1244,8 +1244,8 @@ mod tests {
         };
         cpu.validate().unwrap();
         let json = serde_json::to_string(&cpu).unwrap();
-        assert!(json.contains("\"architecture\":\"x64\""));
-        assert!(json.contains("\"instruction_sets\":[\"sse2\",\"avx\",\"avx2\"]"));
+        assert!(json.contains("\"architecture\":{\"value\":\"x64\""));
+        assert!(json.contains("\"instruction_sets\":{\"value\":[\"sse2\",\"avx\",\"avx2\"]"));
         let restored: CpuCategory = serde_json::from_str(&json).unwrap();
         assert_eq!(cpu, restored);
     }
