@@ -301,7 +301,15 @@ impl TechnicalInventory {
         self.categories.system.validate()?;
         self.categories.firmware.validate()?;
         self.categories.cpu.validate()?;
-        self.categories.memory.validate()?;
+        if self.categories.cpu.state == InventoryValueState::Available {
+            self.categories
+                .cpu
+                .data
+                .as_ref()
+                .ok_or_else(|| "categoria CPU available exige data".to_string())?
+                .validate()?;
+        }
+        self.categories.memory.validate()?
         self.categories.gpu.validate()?;
         self.categories.storage.validate()?;
         self.categories.displays.validate()?;
@@ -490,24 +498,107 @@ pub struct TpmInfo {
 // Categoria 3 — CPU
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct CpuCategory {
+    /// Uma entrada por pacote/socket físico identificado.
     pub processors: Vec<ProcessorInfo>,
 }
+
+impl CpuCategory {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.processors.is_empty() {
+            return Err("categoria CPU available exige ao menos um processador".into());
+        }
+        for (index, processor) in self.processors.iter().enumerate() {
+            processor
+                .validate()
+                .map_err(|error| format!("processadores[{index}]: {error}"))?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ProcessorInfo {
     pub name: Observed<String>,
     pub manufacturer: Observed<String>,
     pub processor_id: Observed<String>,
     pub socket: Observed<String>,
-    pub architecture: Observed<String>,
+    pub architecture: Observed<CpuArchitecture>,
     pub physical_cores: Observed<u32>,
     pub logical_processors: Observed<u32>,
-    pub base_clock_mhz: Observed<u64>,
+    /// Frequência máxima reportada pelo provedor, não necessariamente o boost comercial.
     pub max_clock_mhz: Observed<u64>,
-    pub virtualization_firmware_enabled: Observed<bool>,
-    pub virtualization_supported: Observed<bool>,
     pub l1_cache_bytes: Observed<u64>,
     pub l2_cache_bytes: Observed<u64>,
     pub l3_cache_bytes: Observed<u64>,
+    pub virtualization_supported: Observed<bool>,
+    pub virtualization_firmware_enabled: Observed<bool>,
+    /// Recursos de instrução anunciados pelo hardware.
+    pub instruction_sets: Observed<Vec<CpuInstructionSet>>,
+}
+
+impl ProcessorInfo {
+    pub fn validate(&self) -> Result<(), String> {
+        self.name.validate()?;
+        self.manufacturer.validate()?;
+        self.processor_id.validate()?;
+        self.socket.validate()?;
+        self.architecture.validate()?;
+        self.physical_cores.validate()?;
+        self.logical_processors.validate()?;
+        self.max_clock_mhz.validate()?;
+        self.l1_cache_bytes.validate()?;
+        self.l2_cache_bytes.validate()?;
+        self.l3_cache_bytes.validate()?;
+        self.virtualization_supported.validate()?;
+        self.virtualization_firmware_enabled.validate()?;
+        self.instruction_sets.validate()?;
+
+        if let (Some(physical), Some(logical)) =
+            (self.physical_cores.value, self.logical_processors.value)
+        {
+            if logical < physical {
+                return Err(
+                    "processadores lógicos não podem ser inferiores aos núcleos físicos".into(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CpuArchitecture {
+    X86,
+    X64,
+    Arm,
+    Arm64,
+    Itanium,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum CpuInstructionSet {
+    Mmx,
+    Sse,
+    Sse2,
+    Sse3,
+    Ssse3,
+    Sse41,
+    Sse42,
+    Aes,
+    Avx,
+    Avx2,
+    Fma,
+    F16c,
+    Bmi1,
+    Bmi2,
+    Avx512F,
+    Sha,
+    Neon,
+    Sve,
+    Sve2,
 }
 
 // Categoria 4 — RAM
@@ -1113,6 +1204,94 @@ mod tests {
             },
             warnings: vec![],
         }
+    }
+
+    fn cpu_processor_fixture() -> ProcessorInfo {
+        let available = |value| {
+            observed(
+                Some(value),
+                InventoryValueState::Available,
+                InventoryConfidence::Confirmed,
+            )
+        };
+        ProcessorInfo {
+            name: available("AMD Ryzen 5 5600G".to_string()),
+            manufacturer: available("AuthenticAMD".to_string()),
+            processor_id: available("00870F10".to_string()),
+            socket: available("AM4".to_string()),
+            architecture: available(CpuArchitecture::X64),
+            physical_cores: available(6),
+            logical_processors: available(12),
+            max_clock_mhz: available(4400),
+            l1_cache_bytes: available(384 * 1024),
+            l2_cache_bytes: available(3 * 1024 * 1024),
+            l3_cache_bytes: available(16 * 1024 * 1024),
+            virtualization_supported: available(true),
+            virtualization_firmware_enabled: available(true),
+            instruction_sets: available(vec![
+                CpuInstructionSet::Sse2,
+                CpuInstructionSet::Avx,
+                CpuInstructionSet::Avx2,
+            ]),
+        }
+    }
+
+    #[test]
+    fn cpu_modelo_serializa_e_preserva_enums_e_recursos() {
+        let cpu = CpuCategory {
+            processors: vec![cpu_processor_fixture()],
+        };
+        cpu.validate().unwrap();
+        let json = serde_json::to_string(&cpu).unwrap();
+        assert!(json.contains("\"architecture\":\"x64\""));
+        assert!(json.contains("\"instruction_sets\":[\"sse2\",\"avx\",\"avx2\"]"));
+        let restored: CpuCategory = serde_json::from_str(&json).unwrap();
+        assert_eq!(cpu, restored);
+    }
+
+    #[test]
+    fn cpu_rejeita_lista_vazia_quando_categoria_disponivel() {
+        assert!(CpuCategory { processors: vec![] }.validate().is_err());
+    }
+
+    #[test]
+    fn cpu_rejeita_threads_inferiores_a_nucleos() {
+        let mut processor = cpu_processor_fixture();
+        processor.logical_processors = observed(
+            Some(4),
+            InventoryValueState::Available,
+            InventoryConfidence::Confirmed,
+        );
+        assert!(processor.validate().is_err());
+    }
+
+    #[test]
+    fn cpu_aceita_propriedades_parcialmente_indisponiveis() {
+        let mut processor = cpu_processor_fixture();
+        processor.l3_cache_bytes = observed(
+            None,
+            InventoryValueState::Unavailable,
+            InventoryConfidence::Unavailable,
+        );
+        processor.max_clock_mhz = observed(
+            None,
+            InventoryValueState::Unavailable,
+            InventoryConfidence::Unavailable,
+        );
+        assert!(processor.validate().is_ok());
+    }
+
+    #[test]
+    fn cpu_preserva_virtualizacao_suportada_mas_desabilitada_no_firmware() {
+        let mut processor = cpu_processor_fixture();
+        processor.virtualization_firmware_enabled = observed(
+            Some(false),
+            InventoryValueState::Available,
+            InventoryConfidence::Confirmed,
+        );
+        assert!(processor.validate().is_ok());
+        assert_eq!(processor.virtualization_supported.value, Some(true));
+        assert_eq!(processor.virtualization_firmware_enabled.value, Some(false));
     }
 
     #[test]
