@@ -1688,8 +1688,8 @@ mod windows {
         fn cpuid_cache_sizes_sum_cache_instances_across_logical_processors() {
             // L1D: 32 KiB/core; L1I: 32 KiB/core; L2: 512 KiB/core; L3: 16 MiB/package.
             let entries = [
-                ((1 << 5) | (1 << 14) | 1, (31) | (0 << 12) | (7 << 22), 63),
-                ((1 << 5) | (1 << 14) | 2, (31) | (0 << 12) | (7 << 22), 63),
+                ((1 << 5) | (1 << 14) | 1, (31) | (0 << 12) | (7 << 22), 127),
+                ((1 << 5) | (1 << 14) | 2, (31) | (0 << 12) | (7 << 22), 127),
                 ((2 << 5) | (1 << 14) | 3, (63) | (0 << 12) | (7 << 22), 1023),
                 ((3 << 5) | (12 << 14) | 3, (63) | (0 << 12) | (15 << 22), 16383),
             ];
@@ -1709,7 +1709,7 @@ mod windows {
             ];
             let caches = cache_sizes_from_cpuid(&entries, Some(2));
 
-            assert_eq!(caches.l1_bytes, Some(64 * 1024));
+            assert_eq!(caches.l1_bytes, Some(32 * 1024));
             assert_eq!(caches.l2_bytes, None);
             assert_eq!(caches.l3_bytes, None);
         }
