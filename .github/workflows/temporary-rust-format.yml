@@ -1,0 +1,31 @@
+name: Temporary Rust formatting repair
+
+on:
+  push:
+    branches:
+      - v3.3-dev
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v3.3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Format CPU inventory collector
+        shell: pwsh
+        run: |
+          rustfmt --edition 2021 src-tauri/src/technical_inventory_collectors.rs
+          if (git diff --quiet) {
+            Write-Host "Rust source already formatted."
+            exit 0
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/technical_inventory_collectors.rs
+          git commit -m "Ajeitadinha: formatar coletor técnico da CPU"
+          git push origin HEAD:v3.3-dev
