@@ -20,6 +20,7 @@ const REPORT_SCHEMA_VERSION: u32 = 1;
 const MAX_REPORT_BYTES: u64 = 4 * 1024 * 1024;
 const THERMAL_STOP_C: f64 = 85.0;
 const SAMPLE_TIMEOUT_SECS: u64 = 8;
+const PREFLIGHT_TIMEOUT_SECS: u64 = 30;
 static NEXT_REPORT_ID: AtomicU64 = AtomicU64::new(0);
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -641,48 +642,72 @@ fn run_test<R: Runtime>(
         }
     });
 
+    let preflight_started = Instant::now();
+    let mut consecutive_valid_samples = 0u8;
     let mut last_preflight_sample = None;
-    for sample_number in 1..=3 {
-        let line = match receiver.recv_timeout(Duration::from_secs(SAMPLE_TIMEOUT_SECS)) {
+    while consecutive_valid_samples < 3 {
+        if cancel.load(Ordering::Acquire) {
+            return Err("Teste de CPU cancelado durante a validação inicial dos sensores térmicos.".into());
+        }
+        let remaining = Duration::from_secs(PREFLIGHT_TIMEOUT_SECS)
+            .saturating_sub(preflight_started.elapsed());
+        if remaining.is_zero() {
+            let _ = child.0.kill();
+            let _ = child.0.wait();
+            let mut details = String::new();
+            if let Some(stderr) = child.0.stderr.as_mut() {
+                let _ = stderr.read_to_string(&mut details);
+            }
+            let details = details.trim();
+            let detail_suffix = if details.is_empty() {
+                String::new()
+            } else {
+                format!(" Detalhes do coletor: {details}")
+            };
+            return Err(format!(
+                "O coletor integrado não estabilizou três leituras térmicas consecutivas em até {PREFLIGHT_TIMEOUT_SECS} segundos; o teste não foi iniciado. Última sequência válida: {consecutive_valid_samples}/3.{detail_suffix}"
+            ));
+        }
+        let wait = remaining.min(Duration::from_secs(SAMPLE_TIMEOUT_SECS));
+        let line = match receiver.recv_timeout(wait) {
             Ok(line) => line,
-            Err(receive_error) => {
-                let _ = child.0.kill();
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let _ = child.0.wait();
                 let mut details = String::new();
                 if let Some(stderr) = child.0.stderr.as_mut() {
                     let _ = stderr.read_to_string(&mut details);
                 }
-                let details = details.trim();
-                let detail_suffix = if details.is_empty() {
-                    String::new()
-                } else {
-                    format!(" Detalhes do coletor: {details}")
-                };
                 return Err(format!(
-                    "O coletor integrado não forneceu três leituras térmicas consecutivas; o teste não foi iniciado ({receive_error}).{detail_suffix}"
+                    "O coletor integrado encerrou a transmissão antes de validar os sensores térmicos. {}",
+                    details.trim()
                 ));
             }
         };
-        let raw: RawTelemetrySample = serde_json::from_str(&line)
-            .map_err(|e| format!("A amostra térmica de pré-verificação é inválida: {e}"))?;
-        let temperature = raw
-            .temperature_c
-            .filter(|v| is_valid_cpu_temperature(*v))
-            .ok_or_else(|| {
-                format!(
-                    "O sensor térmico não forneceu leitura válida na pré-verificação ({sample_number}/3). O teste não foi iniciado."
-                )
-            })?;
-        raw.temperature_sensor
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-            .ok_or_else(|| {
-                "O coletor não identificou a origem da leitura térmica. O teste não foi iniciado."
-                    .to_string()
-            })?;
+        let raw: RawTelemetrySample = match serde_json::from_str(&line) {
+            Ok(sample) => sample,
+            Err(_) => {
+                consecutive_valid_samples = 0;
+                last_preflight_sample = None;
+                continue;
+            }
+        };
+        let Some(temperature) = raw.temperature_c.filter(|value| is_valid_cpu_temperature(*value)) else {
+            consecutive_valid_samples = 0;
+            last_preflight_sample = None;
+            continue;
+        };
+        let has_sensor_name = raw.temperature_sensor.as_deref()
+            .is_some_and(|name| !name.trim().is_empty());
+        if !has_sensor_name {
+            consecutive_valid_samples = 0;
+            last_preflight_sample = None;
+            continue;
+        }
         if temperature >= THERMAL_STOP_C {
             return Err(format!("A CPU já está a {:.1} °C antes do teste. Aguarde o resfriamento abaixo de {:.0} °C.", temperature, THERMAL_STOP_C));
         }
+        consecutive_valid_samples += 1;
         last_preflight_sample = Some(raw);
     }
     let first_raw = last_preflight_sample

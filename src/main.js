@@ -2477,6 +2477,77 @@ async function loadCpuInventory() {
   }
 }
 
+function renderCpuFrequencyChart(samples) {
+  const canvas = document.getElementById("cpu-frequency-chart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const width = Math.max(280, canvas.clientWidth || 720);
+  const height = 160;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const left = 52, right = width - 12, top = 12, bottom = height - 25;
+  const plotHeight = bottom - top;
+  const values = (Array.isArray(samples) ? samples : [])
+    .map((sample) => Number(sample.frequency_mhz))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  ctx.font = "11px sans-serif";
+  ctx.lineWidth = 1;
+
+  if (!values.length) {
+    for (let tick = 0; tick <= 4; tick += 1) {
+      const y = bottom - (tick / 4) * plotHeight;
+      ctx.strokeStyle = "rgba(255,255,255,.13)";
+      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(255,255,255,.65)";
+    ctx.textAlign = "center";
+    ctx.fillText("A frequência aparecerá quando houver leituras válidas.", width / 2, height / 2);
+    document.getElementById("cpu-frequency-chart-range").textContent = "Sem leituras de clock";
+    return;
+  }
+
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const padding = Math.max(100, (maxValue - minValue) * 0.15);
+  const minScale = Math.max(0, Math.floor((minValue - padding) / 250) * 250);
+  const maxScale = Math.max(minScale + 250, Math.ceil((maxValue + padding) / 250) * 250);
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const value = minScale + ((maxScale - minScale) * tick / 4);
+    const y = bottom - (tick / 4) * plotHeight;
+    ctx.strokeStyle = "rgba(255,255,255,.13)";
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,.68)";
+    ctx.textAlign = "right";
+    ctx.fillText(Math.round(value).toLocaleString("pt-BR"), left - 7, y + 4);
+  }
+
+  const firstElapsed = Number(samples[0]?.elapsed_ms || 0);
+  const lastElapsed = Number(samples[samples.length - 1]?.elapsed_ms || firstElapsed);
+  const elapsedRange = Math.max(1, lastElapsed - firstElapsed);
+  ctx.strokeStyle = "#a78bfa";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let drawing = false;
+  samples.forEach((sample) => {
+    const value = Number(sample.frequency_mhz);
+    if (!Number.isFinite(value) || value <= 0) { drawing = false; return; }
+    const elapsed = Number(sample.elapsed_ms || 0);
+    const x = samples.length === 1 ? left : left + ((elapsed - firstElapsed) / elapsedRange) * (right - left);
+    const y = bottom - ((value - minScale) / (maxScale - minScale)) * plotHeight;
+    if (!drawing) { ctx.moveTo(x, y); drawing = true; } else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  const durationSeconds = Math.round(lastElapsed / 1000);
+  document.getElementById("cpu-frequency-chart-range").textContent =
+    values.length + " leitura(s) · " + Math.floor(durationSeconds / 60) + "m " + (durationSeconds % 60) + "s";
+}
+
 function renderCpuChart(samples) {
   const canvas = document.getElementById("cpu-test-chart");
   if (!canvas) return;
@@ -2506,6 +2577,7 @@ function renderCpuChart(samples) {
     ctx.textAlign = "center";
     ctx.fillText("As amostras aparecerão durante o teste.", width / 2, height / 2);
     document.getElementById("cpu-test-chart-range").textContent = "Sem amostras";
+    renderCpuFrequencyChart(samples);
     return;
   }
   const drawSeries = (field, color) => {
@@ -2524,6 +2596,7 @@ function renderCpuChart(samples) {
   };
   drawSeries("temperature_c", "#fbbf24");
   drawSeries("cpu_utilization_percent", "#60a5fa");
+  renderCpuFrequencyChart(samples);
   const durationSeconds = Math.round(Number(samples[samples.length - 1]?.elapsed_ms || 0) / 1000);
   document.getElementById("cpu-test-chart-range").textContent =
     samples.length + " amostra(s) · " + Math.floor(durationSeconds / 60) + "m " + (durationSeconds % 60) + "s";

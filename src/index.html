@@ -270,6 +270,11 @@
           <div class="cpu-test-chart-heading"><strong>Telemetria durante o teste</strong><span id="cpu-test-chart-range">Sem amostras</span></div>
           <canvas id="cpu-test-chart" height="190" role="img" aria-label="Gráfico temporal de temperatura e utilização da CPU"></canvas>
           <div class="cpu-test-chart-legend"><span class="cpu-legend-temperature">Temperatura (°C)</span><span class="cpu-legend-usage">Utilização (%)</span></div>
+          <section class="cpu-frequency-chart-panel" aria-label="Gráfico de frequência média da CPU">
+            <div class="cpu-frequency-chart-heading"><strong>Frequência média dos núcleos</strong><span id="cpu-frequency-chart-range">Sem leituras de clock</span></div>
+            <canvas id="cpu-frequency-chart" height="160" role="img" aria-label="Gráfico temporal da frequência média dos núcleos da CPU em megahertz"></canvas>
+            <div class="cpu-test-chart-legend"><span class="cpu-legend-frequency">Frequência média (MHz)</span></div>
+          </section>
         </section>
         <div class="cpu-test-progress" role="group" aria-label="Progresso do teste de CPU">
           <div class="cpu-test-progress-heading"><strong id="cpu-test-phase">Aguardando início</strong><span id="cpu-test-progress-percent">0%</span></div>
