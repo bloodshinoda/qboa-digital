@@ -423,7 +423,10 @@ pub(crate) fn start<R: Runtime>(
     let session_id = new_session_id();
     crate::write_cpu_diagnostic_log(
         &session_id,
-        &format!("Teste de estabilidade iniciado · perfil {}", profile.label()),
+        &format!(
+            "Teste de estabilidade iniciado · perfil {}",
+            profile.label()
+        ),
     )?;
     let cancel = Arc::new(AtomicBool::new(false));
     let snapshot = CpuTestSessionSnapshot {
@@ -803,16 +806,21 @@ fn run_test<R: Runtime>(
                     &errors,
                 );
                 if last_log_at.elapsed() >= Duration::from_secs(5) {
-                    let temperature = sample.temperature_c
+                    let temperature = sample
+                        .temperature_c
                         .map(|value| format!("{value:.1} °C"))
                         .unwrap_or_else(|| "temperatura indisponível".into());
-                    let utilization = sample.cpu_utilization_percent
+                    let utilization = sample
+                        .cpu_utilization_percent
                         .map(|value| format!("{value:.1}%"))
                         .unwrap_or_else(|| "utilização indisponível".into());
                     let frequency = sample.frequency_mhz
                         .map(|value| format!("{value:.0} MHz"))
                         .unwrap_or_else(|| "clock indisponível".into());
-                    let source = sample.frequency_source.as_deref().unwrap_or("origem não informada");
+                    let source = sample
+                        .frequency_source
+                        .as_deref()
+                        .unwrap_or("origem não informada");
                     let _ = crate::write_cpu_diagnostic_log(
                         session_id,
                         &format!(
@@ -908,7 +916,10 @@ fn run_test<R: Runtime>(
         session_id,
         &format!(
             "Teste finalizado · status={} · duração={} ms · {} amostras · {} divergências",
-            report.execution_status, report.duration_ms, report.samples.len(), report.calculation_errors
+            report.execution_status,
+            report.duration_ms,
+            report.samples.len(),
+            report.calculation_errors
         ),
     );
     Ok(report)
