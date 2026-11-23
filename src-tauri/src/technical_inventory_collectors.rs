@@ -1123,7 +1123,7 @@ mod windows {
         (None, None, Vec::new(), false)
     }
 
-    fn collect_cpu_category() -> Result<CategoryCollection<CpuCategory>, String> {
+    pub(super) fn collect_cpu_category() -> Result<CategoryCollection<CpuCategory>, String> {
         let started = Instant::now();
         let started_at = now_utc().ok_or_else(|| {
             "Não foi possível obter o horário UTC para iniciar a coleta da CPU.".to_string()
