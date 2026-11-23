@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Management;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Win32;
 using LibreHardwareMonitor.Hardware;
@@ -18,7 +19,29 @@ internal static class Program
     private sealed record SensorInfo(string Name, string Identifier, double Value);
     private sealed record Discovery(bool Available, string Provider, IReadOnlyList<SensorInfo> Sensors, string Note, bool PawnioInstalled, string? PawnioVersion);
     private sealed record Telemetry(string TimestampUtc, double? TemperatureC, string? TemperatureSensor,
-        double? CpuUtilizationPercent, double? FrequencyMhz);
+        double? CpuUtilizationPercent, double? FrequencyMhz, string? FrequencySource);
+    private sealed record FrequencyReading(double? Value, string? Source);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessorPowerInformation
+    {
+        public uint Number;
+        public uint MaxMhz;
+        public uint CurrentMhz;
+        public uint MhzLimit;
+        public uint MaxIdleState;
+        public uint CurrentIdleState;
+    }
+
+    private const int ProcessorInformation = 11;
+
+    [DllImport("powrprof.dll")]
+    private static extern uint CallNtPowerInformation(
+        int informationLevel,
+        IntPtr inputBuffer,
+        uint inputBufferLength,
+        IntPtr outputBuffer,
+        uint outputBufferLength);
     private sealed record GpuSensorInfo(string Name, string Identifier, double Value);
     private sealed record GpuDiscovery(bool Available, string Provider, IReadOnlyList<GpuSensorInfo> Sensors, IReadOnlyList<GpuSensorInfo> CpuTemperatureSensors, string Note);
     private sealed record GpuTelemetry(string TimestampUtc, double? TemperatureC, string? TemperatureSensor,
@@ -83,8 +106,9 @@ internal static class Program
             {
                 var sensors = monitor.ReadCpuTemperatures();
                 var selected = sensors.OrderByDescending(sensor => sensor.Value).FirstOrDefault();
+                var frequency = ReadCpuFrequency();
                 var sample = new Telemetry(DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                    selected?.Value, selected?.Name, ReadCpuUtilization(), ReadCpuFrequency());
+                    selected?.Value, selected?.Name, ReadCpuUtilization(), frequency.Value, frequency.Source);
                 Console.WriteLine(JsonSerializer.Serialize(sample, JsonOptions));
                 Console.Out.Flush();
                 Thread.Sleep(TimeSpan.FromSeconds(1));
@@ -260,8 +284,39 @@ internal static class Program
         return null;
     }
 
-    private static double? ReadCpuFrequency()
+    private static FrequencyReading ReadCpuFrequency()
     {
+        var processorCount = Environment.ProcessorCount;
+        var itemSize = Marshal.SizeOf<ProcessorPowerInformation>();
+        var bufferSize = checked((uint)(processorCount * itemSize));
+        var buffer = Marshal.AllocHGlobal((int)bufferSize);
+        try
+        {
+            var status = CallNtPowerInformation(ProcessorInformation, IntPtr.Zero, 0, buffer, bufferSize);
+            if (status == 0)
+            {
+                var readings = Enumerable.Range(0, processorCount)
+                    .Select(index => Marshal.PtrToStructure<ProcessorPowerInformation>(IntPtr.Add(buffer, index * itemSize)))
+                    .Select(item => item.CurrentMhz)
+                    .Where(value => value > 0)
+                    .Select(value => (double)value)
+                    .ToArray();
+                if (readings.Length > 0)
+                {
+                    return new FrequencyReading(
+                        readings.Average(),
+                        "Windows CallNtPowerInformation · média dos processadores lógicos");
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+
+        // Fallback legado: mantém a telemetria disponível em sistemas nos quais
+        // CallNtPowerInformation não retorna CurrentMhz.
         try
         {
             using var searcher = new ManagementObjectSearcher(
@@ -269,10 +324,15 @@ internal static class Program
             using var results = searcher.Get();
             foreach (ManagementObject item in results)
             {
-                using (item) return Convert.ToDouble(item["ProcessorFrequency"], CultureInfo.InvariantCulture);
+                using (item)
+                {
+                    var value = Convert.ToDouble(item["ProcessorFrequency"], CultureInfo.InvariantCulture);
+                    if (value > 0)
+                        return new FrequencyReading(value, "WMI ProcessorInformation · fallback");
+                }
             }
         }
         catch { }
-        return null;
+        return new FrequencyReading(null, null);
     }
 }

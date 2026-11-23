@@ -76,6 +76,8 @@ pub(crate) struct CpuTelemetrySample {
     pub temperature_sensor: Option<String>,
     pub cpu_utilization_percent: Option<f64>,
     pub frequency_mhz: Option<f64>,
+    #[serde(default)]
+    pub frequency_source: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -132,6 +134,8 @@ struct RawTelemetrySample {
     temperature_sensor: Option<String>,
     cpu_utilization_percent: Option<f64>,
     frequency_mhz: Option<f64>,
+    #[serde(default)]
+    frequency_source: Option<String>,
 }
 
 struct SessionEntry {
@@ -493,6 +497,10 @@ pub(crate) fn start<R: Runtime>(
                     }
                 }
                 Err(error) => {
+                    let error = match persist_failure_log(&app_data_dir, &worker_session_id, profile, &error) {
+                        Ok(path) => format!("{error} (registro técnico: {})", path.display()),
+                        Err(log_error) => format!("{error} (não foi possível gravar o log técnico: {log_error})"),
+                    };
                     let failed = {
                         let mut current = lock_registry();
                         match current.as_mut() {
@@ -664,6 +672,7 @@ fn run_test<R: Runtime>(
         frequency_mhz: first_raw
             .frequency_mhz
             .filter(|value| value.is_finite() && *value > 0.0 && *value < 20000.0),
+        frequency_source: first_raw.frequency_source.clone(),
     };
     samples.push(first_sample.clone());
     publish_progress(
@@ -712,6 +721,7 @@ fn run_test<R: Runtime>(
                         frequency_mhz: raw
                             .frequency_mhz
                             .filter(|v| v.is_finite() && *v > 0.0 && *v < 20000.0),
+                        frequency_source: raw.frequency_source,
                     };
                     samples.push(sample.clone());
                     publish_progress(
@@ -742,6 +752,7 @@ fn run_test<R: Runtime>(
                     frequency_mhz: raw
                         .frequency_mhz
                         .filter(|v| v.is_finite() && *v > 0.0 && *v < 20000.0),
+                    frequency_source: raw.frequency_source,
                 };
                 samples.push(sample.clone());
                 publish_progress(
@@ -1055,6 +1066,60 @@ fn cpu_reports_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("diagnostics").join("cpu-reports")
 }
 
+fn cpu_errors_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("diagnostics").join("cpu-errors")
+}
+
+#[derive(Serialize)]
+struct CpuTestFailureLog {
+    schema_version: u32,
+    session_id: String,
+    profile: CpuTestProfile,
+    failed_at: String,
+    error: String,
+}
+
+fn persist_failure_log(
+    app_data_dir: &Path,
+    session_id: &str,
+    profile: CpuTestProfile,
+    error: &str,
+) -> Result<PathBuf, String> {
+    if !safe_report_id(session_id) {
+        return Err("Identificador inválido na falha do teste de CPU.".into());
+    }
+    let directory = cpu_errors_dir(app_data_dir);
+    fs::create_dir_all(&directory)
+        .map_err(|failure| format!("Não foi possível criar o diretório de logs de CPU: {failure}"))?;
+    let destination = directory.join(format!("{session_id}.json"));
+    let temporary = directory.join(format!(".{session_id}.tmp"));
+    let log = CpuTestFailureLog {
+        schema_version: 1,
+        session_id: session_id.to_string(),
+        profile,
+        failed_at: timestamp_now(),
+        error: error.to_string(),
+    };
+    let bytes = serde_json::to_vec_pretty(&log)
+        .map_err(|failure| format!("Não foi possível serializar o log de CPU: {failure}"))?;
+    let result = (|| -> Result<(), String> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|failure| format!("Não foi possível criar o log temporário de CPU: {failure}"))?;
+        file.write_all(&bytes)
+            .and_then(|_| file.flush())
+            .and_then(|_| file.sync_all())
+            .map_err(|failure| format!("Não foi possível gravar o log de CPU: {failure}"))?;
+        replace_report_file(&temporary, &destination)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.map(|_| destination)
+}
+
 fn safe_report_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 80
@@ -1288,6 +1353,7 @@ mod tests {
                 temperature_sensor: Some("CPU Package".into()),
                 cpu_utilization_percent: Some(10.0),
                 frequency_mhz: Some(1200.0),
+                frequency_source: Some("Windows CallNtPowerInformation".into()),
             },
             CpuTelemetrySample {
                 elapsed_ms: 1000,
@@ -1296,6 +1362,7 @@ mod tests {
                 temperature_sensor: Some("CPU Package".into()),
                 cpu_utilization_percent: Some(90.0),
                 frequency_mhz: Some(4200.0),
+                frequency_source: Some("Windows CallNtPowerInformation".into()),
             },
         ];
         let report = build_report(
@@ -1330,6 +1397,25 @@ mod tests {
     #[test]
     fn report_directory_is_inside_app_data() {
         assert!(cpu_reports_dir(Path::new("app-data")).ends_with("diagnostics/cpu-reports"));
+    }
+
+    #[test]
+    fn cpu_failure_is_persisted_as_json_log() {
+        let root = std::env::temp_dir().join(format!("qboa-cpu-error-{}", new_session_id()));
+        let session_id = new_session_id();
+        let path = persist_failure_log(
+            &root,
+            &session_id,
+            CpuTestProfile::Quick,
+            "falha simulada de pré-verificação",
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(value["session_id"], session_id);
+        assert_eq!(value["profile"], "quick");
+        assert_eq!(value["error"], "falha simulada de pré-verificação");
+        assert!(path.starts_with(cpu_errors_dir(&root)));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

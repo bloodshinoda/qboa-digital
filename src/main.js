@@ -39,6 +39,9 @@ let memoryInventorySnapshot = null;
 let cpuTestSessionSnapshot = null;
 let cpuInventorySnapshot = null;
 let cpuTestSamples = [];
+let lastCpuActivitySessionId = null;
+let lastCpuActivityLifecycle = null;
+let lastCpuActivitySampleAt = 0;
 let activeStorageBenchmark = null;
 let lastStorageActivityLogAt = 0;
 let gpuTestSessionSnapshot = null;
@@ -2466,6 +2469,7 @@ async function loadCpuInventory() {
     cpuInventorySnapshot = null;
     summary.textContent = "Não foi possível consultar o processador: " + String(error);
     status.textContent = "Não foi possível consultar a identificação do processador.";
+    appendConsole("CPU · falha ao consultar inventário e sensores: " + String(error));
     start.disabled = true;
   } finally {
     refresh.disabled = false;
@@ -2611,6 +2615,9 @@ function updateCpuLiveMetrics(samples) {
   document.getElementById("cpu-test-utilization-max").textContent = "Pico: " + cpuFormat(maxOf(usages), "%");
   document.getElementById("cpu-test-frequency").textContent = cpuFormat(latest.frequency_mhz, " MHz", 0);
   document.getElementById("cpu-test-frequency-max").textContent = "Pico: " + cpuFormat(maxOf(frequencies), " MHz", 0);
+  document.getElementById("cpu-test-frequency-source").textContent = latest.frequency_source
+    ? "Fonte: " + latest.frequency_source
+    : "Fonte: não informada nesta amostra";
 }
 
 function renderCpuReport(report) {
@@ -2670,9 +2677,45 @@ function renderCpuReport(report) {
     Number(report.calculation_errors || 0) + " divergência(s)";
 }
 
-function renderCpuTestSession(session) {
+function logCpuTestActivity(session) {
+  if (lastCpuActivitySessionId !== session.session_id) {
+    lastCpuActivitySessionId = session.session_id;
+    lastCpuActivityLifecycle = null;
+    lastCpuActivitySampleAt = 0;
+  }
+
+  if (session.lifecycle !== lastCpuActivityLifecycle) {
+    if (session.lifecycle === "running") {
+      appendConsole("CPU · teste de estabilidade iniciado · perfil " + String(session.profile || "não informado"));
+    } else if (session.lifecycle === "failed") {
+      appendConsole("CPU · falha no teste de estabilidade: " + String(session.error || "erro sem detalhes"));
+    } else if (session.lifecycle === "completed" && session.report) {
+      appendConsole("CPU · teste finalizado: " + cpuTestStatusLabel(session.report.execution_status) +
+        " · " + Number(session.report.samples?.length || 0).toLocaleString("pt-BR") + " amostras · " +
+        Number(session.report.calculation_errors || 0) + " divergência(s)");
+    } else if (session.lifecycle === "cancelling") {
+      appendConsole("CPU · cancelamento solicitado; encerrando trabalhadores com segurança.");
+    }
+    lastCpuActivityLifecycle = session.lifecycle;
+  }
+
+  const sample = session.latest_sample;
+  const elapsed = Number(sample?.elapsed_ms || 0);
+  if (session.lifecycle === "running" && sample && elapsed - lastCpuActivitySampleAt >= 5000) {
+    const temperature = cpuFormat(sample.temperature_c, " °C");
+    const utilization = cpuFormat(sample.cpu_utilization_percent, "%");
+    const frequency = cpuFormat(sample.frequency_mhz, " MHz", 0);
+    const source = sample.frequency_source ? " · " + sample.frequency_source : "";
+    appendConsole("CPU · telemetria " + Math.floor(elapsed / 1000) + " s · " + temperature +
+      " · utilização " + utilization + " · clock reportado " + frequency + source);
+    lastCpuActivitySampleAt = elapsed;
+  }
+}
+
+function renderCpuTestSession(session, logActivity = true) {
   if (!session) { cpuTestSessionSnapshot = null; return; }
   cpuTestSessionSnapshot = session;
+  if (logActivity) logCpuTestActivity(session);
   if (session.report) {
     renderCpuReport(session.report);
   } else if (session.latest_sample) {
@@ -2721,9 +2764,10 @@ function renderCpuTestSession(session) {
 async function loadCpuTestSession() {
   try {
     const session = await Qboa.getCpuTestSession();
-    if (session) renderCpuTestSession(session);
+    if (session) renderCpuTestSession(session, false);
   } catch (error) {
     document.getElementById("cpu-test-result").textContent = "Não foi possível consultar a sessão: " + String(error);
+    appendConsole("CPU · falha ao recuperar a sessão do teste: " + String(error));
   }
 }
 
@@ -2742,6 +2786,7 @@ async function startCpuTestFromUi() {
     await loadCpuTestSession();
   } catch (error) {
     result.textContent = String(error);
+    appendConsole("CPU · não foi possível iniciar o teste: " + String(error));
     start.disabled = false;
   } finally {
     setDiagnosticActivity("starting:cpu", false);
@@ -2757,6 +2802,7 @@ async function cancelCpuTestFromUi() {
     renderCpuTestSession(await Qboa.cancelCpuTest(sessionId));
   } catch (error) {
     document.getElementById("cpu-test-result").textContent = String(error);
+    appendConsole("CPU · falha ao solicitar cancelamento: " + String(error));
     cancel.disabled = false;
   }
 }

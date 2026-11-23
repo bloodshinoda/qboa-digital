@@ -25,7 +25,9 @@ A ordem de descoberta é:
 
 O QBoa não inventa temperatura a partir de zonas ACPI genéricas. Se não houver sensor de CPU identificado e fornecendo uma leitura válida, o teste acompanhado de carga não começa.
 
-A identificação do processador usa `Win32_Processor`. A utilização total usa `Win32_PerfFormattedData_PerfOS_Processor.PercentProcessorTime`, e a frequência instantânea reportada é consultada em `Win32_PerfFormattedData_Counters_ProcessorInformation.ProcessorFrequency`.
+A identificação do processador usa `Win32_Processor`. A utilização total usa `Win32_PerfFormattedData_PerfOS_Processor.PercentProcessorTime`.
+
+A frequência operacional é coletada a cada segundo pela API nativa `CallNtPowerInformation` (`ProcessorInformation`), calculando a média de `CurrentMhz` dos processadores lógicos ativos. O valor é uma frequência reportada pelo gerenciamento de energia do Windows, não uma medição física independente do clock instantâneo de cada núcleo. Se a API não fornecer leituras válidas, o coletor usa como fallback `Win32_PerfFormattedData_Counters_ProcessorInformation.ProcessorFrequency` e identifica essa origem na amostra.
 
 ## Carga e segurança
 
@@ -48,7 +50,7 @@ Cada amostra contém:
 - Tempo decorrido em milissegundos e timestamp UTC.
 - Temperatura em °C e nome do sensor selecionado.
 - Utilização total em porcentagem.
-- Frequência reportada em MHz.
+- Frequência média atual reportada em MHz e sua origem.
 
 O laudo agrega temperatura mínima, média e máxima; utilização média e máxima; pico de frequência; quantidade de verificações; divergências; duração; perfil e motivo de encerramento.
 
