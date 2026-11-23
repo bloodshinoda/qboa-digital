@@ -35,6 +35,9 @@ let completeDiagnosticCancelRequested = false;
 let completeDiagnosticCurrentSession = null;
 let completeDiagnosticCancelSent = false;
 let memoryTestSessionSnapshot = null;
+let lastMemoryActivitySessionId = null;
+let lastMemoryActivityLifecycle = null;
+let lastMemoryActivityPhase = null;
 let memoryInventorySnapshot = null;
 let cpuTestSessionSnapshot = null;
 let cpuInventorySnapshot = null;
@@ -3547,11 +3550,45 @@ function memoryTestStatusLabel(status) {
   })[status] || "Aguardando resultado.";
 }
 
+function logMemoryTestActivity(session) {
+  if (lastMemoryActivitySessionId !== session.session_id) {
+    lastMemoryActivitySessionId = session.session_id;
+    lastMemoryActivityLifecycle = null;
+    lastMemoryActivityPhase = null;
+  }
+
+  if (session.lifecycle !== lastMemoryActivityLifecycle) {
+    if (session.lifecycle === "running") {
+      appendConsole("Memória RAM · teste de integridade iniciado · perfil " +
+        String(session.profile || "não informado"));
+    } else if (session.lifecycle === "cancelling") {
+      appendConsole("Memória RAM · cancelamento solicitado; aguardando encerramento seguro.");
+    } else if (session.lifecycle === "failed") {
+      appendConsole("Memória RAM · falha ao executar o teste: " +
+        String(session.error || "erro sem detalhes"));
+    } else if (session.lifecycle === "completed" && session.report) {
+      const report = session.report;
+      appendConsole("Memória RAM · teste finalizado: " + memoryTestStatusLabel(report.status) +
+        " · " + formatMemoryBytes(report.memory_tested_bytes) + " testados · " +
+        Number(report.duration_ms || 0).toLocaleString("pt-BR") + " ms · " +
+        Number(report.mismatches_total || 0).toLocaleString("pt-BR") + " divergência(s)");
+    }
+    lastMemoryActivityLifecycle = session.lifecycle;
+  }
+
+  const phase = session.progress?.phase;
+  if (session.lifecycle === "running" && phase && phase !== lastMemoryActivityPhase) {
+    appendConsole("Memória RAM · " + memoryPhaseLabel(phase));
+    lastMemoryActivityPhase = phase;
+  }
+}
+
 function renderMemoryTestSession(session) {
   if (!session) {
     memoryTestSessionSnapshot = null;
     return;
   }
+  logMemoryTestActivity(session);
   if (memoryTestSessionSnapshot) {
     const sameSession = memoryTestSessionSnapshot.session_id === session.session_id;
     const lifecycleRank = { running: 1, cancelling: 2, completed: 3, failed: 3 };
