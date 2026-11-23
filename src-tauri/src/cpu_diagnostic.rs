@@ -647,10 +647,12 @@ fn run_test<R: Runtime>(
     let mut last_preflight_sample = None;
     while consecutive_valid_samples < 3 {
         if cancel.load(Ordering::Acquire) {
-            return Err("Teste de CPU cancelado durante a validação inicial dos sensores térmicos.".into());
+            return Err(
+                "Teste de CPU cancelado durante a validação inicial dos sensores térmicos.".into(),
+            );
         }
-        let remaining = Duration::from_secs(PREFLIGHT_TIMEOUT_SECS)
-            .saturating_sub(preflight_started.elapsed());
+        let remaining =
+            Duration::from_secs(PREFLIGHT_TIMEOUT_SECS).saturating_sub(preflight_started.elapsed());
         if remaining.is_zero() {
             let _ = child.0.kill();
             let _ = child.0.wait();
@@ -692,12 +694,17 @@ fn run_test<R: Runtime>(
                 continue;
             }
         };
-        let Some(temperature) = raw.temperature_c.filter(|value| is_valid_cpu_temperature(*value)) else {
+        let Some(temperature) = raw
+            .temperature_c
+            .filter(|value| is_valid_cpu_temperature(*value))
+        else {
             consecutive_valid_samples = 0;
             last_preflight_sample = None;
             continue;
         };
-        let has_sensor_name = raw.temperature_sensor.as_deref()
+        let has_sensor_name = raw
+            .temperature_sensor
+            .as_deref()
             .is_some_and(|name| !name.trim().is_empty());
         if !has_sensor_name {
             consecutive_valid_samples = 0;
