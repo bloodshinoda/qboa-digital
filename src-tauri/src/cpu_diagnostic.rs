@@ -814,7 +814,8 @@ fn run_test<R: Runtime>(
                         .cpu_utilization_percent
                         .map(|value| format!("{value:.1}%"))
                         .unwrap_or_else(|| "utilização indisponível".into());
-                    let frequency = sample.frequency_mhz
+                    let frequency = sample
+                        .frequency_mhz
                         .map(|value| format!("{value:.0} MHz"))
                         .unwrap_or_else(|| "clock indisponível".into());
                     let source = sample
