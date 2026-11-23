@@ -497,9 +497,16 @@ pub(crate) fn start<R: Runtime>(
                     }
                 }
                 Err(error) => {
-                    let error = match persist_failure_log(&app_data_dir, &worker_session_id, profile, &error) {
+                    let error = match persist_failure_log(
+                        &app_data_dir,
+                        &worker_session_id,
+                        profile,
+                        &error,
+                    ) {
                         Ok(path) => format!("{error} (registro técnico: {})", path.display()),
-                        Err(log_error) => format!("{error} (não foi possível gravar o log técnico: {log_error})"),
+                        Err(log_error) => {
+                            format!("{error} (não foi possível gravar o log técnico: {log_error})")
+                        }
                     };
                     let failed = {
                         let mut current = lock_registry();
@@ -1089,8 +1096,9 @@ fn persist_failure_log(
         return Err("Identificador inválido na falha do teste de CPU.".into());
     }
     let directory = cpu_errors_dir(app_data_dir);
-    fs::create_dir_all(&directory)
-        .map_err(|failure| format!("Não foi possível criar o diretório de logs de CPU: {failure}"))?;
+    fs::create_dir_all(&directory).map_err(|failure| {
+        format!("Não foi possível criar o diretório de logs de CPU: {failure}")
+    })?;
     let destination = directory.join(format!("{session_id}.json"));
     let temporary = directory.join(format!(".{session_id}.tmp"));
     let log = CpuTestFailureLog {
@@ -1107,7 +1115,9 @@ fn persist_failure_log(
             .write(true)
             .create_new(true)
             .open(&temporary)
-            .map_err(|failure| format!("Não foi possível criar o log temporário de CPU: {failure}"))?;
+            .map_err(|failure| {
+                format!("Não foi possível criar o log temporário de CPU: {failure}")
+            })?;
         file.write_all(&bytes)
             .and_then(|_| file.flush())
             .and_then(|_| file.sync_all())
