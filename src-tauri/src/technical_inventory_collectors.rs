@@ -1351,7 +1351,15 @@ mod windows {
 
         let data = FirmwareCategory {
             motherboard: MotherboardInfo {
-                manufacturer: motherboard_manufacturer,
+                commercial_brand: unavailable(
+                    &started_at,
+                    "Marca comercial não identificada por uma fonte local confiável; não inferida do SMBIOS.",
+                ),
+                smbios_manufacturer: motherboard_manufacturer,
+                oem_manufacturer: unavailable(
+                    &started_at,
+                    "Fabricante industrial/OEM não identificado por uma fonte verificável.",
+                ),
                 product: motherboard_product,
                 version: motherboard_version,
                 serial_number: motherboard_serial_number,

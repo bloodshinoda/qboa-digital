@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -300,6 +300,14 @@ impl TechnicalInventory {
 
         self.categories.system.validate()?;
         self.categories.firmware.validate()?;
+        if self.categories.firmware.state == InventoryValueState::Available {
+            self.categories
+                .firmware
+                .data
+                .as_ref()
+                .ok_or_else(|| "categoria Placa-mãe e Firmware available exige data".to_string())?
+                .validate()?;
+        }
         self.categories.cpu.validate()?;
         if self.categories.cpu.state == InventoryValueState::Available {
             self.categories
@@ -464,12 +472,48 @@ pub struct FirmwareCategory {
     pub tpm: TpmInfo,
     pub secure_boot_enabled: Observed<bool>,
 }
+
+impl FirmwareCategory {
+    pub fn validate(&self) -> Result<(), String> {
+        self.motherboard.validate()?;
+        self.bios.vendor.validate()?;
+        self.bios.version.validate()?;
+        self.bios.release_date.validate()?;
+        self.bios.mode.validate()?;
+        self.tpm.present.validate()?;
+        self.tpm.ready.validate()?;
+        self.tpm.enabled.validate()?;
+        self.tpm.activated.validate()?;
+        self.tpm.spec_version.validate()?;
+        self.tpm.manufacturer.validate()?;
+        self.secure_boot_enabled.validate()?;
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct MotherboardInfo {
-    pub manufacturer: Observed<String>,
+    /// Marca responsável pela comercialização do produto; não inferir do SMBIOS.
+    pub commercial_brand: Observed<String>,
+    /// Fabricante declarado pelo firmware na estrutura SMBIOS Type 2.
+    pub smbios_manufacturer: Observed<String>,
+    /// Fabricante industrial/OEM, somente quando identificado por fonte confiável.
+    pub oem_manufacturer: Observed<String>,
     pub product: Observed<String>,
     pub version: Observed<String>,
     pub serial_number: Observed<Sensitive<String>>,
+}
+
+impl MotherboardInfo {
+    pub fn validate(&self) -> Result<(), String> {
+        self.commercial_brand.validate()?;
+        self.smbios_manufacturer.validate()?;
+        self.oem_manufacturer.validate()?;
+        self.product.validate()?;
+        self.version.validate()?;
+        self.serial_number.validate()?;
+        Ok(())
+    }
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct BiosInfo {
@@ -1235,6 +1279,95 @@ mod tests {
                 CpuInstructionSet::Avx2,
             ]),
         }
+    }
+
+    #[test]
+    fn motherboard_separa_marca_comercial_smbios_e_oem() {
+        let motherboard = MotherboardInfo {
+            commercial_brand: observed(
+                None,
+                InventoryValueState::Unavailable,
+                InventoryConfidence::Unavailable,
+            ),
+            smbios_manufacturer: observed(
+                Some("PICHAU".into()),
+                InventoryValueState::Available,
+                InventoryConfidence::Confirmed,
+            ),
+            oem_manufacturer: observed(
+                None,
+                InventoryValueState::Unavailable,
+                InventoryConfidence::Unavailable,
+            ),
+            product: observed(
+                Some("PCH-B550M-CR".into()),
+                InventoryValueState::Available,
+                InventoryConfidence::Confirmed,
+            ),
+            version: observed(
+                Some("V2.0".into()),
+                InventoryValueState::Available,
+                InventoryConfidence::Confirmed,
+            ),
+            serial_number: observed(
+                None,
+                InventoryValueState::Unavailable,
+                InventoryConfidence::Unavailable,
+            ),
+        };
+
+        motherboard.validate().unwrap();
+        assert_eq!(motherboard.smbios_manufacturer.value.as_deref(), Some("PICHAU"));
+        assert_eq!(motherboard.commercial_brand.value, None);
+        assert_eq!(motherboard.oem_manufacturer.value, None);
+
+        let json = serde_json::to_value(&motherboard).unwrap();
+        assert_eq!(json["smbios_manufacturer"]["value"], "PICHAU");
+        assert!(json["commercial_brand"]["value"].is_null());
+        assert!(json["oem_manufacturer"]["value"].is_null());
+        assert!(json.get("manufacturer").is_none());
+    }
+
+    #[test]
+    fn motherboard_rejeita_metadados_observed_inconsistentes() {
+        let mut motherboard = MotherboardInfo {
+            commercial_brand: observed(
+                None,
+                InventoryValueState::Unavailable,
+                InventoryConfidence::Unavailable,
+            ),
+            smbios_manufacturer: observed(
+                Some("PICHAU".into()),
+                InventoryValueState::Available,
+                InventoryConfidence::Confirmed,
+            ),
+            oem_manufacturer: observed(
+                None,
+                InventoryValueState::Unavailable,
+                InventoryConfidence::Unavailable,
+            ),
+            product: observed(
+                None,
+                InventoryValueState::Unavailable,
+                InventoryConfidence::Unavailable,
+            ),
+            version: observed(
+                None,
+                InventoryValueState::Unavailable,
+                InventoryConfidence::Unavailable,
+            ),
+            serial_number: observed(
+                None,
+                InventoryValueState::Unavailable,
+                InventoryConfidence::Unavailable,
+            ),
+        };
+        motherboard.oem_manufacturer = observed(
+            Some("Fabricante presumido".into()),
+            InventoryValueState::Unavailable,
+            InventoryConfidence::Unavailable,
+        );
+        assert!(motherboard.validate().is_err());
     }
 
     #[test]
