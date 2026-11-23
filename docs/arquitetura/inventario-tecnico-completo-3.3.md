@@ -31,10 +31,13 @@ A coleta será organizada nas doze categorias abaixo. Cada categoria pode conter
 - Data/hora da coleta e versão do QBoa responsável pela coleta.
 
 ### 3.2 Placa-mãe e firmware
-- Fabricante, modelo/produto e versão da placa-mãe.
-- Fabricante, versão e data do BIOS/UEFI.
-- Modo de firmware, quando identificável.
-- TPM e Secure Boot como capacidades/estados reportados pelo sistema, sem inferir conformidade.
+- Identidade da placa-mãe em três dimensões independentes: marca comercial, fabricante declarado no SMBIOS e fabricante industrial/OEM, cada uma com origem e confiança próprias.
+- Produto/modelo, versão e número de série da placa-mãe; o serial é dado sensível.
+- Fabricante/fornecedor declarado pelo BIOS, versão e data de lançamento.
+- Modo de inicialização do firmware (UEFI/Legacy), quando identificável.
+- TPM: presença, prontidão, habilitação, ativação, versão de especificação e fabricante, como propriedades independentes.
+- Secure Boot como estado reportado por fonte UEFI confiável; não inferir conformidade, suporte ou estado a partir de ausência de dados.
+- Não confundir fabricante do computador (SMBIOS Type 1) com qualquer uma das três identidades da placa-mãe.
 
 ### 3.3 Processador
 - Nome/modelo, fabricante e identificador reportado.
@@ -304,12 +307,32 @@ Todos os campos escalares abaixo são Observed<T>, exceto quando indicado como V
 - Não coletar usuário logado, SID, nome de perfil ou caminhos pessoais.
 
 **B. Placa-mãe e firmware — FirmwareCategory**
-- motherboard: MotherboardInfo com manufacturer, product, version e serial_number: Observed<Sensitive<String>>.
-- bios: BiosInfo com vendor, version, release_date e mode: Observed<FirmwareMode>.
-- FirmwareMode: Uefi, Legacy, Unknown.
-- tpm: TpmInfo com present, ready, enabled, activated, spec_version e manufacturer, cada propriedade observada independentemente.
-- secure_boot_enabled: Observed<bool>.
-- Não inferir compatibilidade com Windows 11 ou conformidade de segurança.
+
+`MotherboardInfo`:
+- `commercial_brand: Observed<String>` — marca sob a qual o modelo específico da placa-mãe é comercializado ao comprador (por exemplo, PICHAU). Não significa necessariamente quem fabricou fisicamente a placa.
+- `smbios_manufacturer: Observed<String>` — fabricante declarado pela própria implementação SMBIOS na estrutura Type 2 (Baseboard Information), campo Manufacturer. É uma declaração do firmware, não uma verificação independente da fábrica.
+- `oem_manufacturer: Observed<String>` — fabricante industrial/ODM/OEM que efetivamente projetou ou produziu a placa, somente quando uma fonte documental confiável identifica explicitamente essa entidade.
+- `product: Observed<String>` — produto/modelo identificado na estrutura SMBIOS Type 2, campo Product.
+- `version: Observed<String>` — revisão/versão declarada na estrutura SMBIOS Type 2, campo Version.
+- `serial_number: Observed<Sensitive<String>>` — serial declarado na estrutura SMBIOS Type 2, campo Serial Number; manter sensível e sujeito às regras de exportação da seção 11.6.
+
+**Fontes confiáveis e precedência para a identidade da placa-mãe**
+1. **SMBIOS Type 2 (fonte primária para os campos declarados pelo firmware):** coletar Manufacturer, Product, Version e Serial Number diretamente da tabela SMBIOS obtida por `GetSystemFirmwareTable(RSMB)`. Selecionar a estrutura cujo Board Type indique Motherboard (valor `0x0A`); não assumir que a primeira estrutura Type 2 é a placa-mãe quando houver múltiplas estruturas. Registrar a origem como SMBIOS Type 2 e o campo/offset correspondente.
+2. **Marca comercial:** preencher somente com evidência vinculada ao modelo exato, como catálogo/ficha técnica oficial do fabricante da marca, página oficial do produto, etiqueta/embalagem original ou documentação comercial do equipamento. Uma identificação manual/documental fornecida pelo técnico pode ser registrada apenas se o fluxo do produto preservar que a origem é declarada pelo usuário. SMBIOS Type 1 Manufacturer identifica o fabricante/marca do computador completo e não pode ser copiado para a marca comercial da placa-mãe. SMBIOS Type 2 Manufacturer também não prova, sozinho, a marca comercial.
+3. **Fabricante industrial/OEM:** preencher somente quando documentação oficial do titular da marca, do fabricante industrial ou documentação técnica rastreável identificar explicitamente o OEM/ODM para aquele modelo/revisão. Catálogos de distribuidores, fóruns, bancos de dados comunitários, semelhança visual, códigos de PCB, país de fabricação e suposições por chipset não são evidência suficiente.
+4. **Sem evidência suficiente:** manter `value = None` com estado `unavailable` e nota objetiva. Não copiar um fabricante para os outros campos, não inferir OEM a partir de SMBIOS, e não converter desconhecido em `not_detected`.
+
+**`BiosInfo`**
+- `vendor`, `version` e `release_date`: campos da estrutura SMBIOS Type 0 (BIOS Information), respectivamente Vendor, BIOS Version e BIOS Release Date. Preservar o texto original reportado; não confundir fornecedor do BIOS com fabricante da placa-mãe ou do computador.
+- `mode: Observed<FirmwareMode>`: API nativa `GetFirmwareType`; `FirmwareMode`: Uefi, Legacy, Unknown. Falha de consulta é unavailable/error, nunca inferência por versão do Windows ou presença de partições.
+- TPM: consultar o provedor Windows de TPM por API/WMI nativo diretamente (sem PowerShell), mantendo `present`, `ready`, `enabled`, `activated`, `spec_version` e `manufacturer` independentes. Registrar classe/propriedade e namespace como origem; ausência do provedor, falha e TPM não detectado são estados distintos.
+- `secure_boot_enabled: Observed<bool>`: consultar o estado da variável UEFI `SecureBoot` por API nativa de firmware quando o modo for UEFI. Valor 1 = habilitado; valor 0 = desabilitado. Falha de leitura, variável indisponível ou falta de privilégio não equivale a false. Em modo Legacy, registrar not_applicable. Não usar apenas a existência de chave de Registro como prova primária do estado atual.
+- Não inferir compatibilidade com Windows 11, integridade da cadeia de boot ou conformidade de segurança a partir desses campos.
+
+**Fontes normativas e documentação técnica**
+- DMTF, SMBIOS Reference Specification: Type 2 (Baseboard Information) e Type 0 (BIOS Information): https://www.dmtf.org/standards/smbios
+- Microsoft Learn, SMBIOS e significado dos campos de fabricante do sistema/baseboard: https://learn.microsoft.com/pt-br/windows-hardware/drivers/bringup/smbios
+- Microsoft Learn, Computer Hardware IDs e distinção entre Manufacturer Type 1 e Baseboard Manufacturer Type 2: https://learn.microsoft.com/pt-br/windows-hardware/drivers/install/computer-hardware-ids
 
 **C. CPU — CpuCategory**
 - processors: Vec<ProcessorInfo>, suportando múltiplos sockets.
@@ -435,7 +458,7 @@ O objeto `CapabilityInventory.system` contém resumos de OS, arquitetura, fabric
 |---|---|---|
 | `os_name`, `os_version`, `os_build`, `architecture` | `system` | Recoletar em campos próprios, preservando edição, DisplayVersion, build e UBR separadamente. |
 | `manufacturer`, `model`, `device_type` | `machine` e `system.device_kind` | Reaproveitar a evidência de identificação, não a string formatada; preservar confiança e origem. |
-| `motherboard` | `firmware.motherboard` | Separar fabricante, produto, versão e serial sensível. |
+| `motherboard` | `firmware.motherboard` | Não importar resumo formatado. Coletar Type 2 e manter `commercial_brand`, `smbios_manufacturer` e `oem_manufacturer` independentes; marca comercial/OEM exigem evidência documental própria. |
 | `processor` | `cpu.processors[]` | Não importar resumo com clock/núcleos concatenados; coletar cada propriedade tipada. |
 | `memory` | `memory` | Não importar texto agregado; enumerar módulos e capacidades individualmente. |
 | `gpu` | `gpu.adapters[]` | Enumerar todos os adaptadores e distinguir memória dedicada/compartilhada. |
