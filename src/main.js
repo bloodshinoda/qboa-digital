@@ -2580,15 +2580,19 @@ function renderCpuChart(samples) {
     renderCpuFrequencyChart(samples);
     return;
   }
+  const firstElapsed = Number(samples[0]?.elapsed_ms || 0);
+  const lastElapsed = Number(samples[samples.length - 1]?.elapsed_ms || firstElapsed);
+  const elapsedRange = Math.max(1, lastElapsed - firstElapsed);
   const drawSeries = (field, color) => {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
     let drawing = false;
-    samples.forEach((sample, index) => {
+    samples.forEach((sample) => {
       const value = Number(sample[field]);
       if (!Number.isFinite(value)) { drawing = false; return; }
-      const x = samples.length === 1 ? left : left + (index / (samples.length - 1)) * (right - left);
+      const elapsed = Number(sample.elapsed_ms || 0);
+      const x = samples.length === 1 ? left : left + ((elapsed - firstElapsed) / elapsedRange) * (right - left);
       const y = bottom - (Math.max(0, Math.min(100, value)) / 100) * plotHeight;
       if (!drawing) { ctx.moveTo(x, y); drawing = true; } else ctx.lineTo(x, y);
     });
