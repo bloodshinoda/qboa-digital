@@ -1262,18 +1262,21 @@ mod windows {
                     .map(|value| observed(value, "SMBIOS Type 4", member, &started_at))
                     .unwrap_or_else(|| unavailable(&started_at, note))
             };
-            let cache_number = |cpuid_value: Option<u64>,
-                                smbios_value: Option<u64>,
-                                member: &str,
-                                note: &str| {
-                if let Some(value) = cpuid_value {
-                    observed(value, "CPUID deterministic cache parameters", member, &started_at)
-                } else if let Some(value) = smbios_value {
-                    observed(value, "SMBIOS Type 4/7", member, &started_at)
-                } else {
-                    unavailable(&started_at, note)
-                }
-            };
+            let cache_number =
+                |cpuid_value: Option<u64>, smbios_value: Option<u64>, member: &str, note: &str| {
+                    if let Some(value) = cpuid_value {
+                        observed(
+                            value,
+                            "CPUID deterministic cache parameters",
+                            member,
+                            &started_at,
+                        )
+                    } else if let Some(value) = smbios_value {
+                        observed(value, "SMBIOS Type 4/7", member, &started_at)
+                    } else {
+                        unavailable(&started_at, note)
+                    }
+                };
             let count = |value: Option<u32>, member: &str, note: &str| {
                 value
                     .map(|value| {
@@ -1691,7 +1694,11 @@ mod windows {
                 ((1 << 5) | (1 << 14) | 1, (31) | (0 << 12) | (7 << 22), 127),
                 ((1 << 5) | (1 << 14) | 2, (31) | (0 << 12) | (7 << 22), 127),
                 ((2 << 5) | (1 << 14) | 3, (63) | (0 << 12) | (7 << 22), 1023),
-                ((3 << 5) | (12 << 14) | 3, (63) | (0 << 12) | (15 << 22), 16383),
+                (
+                    (3 << 5) | (12 << 14) | 3,
+                    (63) | (0 << 12) | (15 << 22),
+                    16383,
+                ),
             ];
             let caches = cache_sizes_from_cpuid(&entries, Some(12));
 
