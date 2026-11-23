@@ -1317,7 +1317,10 @@ mod tests {
         };
 
         motherboard.validate().unwrap();
-        assert_eq!(motherboard.smbios_manufacturer.value.as_deref(), Some("PICHAU"));
+        assert_eq!(
+            motherboard.smbios_manufacturer.value.as_deref(),
+            Some("PICHAU")
+        );
         assert_eq!(motherboard.commercial_brand.value, None);
         assert_eq!(motherboard.oem_manufacturer.value, None);
 
