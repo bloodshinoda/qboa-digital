@@ -309,7 +309,7 @@ impl TechnicalInventory {
                 .ok_or_else(|| "categoria CPU available exige data".to_string())?
                 .validate()?;
         }
-        self.categories.memory.validate()?
+        self.categories.memory.validate()?;
         self.categories.gpu.validate()?;
         self.categories.storage.validate()?;
         self.categories.displays.validate()?;
