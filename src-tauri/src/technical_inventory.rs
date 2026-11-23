@@ -1206,29 +1206,30 @@ mod tests {
         }
     }
 
+    fn cpu_available<T>(value: T) -> Observed<T> {
+        observed(
+            Some(value),
+            InventoryValueState::Available,
+            InventoryConfidence::Confirmed,
+        )
+    }
+
     fn cpu_processor_fixture() -> ProcessorInfo {
-        let available = |value| {
-            observed(
-                Some(value),
-                InventoryValueState::Available,
-                InventoryConfidence::Confirmed,
-            )
-        };
         ProcessorInfo {
-            name: available("AMD Ryzen 5 5600G".to_string()),
-            manufacturer: available("AuthenticAMD".to_string()),
-            processor_id: available("00870F10".to_string()),
-            socket: available("AM4".to_string()),
-            architecture: available(CpuArchitecture::X64),
-            physical_cores: available(6),
-            logical_processors: available(12),
-            max_clock_mhz: available(4400),
-            l1_cache_bytes: available(384 * 1024),
-            l2_cache_bytes: available(3 * 1024 * 1024),
-            l3_cache_bytes: available(16 * 1024 * 1024),
-            virtualization_supported: available(true),
-            virtualization_firmware_enabled: available(true),
-            instruction_sets: available(vec![
+            name: cpu_available("AMD Ryzen 5 5600G".to_string()),
+            manufacturer: cpu_available("AuthenticAMD".to_string()),
+            processor_id: cpu_available("00870F10".to_string()),
+            socket: cpu_available("AM4".to_string()),
+            architecture: cpu_available(CpuArchitecture::X64),
+            physical_cores: cpu_available(6),
+            logical_processors: cpu_available(12),
+            max_clock_mhz: cpu_available(4400),
+            l1_cache_bytes: cpu_available(384 * 1024),
+            l2_cache_bytes: cpu_available(3 * 1024 * 1024),
+            l3_cache_bytes: cpu_available(16 * 1024 * 1024),
+            virtualization_supported: cpu_available(true),
+            virtualization_firmware_enabled: cpu_available(true),
+            instruction_sets: cpu_available(vec![
                 CpuInstructionSet::Sse2,
                 CpuInstructionSet::Avx,
                 CpuInstructionSet::Avx2,
