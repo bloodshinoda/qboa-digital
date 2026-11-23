@@ -421,6 +421,10 @@ pub(crate) fn start<R: Runtime>(
     }
 
     let session_id = new_session_id();
+    crate::write_cpu_diagnostic_log(
+        &session_id,
+        &format!("Teste de estabilidade iniciado · perfil {}", profile.label()),
+    )?;
     let cancel = Arc::new(AtomicBool::new(false));
     let snapshot = CpuTestSessionSnapshot {
         session_id: session_id.clone(),
@@ -497,6 +501,10 @@ pub(crate) fn start<R: Runtime>(
                     }
                 }
                 Err(error) => {
+                    let _ = crate::write_cpu_diagnostic_log(
+                        &worker_session_id,
+                        &format!("Falha no teste de estabilidade: {error}"),
+                    );
                     let error = match persist_failure_log(
                         &app_data_dir,
                         &worker_session_id,
@@ -583,6 +591,10 @@ pub(crate) fn cancel<R: Runtime>(
         }
     };
     emit_state(app, &snapshot);
+    let _ = crate::write_cpu_diagnostic_log(
+        &snapshot.session_id,
+        "Cancelamento solicitado pelo usuário",
+    );
     Ok(snapshot)
 }
 
@@ -700,6 +712,7 @@ fn run_test<R: Runtime>(
         frequency_source: first_raw.frequency_source.clone(),
     };
     samples.push(first_sample.clone());
+    let mut last_log_at = Instant::now();
     publish_progress(
         app,
         session_id,
@@ -789,6 +802,26 @@ fn run_test<R: Runtime>(
                     &iterations,
                     &errors,
                 );
+                if last_log_at.elapsed() >= Duration::from_secs(5) {
+                    let temperature = sample.temperature_c
+                        .map(|value| format!("{value:.1} °C"))
+                        .unwrap_or_else(|| "temperatura indisponível".into());
+                    let utilization = sample.cpu_utilization_percent
+                        .map(|value| format!("{value:.1}%"))
+                        .unwrap_or_else(|| "utilização indisponível".into());
+                    let frequency = sample.frequency_mhz
+                        .map(|value| format!("{value:.0} MHz"))
+                        .unwrap_or_else(|| "clock indisponível".into());
+                    let source = sample.frequency_source.as_deref().unwrap_or("origem não informada");
+                    let _ = crate::write_cpu_diagnostic_log(
+                        session_id,
+                        &format!(
+                            "Telemetria em {} s · {temperature} · utilização {utilization} · frequência {frequency} · {source}",
+                            elapsed_ms / 1000
+                        ),
+                    );
+                    last_log_at = Instant::now();
+                }
                 if last_checkpoint.elapsed() >= Duration::from_secs(15) {
                     let checkpoint = build_report(
                         report_id.clone(),
@@ -871,6 +904,13 @@ fn run_test<R: Runtime>(
     }
     report.warnings.push("O teste aplica carga sintética de inteiros e não certifica estabilidade universal nem substitui testes especializados de longo prazo.".into());
     persist_report(app_data_dir, &report)?;
+    let _ = crate::write_cpu_diagnostic_log(
+        session_id,
+        &format!(
+            "Teste finalizado · status={} · duração={} ms · {} amostras · {} divergências",
+            report.execution_status, report.duration_ms, report.samples.len(), report.calculation_errors
+        ),
+    );
     Ok(report)
 }
 

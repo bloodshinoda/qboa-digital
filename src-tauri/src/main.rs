@@ -331,10 +331,10 @@ fn execution_log_path() -> std::path::PathBuf {
     let root = std::env::var_os("LOCALAPPDATA")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
-        .join("Qboa Digital")
+        .join("Qboa")
         .join("logs");
     let _ = std::fs::create_dir_all(&root);
-    root.join("execution.log")
+    root.join("qboa.log")
 }
 
 #[cfg(target_os = "windows")]
@@ -490,6 +490,18 @@ fn write_execution_log(execution_id: &str, message: &str) {
             let _ = writeln!(file, "[{execution_id}] [{}]", local_timestamp());
         }
     }
+}
+
+pub(crate) fn write_cpu_diagnostic_log(session_id: &str, message: &str) -> Result<(), String> {
+    let path = execution_log_path();
+    let parent = path.parent().ok_or_else(|| "Caminho do log sem diretório pai.".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("Não foi possível preparar os logs do QBoa: {error}"))?;
+    let mut file = OpenOptions::new().create(true).append(true).open(&path)
+        .map_err(|error| format!("Não foi possível abrir {}: {error}", path.display()))?;
+    writeln!(file, "[{}] [CPU:{session_id}] {message}", local_timestamp())
+        .and_then(|_| file.flush())
+        .map_err(|error| format!("Não foi possível gravar o log de CPU: {error}"))
 }
 
 fn run_command(

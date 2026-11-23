@@ -106,7 +106,7 @@ internal static class Program
             {
                 var sensors = monitor.ReadCpuTemperatures();
                 var selected = sensors.OrderByDescending(sensor => sensor.Value).FirstOrDefault();
-                var frequency = ReadCpuFrequency();
+                var frequency = ReadCpuFrequency(monitor);
                 var sample = new Telemetry(DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                     selected?.Value, selected?.Name, ReadCpuUtilization(), frequency.Value, frequency.Source);
                 Console.WriteLine(JsonSerializer.Serialize(sample, JsonOptions));
@@ -250,6 +250,22 @@ internal static class Program
                 .ToArray();
         }
 
+        public IReadOnlyList<SensorInfo> ReadCpuClocks()
+        {
+            foreach (var hardware in _computer.Hardware.Where(item => item.HardwareType == HardwareType.Cpu))
+                UpdateRecursively(hardware);
+            return _computer.Hardware
+                .Where(item => item.HardwareType == HardwareType.Cpu)
+                .SelectMany(EnumerateHardware)
+                .SelectMany(item => item.Sensors)
+                .Where(sensor => sensor.SensorType == SensorType.Clock &&
+                    sensor.Value.HasValue &&
+                    sensor.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+                .Select(sensor => new SensorInfo(sensor.Name, sensor.Identifier.ToString(), sensor.Value!.Value))
+                .Where(sensor => double.IsFinite(sensor.Value) && sensor.Value is > 0 and < 10000)
+                .ToArray();
+        }
+
         private static IEnumerable<IHardware> EnumerateHardware(IHardware hardware)
         {
             yield return hardware;
@@ -284,8 +300,16 @@ internal static class Program
         return null;
     }
 
-    private static FrequencyReading ReadCpuFrequency()
+    private static FrequencyReading ReadCpuFrequency(HardwareSession monitor)
     {
+        var coreClocks = monitor.ReadCpuClocks();
+        if (coreClocks.Count > 0)
+        {
+            return new FrequencyReading(
+                coreClocks.Average(sensor => sensor.Value),
+                "LibreHardwareMonitor · média dos clocks dos núcleos");
+        }
+
         var processorCount = Environment.ProcessorCount;
         var itemSize = Marshal.SizeOf<ProcessorPowerInformation>();
         var bufferSize = checked((uint)(processorCount * itemSize));

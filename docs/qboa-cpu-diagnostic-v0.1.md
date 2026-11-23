@@ -27,7 +27,7 @@ O QBoa não inventa temperatura a partir de zonas ACPI genéricas. Se não houve
 
 A identificação do processador usa `Win32_Processor`. A utilização total usa `Win32_PerfFormattedData_PerfOS_Processor.PercentProcessorTime`.
 
-A frequência operacional é coletada a cada segundo pela API nativa `CallNtPowerInformation` (`ProcessorInformation`), calculando a média de `CurrentMhz` dos processadores lógicos ativos. O valor é uma frequência reportada pelo gerenciamento de energia do Windows, não uma medição física independente do clock instantâneo de cada núcleo. Se a API não fornecer leituras válidas, o coletor usa como fallback `Win32_PerfFormattedData_Counters_ProcessorInformation.ProcessorFrequency` e identifica essa origem na amostra.
+A frequência operacional é coletada a cada segundo, priorizando os sensores `Clock` dos núcleos publicados pelo LibreHardwareMonitor e calculando a média dos clocks de núcleo identificados. Essa leitura é a fonte preferencial para acompanhar variações sob carga. Se o hardware/driver não publicar clocks de núcleo, o coletor recorre a `CallNtPowerInformation` (`ProcessorInformation`) e, por último, a `Win32_PerfFormattedData_Counters_ProcessorInformation.ProcessorFrequency`; a origem efetiva é identificada em cada amostra. As fontes de fallback são valores reportados pelo Windows e não devem ser apresentadas como medição física independente de cada núcleo.
 
 ## Carga e segurança
 
@@ -60,7 +60,7 @@ Os laudos são salvos em JSON em:
 
 `<AppData do QBoa>/diagnostics/cpu-reports/`
 
-A gravação usa arquivo temporário, sincronização e substituição atômica. Enquanto o teste está ativo, checkpoints são gravados a cada 15 segundos. Um laudo encontrado com status `running` na inicialização seguinte é apresentado como parcial, preservando as amostras já gravadas.
+A gravação usa arquivo temporário, sincronização e substituição atômica. Enquanto o teste está ativo, checkpoints são gravados a cada 15 segundos. Um laudo encontrado com status `running` na inicialização seguinte é apresentado como parcial, preservando as amostras já gravadas. Falhas de pré-verificação também geram um JSON técnico de erro. O log textual do aplicativo fica em `%LOCALAPPDATA%\\Qboa\\logs\\qboa.log`; o diagnóstico registra início, telemetria em intervalos de cinco segundos, cancelamento, conclusão e falhas nesse arquivo.
 
 ## Isolamento
 

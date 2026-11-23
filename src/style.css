@@ -173,7 +173,7 @@ button {
 
 .card:hover {
   transform: translateY(-2px);
-  border-image: var(--rainbow) 1;
+  border-color: var(--qboa-red);
 }
 
 .card h3 {
