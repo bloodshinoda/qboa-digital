@@ -56,7 +56,7 @@ function diagnosticActivityTarget(reason) {
   if (reason.startsWith("inventory:cpu")) return document.querySelector("#cpu-test-panel .cpu-inventory-panel");
   if (reason.startsWith("inventory:gpu")) return document.querySelector("#gpu-test-panel .cpu-inventory-panel");
   if (reason.startsWith("inventory:memory")) return document.getElementById("memory-inventory-panel");
-  if (reason.startsWith("inventory:storage")) return document.getElementById("storage-disk-picker");
+  if (reason.startsWith("inventory:storage")) return null;
   if (reason.startsWith("starting:cpu") || reason.startsWith("session:cpu")) return document.querySelector("#cpu-test-panel .cpu-test-chart-panel");
   if (reason.startsWith("starting:gpu") || reason.startsWith("session:gpu")) return document.querySelector("#gpu-test-panel .cpu-test-progress");
   if (reason.startsWith("starting:memory") || reason.startsWith("session:memory")) return document.querySelector("#memory-test-panel .memory-test-progress");
