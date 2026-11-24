@@ -21,6 +21,7 @@ mod system_compat;
 mod task_registry;
 mod technical_inventory;
 mod technical_inventory_collectors;
+mod technical_inventory_storage;
 mod tweak_profiles;
 mod windows_update;
 
@@ -3130,6 +3131,17 @@ fn get_technical_inventory_firmware_snapshot() -> Result<TechnicalInventoryFirmw
 }
 
 #[derive(Clone, Serialize)]
+struct TechnicalInventoryStorageSnapshot {
+    storage: technical_inventory::CategoryCollection<technical_inventory::StorageCategory>,
+}
+
+#[tauri::command]
+fn get_technical_inventory_storage_snapshot() -> Result<TechnicalInventoryStorageSnapshot, String> {
+    let storage = technical_inventory_storage::collect_storage_category()?;
+    Ok(TechnicalInventoryStorageSnapshot { storage })
+}
+
+#[derive(Clone, Serialize)]
 struct ServiceProfileState {
     system: service_profiles::DetectedSystem,
     profile: service_profiles::ServiceProfileFile,
@@ -3599,6 +3611,7 @@ fn main() {
             get_technical_inventory_system_snapshot,
             get_technical_inventory_firmware_snapshot,
             get_technical_inventory_cpu_snapshot,
+            get_technical_inventory_storage_snapshot,
             list_windows_services,
             manage_windows_service,
             repair_windows_update,
