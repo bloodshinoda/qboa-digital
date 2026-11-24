@@ -121,7 +121,14 @@ mod windows {
         }
         let mut file = FileTime { low: 0, high: 0 };
         let mut system = SystemTime {
-            year: 0, month: 0, weekday: 0, day: 0, hour: 0, minute: 0, second: 0, millis: 0,
+            year: 0,
+            month: 0,
+            weekday: 0,
+            day: 0,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            millis: 0,
         };
         unsafe {
             GetSystemTimeAsFileTime(&mut file);
@@ -184,13 +191,22 @@ mod windows {
             self.ioctl_with_input(code, &mut [], output)
         }
 
-        fn ioctl_with_input(&self, code: u32, input: &mut [u8], output: &mut [u8]) -> Option<usize> {
+        fn ioctl_with_input(
+            &self,
+            code: u32,
+            input: &mut [u8],
+            output: &mut [u8],
+        ) -> Option<usize> {
             let mut returned = 0u32;
             let ok = unsafe {
                 DeviceIoControl(
                     self.0,
                     code,
-                    if input.is_empty() { ptr::null_mut() } else { input.as_mut_ptr().cast() },
+                    if input.is_empty() {
+                        ptr::null_mut()
+                    } else {
+                        input.as_mut_ptr().cast()
+                    },
                     input.len() as u32,
                     output.as_mut_ptr().cast(),
                     output.len() as u32,
@@ -204,20 +220,28 @@ mod windows {
 
     impl Drop for Device {
         fn drop(&mut self) {
-            unsafe { CloseHandle(self.0); }
+            unsafe {
+                CloseHandle(self.0);
+            }
         }
     }
 
     fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
-        Some(u32::from_le_bytes(data.get(offset..offset + 4)?.try_into().ok()?))
+        Some(u32::from_le_bytes(
+            data.get(offset..offset + 4)?.try_into().ok()?,
+        ))
     }
 
     fn read_u64(data: &[u8], offset: usize) -> Option<u64> {
-        Some(u64::from_le_bytes(data.get(offset..offset + 8)?.try_into().ok()?))
+        Some(u64::from_le_bytes(
+            data.get(offset..offset + 8)?.try_into().ok()?,
+        ))
     }
 
     fn read_i64(data: &[u8], offset: usize) -> Option<i64> {
-        Some(i64::from_le_bytes(data.get(offset..offset + 8)?.try_into().ok()?))
+        Some(i64::from_le_bytes(
+            data.get(offset..offset + 8)?.try_into().ok()?,
+        ))
     }
 
     fn read_wide_string(data: &[u8], offset: usize) -> Option<String> {
@@ -286,16 +310,21 @@ mod windows {
         // STORAGE_PROPERTY_QUERY: PropertyId=StorageDeviceProperty, QueryType=PropertyStandardQuery.
         let mut query = [0u8; 8];
         let mut descriptor = vec![0u8; 4096];
-        let descriptor_length = device.ioctl_with_input(
-            IOCTL_STORAGE_QUERY_PROPERTY,
-            &mut query,
-            &mut descriptor,
-        );
+        let descriptor_length =
+            device.ioctl_with_input(IOCTL_STORAGE_QUERY_PROPERTY, &mut query, &mut descriptor);
         let descriptor_ok = descriptor_length.is_some_and(|length| length >= 36);
-        let vendor = descriptor_ok.then(|| read_wide_string(&descriptor, 12)).flatten();
-        let model = descriptor_ok.then(|| read_wide_string(&descriptor, 16)).flatten();
-        let firmware = descriptor_ok.then(|| read_wide_string(&descriptor, 20)).flatten();
-        let serial = descriptor_ok.then(|| read_wide_string(&descriptor, 24)).flatten();
+        let vendor = descriptor_ok
+            .then(|| read_wide_string(&descriptor, 12))
+            .flatten();
+        let model = descriptor_ok
+            .then(|| read_wide_string(&descriptor, 16))
+            .flatten();
+        let firmware = descriptor_ok
+            .then(|| read_wide_string(&descriptor, 20))
+            .flatten();
+        let serial = descriptor_ok
+            .then(|| read_wide_string(&descriptor, 24))
+            .flatten();
         let bus = descriptor_ok
             .then(|| read_u32(&descriptor, 28))
             .flatten()
@@ -320,11 +349,17 @@ mod windows {
                     break;
                 }
                 let partition_number = read_u32(&layout, offset + 24).unwrap_or(index as u32 + 1);
-                let start = read_i64(&layout, offset + 8).filter(|value| *value >= 0).map(|v| v as u64);
-                let size = read_i64(&layout, offset + 16).filter(|value| *value > 0).map(|v| v as u64);
+                let start = read_i64(&layout, offset + 8)
+                    .filter(|value| *value >= 0)
+                    .map(|v| v as u64);
+                let size = read_i64(&layout, offset + 16)
+                    .filter(|value| *value > 0)
+                    .map(|v| v as u64);
                 let style_value = read_u32(&layout, offset).unwrap_or(2);
                 let partition_type = match style_value {
-                    0 => layout.get(offset + 32).map(|value| format!("MBR 0x{value:02X}")),
+                    0 => layout
+                        .get(offset + 32)
+                        .map(|value| format!("MBR 0x{value:02X}")),
                     1 if offset + 48 <= length => {
                         let guid = &layout[offset + 32..offset + 48];
                         Some(format!(
@@ -354,22 +389,62 @@ mod windows {
                         at,
                     ),
                     offset_bytes: start
-                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "StartingOffset", at))
+                        .map(|value| {
+                            observed(
+                                value,
+                                "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)",
+                                "StartingOffset",
+                                at,
+                            )
+                        })
                         .unwrap_or_else(|| unavailable(at, "Offset da partição indisponível.")),
                     size_bytes: size
-                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "PartitionLength", at))
+                        .map(|value| {
+                            observed(
+                                value,
+                                "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)",
+                                "PartitionLength",
+                                at,
+                            )
+                        })
                         .unwrap_or_else(|| unavailable(at, "Tamanho da partição indisponível.")),
                     partition_type: partition_type
-                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "PartitionType", at))
+                        .map(|value| {
+                            observed(
+                                value,
+                                "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)",
+                                "PartitionType",
+                                at,
+                            )
+                        })
                         .unwrap_or_else(|| unavailable(at, "Tipo da partição indisponível.")),
                     is_boot: boot
-                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "BootIndicator", at))
-                        .unwrap_or_else(|| unavailable(at, "Indicador de inicialização não aplicável ou indisponível.")),
-                    is_system: observed(system, "QBoa/Windows partition layout", "system_partition_type", at),
+                        .map(|value| {
+                            observed(
+                                value,
+                                "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)",
+                                "BootIndicator",
+                                at,
+                            )
+                        })
+                        .unwrap_or_else(|| {
+                            unavailable(
+                                at,
+                                "Indicador de inicialização não aplicável ou indisponível.",
+                            )
+                        }),
+                    is_system: observed(
+                        system,
+                        "QBoa/Windows partition layout",
+                        "system_partition_type",
+                        at,
+                    ),
                 });
             }
         } else {
-            warnings.push(format!("O Windows não forneceu o layout de partições do disco {number}."));
+            warnings.push(format!(
+                "O Windows não forneceu o layout de partições do disco {number}."
+            ));
         }
 
         let bus = bus.unwrap_or(StorageBusType::Unknown);
@@ -381,39 +456,140 @@ mod windows {
         };
         let disk = PhysicalDiskInfo {
             disk_id: format!("disk:{number}"),
-            disk_number: observed(number, "DeviceIoControl(IOCTL_STORAGE_GET_DEVICE_NUMBER)", "DeviceNumber", at),
+            disk_number: observed(
+                number,
+                "DeviceIoControl(IOCTL_STORAGE_GET_DEVICE_NUMBER)",
+                "DeviceNumber",
+                at,
+            ),
             model: model
-                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "ProductId", at))
-                .unwrap_or_else(|| unavailable(at, "Modelo não informado pelo descritor do dispositivo.")),
+                .map(|value| {
+                    observed(
+                        value,
+                        "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
+                        "ProductId",
+                        at,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    unavailable(at, "Modelo não informado pelo descritor do dispositivo.")
+                }),
             manufacturer: vendor
-                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "VendorId", at))
-                .unwrap_or_else(|| unavailable(at, "Fabricante não informado pelo descritor do dispositivo.")),
+                .map(|value| {
+                    observed(
+                        value,
+                        "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
+                        "VendorId",
+                        at,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    unavailable(
+                        at,
+                        "Fabricante não informado pelo descritor do dispositivo.",
+                    )
+                }),
             serial_number: serial
                 .filter(|value| !value.trim().is_empty())
-                .map(|value| observed(Sensitive { value, classification: SensitiveDataKind::HardwareSerial }, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "SerialNumber", at))
-                .unwrap_or_else(|| unavailable(at, "Número de série não informado pelo dispositivo.")),
+                .map(|value| {
+                    observed(
+                        Sensitive {
+                            value,
+                            classification: SensitiveDataKind::HardwareSerial,
+                        },
+                        "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
+                        "SerialNumber",
+                        at,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    unavailable(at, "Número de série não informado pelo dispositivo.")
+                }),
             firmware_revision: firmware
-                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "ProductRevision", at))
-                .unwrap_or_else(|| unavailable(at, "Firmware não informado pelo descritor do dispositivo.")),
+                .map(|value| {
+                    observed(
+                        value,
+                        "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
+                        "ProductRevision",
+                        at,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    unavailable(at, "Firmware não informado pelo descritor do dispositivo.")
+                }),
             interface_type: bus_raw
-                .map(|value| observed(format!("Windows STORAGE_BUS_TYPE ({value})"), "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "BusType", at))
-                .unwrap_or_else(|| unavailable(at, "Interface não informada pelo descritor do dispositivo.")),
-            media_type: observed(media, "Windows storage descriptor", "media_type_not_exposed", at),
+                .map(|value| {
+                    observed(
+                        format!("Windows STORAGE_BUS_TYPE ({value})"),
+                        "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
+                        "BusType",
+                        at,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    unavailable(at, "Interface não informada pelo descritor do dispositivo.")
+                }),
+            media_type: observed(
+                media,
+                "Windows storage descriptor",
+                "media_type_not_exposed",
+                at,
+            ),
             bus_type: bus_raw
-                .map(|value| observed(bus, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "BusType", at))
-                .unwrap_or_else(|| unavailable(at, "Tipo de barramento não informado pelo dispositivo.")),
+                .map(|value| {
+                    observed(
+                        bus,
+                        "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
+                        "BusType",
+                        at,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    unavailable(at, "Tipo de barramento não informado pelo dispositivo.")
+                }),
             capacity_bytes: capacity
-                .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_LENGTH_INFO)", "Length", at))
+                .map(|value| {
+                    observed(
+                        value,
+                        "DeviceIoControl(IOCTL_DISK_GET_LENGTH_INFO)",
+                        "Length",
+                        at,
+                    )
+                })
                 .unwrap_or_else(|| unavailable(at, "Capacidade não informada pelo dispositivo.")),
             logical_sector_bytes: sector_size
-                .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_GEOMETRY)", "BytesPerSector", at))
+                .map(|value| {
+                    observed(
+                        value,
+                        "DeviceIoControl(IOCTL_DISK_GET_DRIVE_GEOMETRY)",
+                        "BytesPerSector",
+                        at,
+                    )
+                })
                 .unwrap_or_else(|| unavailable(at, "Tamanho do setor lógico indisponível.")),
-            physical_sector_bytes: unavailable(at, "A API de geometria consultada não distingue o tamanho físico do setor."),
+            physical_sector_bytes: unavailable(
+                at,
+                "A API de geometria consultada não distingue o tamanho físico do setor.",
+            ),
             is_removable: removable
-                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "RemovableMedia", at))
+                .map(|value| {
+                    observed(
+                        value,
+                        "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
+                        "RemovableMedia",
+                        at,
+                    )
+                })
                 .unwrap_or_else(|| unavailable(at, "Indicador de mídia removível indisponível.")),
             partition_style: style
-                .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "PartitionStyle", at))
+                .map(|value| {
+                    observed(
+                        value,
+                        "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)",
+                        "PartitionStyle",
+                        at,
+                    )
+                })
                 .unwrap_or_else(|| unavailable(at, "Estilo de partição indisponível.")),
         };
         Some((disk, partitions))
@@ -469,9 +645,15 @@ mod windows {
             if offset + 24 > length {
                 break;
             }
-            let Some(disk) = read_u32(&buffer, offset) else { continue };
-            let start = read_i64(&buffer, offset + 8).filter(|value| *value >= 0).unwrap_or(0) as u64;
-            let size = read_i64(&buffer, offset + 16).filter(|value| *value >= 0).unwrap_or(0) as u64;
+            let Some(disk) = read_u32(&buffer, offset) else {
+                continue;
+            };
+            let start = read_i64(&buffer, offset + 8)
+                .filter(|value| *value >= 0)
+                .unwrap_or(0) as u64;
+            let size = read_i64(&buffer, offset + 16)
+                .filter(|value| *value >= 0)
+                .unwrap_or(0) as u64;
             if !disk_numbers.contains(&disk) {
                 disk_numbers.push(disk);
             }
@@ -489,14 +671,18 @@ mod windows {
     ) -> Vec<VolumeInfo> {
         let mut volumes = Vec::new();
         let mut name_buffer = vec![0u16; 1024];
-        let search = unsafe { FindFirstVolumeW(name_buffer.as_mut_ptr(), name_buffer.len() as u32) };
+        let search =
+            unsafe { FindFirstVolumeW(name_buffer.as_mut_ptr(), name_buffer.len() as u32) };
         if search == INVALID_HANDLE_VALUE {
             warnings.push("O Windows não permitiu enumerar os volumes montados.".into());
             return volumes;
         }
 
         let mut current = String::from_utf16_lossy(
-            &name_buffer[..name_buffer.iter().position(|value| *value == 0).unwrap_or(name_buffer.len())],
+            &name_buffer[..name_buffer
+                .iter()
+                .position(|value| *value == 0)
+                .unwrap_or(name_buffer.len())],
         );
         loop {
             let paths = volume_mount_paths(&current);
@@ -519,13 +705,23 @@ mod windows {
                 )
             } != 0;
             let label = if info_ok {
-                let end = label_buffer.iter().position(|value| *value == 0).unwrap_or(label_buffer.len());
+                let end = label_buffer
+                    .iter()
+                    .position(|value| *value == 0)
+                    .unwrap_or(label_buffer.len());
                 Some(String::from_utf16_lossy(&label_buffer[..end]))
-            } else { None };
+            } else {
+                None
+            };
             let filesystem = if info_ok {
-                let end = filesystem_buffer.iter().position(|value| *value == 0).unwrap_or(filesystem_buffer.len());
+                let end = filesystem_buffer
+                    .iter()
+                    .position(|value| *value == 0)
+                    .unwrap_or(filesystem_buffer.len());
                 Some(String::from_utf16_lossy(&filesystem_buffer[..end]))
-            } else { None };
+            } else {
+                None
+            };
 
             let mut available = 0u64;
             let mut capacity = 0u64;
@@ -545,9 +741,14 @@ mod windows {
                     &mut free_clusters,
                     &mut total_clusters,
                 )
-            } != 0 {
-                sectors_per_cluster.checked_mul(bytes_per_sector).filter(|value| *value > 0)
-            } else { None };
+            } != 0
+            {
+                sectors_per_cluster
+                    .checked_mul(bytes_per_sector)
+                    .filter(|value| *value > 0)
+            } else {
+                None
+            };
 
             let open_path = current.trim_end_matches('\\');
             let extent_device = Device::open(open_path);
@@ -557,18 +758,32 @@ mod windows {
                 .unwrap_or_default();
             let associated_disk_ids: Vec<String> = disk_numbers
                 .iter()
-                .filter(|number| disks.iter().any(|disk| disk.disk_number.value == Some(**number)))
+                .filter(|number| {
+                    disks
+                        .iter()
+                        .any(|disk| disk.disk_number.value == Some(**number))
+                })
                 .map(|number| format!("disk:{number}"))
                 .collect();
             let mut associated_partition_ids = Vec::new();
             for (disk_number, extent_start, extent_size) in extents {
-                let Some(extent_end) = extent_start.checked_add(extent_size) else { continue };
-                for partition in partitions.iter().filter(|partition| {
-                    partition.disk_id == format!("disk:{disk_number}")
-                }) {
-                    let (Some(start), Some(size)) = (partition.offset_bytes.value, partition.size_bytes.value) else { continue };
-                    let Some(partition_end) = start.checked_add(size) else { continue };
-                    if extent_start < partition_end && start < extent_end
+                let Some(extent_end) = extent_start.checked_add(extent_size) else {
+                    continue;
+                };
+                for partition in partitions
+                    .iter()
+                    .filter(|partition| partition.disk_id == format!("disk:{disk_number}"))
+                {
+                    let (Some(start), Some(size)) =
+                        (partition.offset_bytes.value, partition.size_bytes.value)
+                    else {
+                        continue;
+                    };
+                    let Some(partition_end) = start.checked_add(size) else {
+                        continue;
+                    };
+                    if extent_start < partition_end
+                        && start < extent_end
                         && !associated_partition_ids.contains(&partition.partition_id)
                     {
                         associated_partition_ids.push(partition.partition_id.clone());
@@ -576,7 +791,8 @@ mod windows {
                 }
             }
 
-            let drive_letter = paths.iter()
+            let drive_letter = paths
+                .iter()
                 .find(|path| path.len() >= 2 && path.as_bytes().get(1) == Some(&b':'))
                 .map(|path| path[..2].to_string());
             volumes.push(VolumeInfo {
@@ -605,14 +821,22 @@ mod windows {
             });
 
             name_buffer.fill(0);
-            if unsafe { FindNextVolumeW(search, name_buffer.as_mut_ptr(), name_buffer.len() as u32) } == 0 {
+            if unsafe {
+                FindNextVolumeW(search, name_buffer.as_mut_ptr(), name_buffer.len() as u32)
+            } == 0
+            {
                 break;
             }
             current = String::from_utf16_lossy(
-                &name_buffer[..name_buffer.iter().position(|value| *value == 0).unwrap_or(name_buffer.len())],
+                &name_buffer[..name_buffer
+                    .iter()
+                    .position(|value| *value == 0)
+                    .unwrap_or(name_buffer.len())],
             );
         }
-        unsafe { FindVolumeClose(search); }
+        unsafe {
+            FindVolumeClose(search);
+        }
         volumes
     }
 
@@ -627,7 +851,9 @@ mod windows {
         // discos USB, virtuais e sem volumes montados. Buracos não encerram a busca.
         let mut misses = 0u32;
         for number in 0..64u32 {
-            if let Some((disk, mut disk_partitions)) = collect_disk(number, &started_at, &mut warnings) {
+            if let Some((disk, mut disk_partitions)) =
+                collect_disk(number, &started_at, &mut warnings)
+            {
                 misses = 0;
                 physical_disks.push(disk);
                 partitions.append(&mut disk_partitions);
@@ -641,9 +867,16 @@ mod windows {
 
         let volumes = collect_volumes(&started_at, &physical_disks, &partitions, &mut warnings);
         if physical_disks.is_empty() {
-            warnings.push("Nenhum disco físico pôde ser enumerado; os volumes ainda foram consultados.".into());
+            warnings.push(
+                "Nenhum disco físico pôde ser enumerado; os volumes ainda foram consultados."
+                    .into(),
+            );
         }
-        let data = StorageCategory { physical_disks, partitions, volumes };
+        let data = StorageCategory {
+            physical_disks,
+            partitions,
+            volumes,
+        };
         data.validate()?;
 
         let finished_at = now_utc();
