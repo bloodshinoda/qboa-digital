@@ -298,6 +298,35 @@ mod windows {
         }
     }
 
+    fn protocol_specific_data(
+        device: &Device,
+        protocol_type: u32,
+        request_value: u32,
+        data_length: u32,
+    ) -> Option<Vec<u8>> {
+        // STORAGE_PROPERTY_QUERY + STORAGE_PROTOCOL_SPECIFIC_DATA.
+        // ProtocolDataOffset é relativo ao início de STORAGE_PROTOCOL_SPECIFIC_DATA.
+        let mut input = [0u8; 48];
+        input[0..4].copy_from_slice(&50u32.to_le_bytes()); // StorageDeviceProtocolSpecificProperty
+        input[4..8].copy_from_slice(&0u32.to_le_bytes()); // PropertyStandardQuery
+        input[8..12].copy_from_slice(&protocol_type.to_le_bytes());
+        input[12..16].copy_from_slice(&1u32.to_le_bytes()); // Identify
+        input[16..20].copy_from_slice(&request_value.to_le_bytes());
+        input[24..28].copy_from_slice(&40u32.to_le_bytes());
+        input[28..32].copy_from_slice(&data_length.to_le_bytes());
+        let mut output = vec![0u8; 8192];
+        let returned = device
+            .ioctl_with_input(IOCTL_STORAGE_QUERY_PROPERTY, &mut input, &mut output)?;
+        let payload_start = 8usize.checked_add(40)?;
+        let payload_end = payload_start.checked_add(data_length as usize)?;
+        (returned >= payload_end).then(|| output[payload_start..payload_end].to_vec())
+    }
+
+    fn ata_identify_word(data: &[u8], word: usize) -> Option<u16> {
+        let offset = word.checked_mul(2)?;
+        Some(u16::from_le_bytes(data.get(offset..offset + 2)?.try_into().ok()?))
+    }
+
     fn partition_style(value: u32) -> PartitionStyle {
         match value {
             0 => PartitionStyle::Mbr,
@@ -410,6 +439,31 @@ mod windows {
         let bus_raw = descriptor_data.and_then(|data| read_u32(data, 28));
         let bus = bus_raw.map(bus_type);
         let removable = descriptor_data.map(|data| data.get(10).copied().unwrap_or(0) != 0);
+
+        let ata_identify = if matches!(bus, Some(StorageBusType::Ata | StorageBusType::Sata)) {
+            protocol_specific_data(&device, 2, 0, 512)
+        } else {
+            None
+        };
+        let nvme_identify = if matches!(bus, Some(StorageBusType::Nvme)) {
+            protocol_specific_data(&device, 3, 1, 4096)
+        } else {
+            None
+        };
+        let ata_current_speed = ata_identify.as_deref()
+            .and_then(|data| ata_identify_word(data, 77))
+            .map(|word| (word >> 1) & 0x7)
+            .and_then(|code| match code {
+                1 => Some("SATA Gen1 (1,5 Gb/s)".to_string()),
+                2 => Some("SATA Gen2 (3,0 Gb/s)".to_string()),
+                3 => Some("SATA Gen3 (6,0 Gb/s)".to_string()),
+                _ => None,
+            });
+        let ata_rotation = ata_identify.as_deref().and_then(|data| ata_identify_word(data, 217));
+        let nvme_protocol_version = nvme_identify.as_deref()
+            .and_then(|data| read_u32(data, 80))
+            .filter(|version| *version != 0 && *version != u32::MAX)
+            .map(|version| format!("NVMe {}.{}", (version >> 16) & 0xffff, (version >> 8) & 0xff));
 
         let mut layout = vec![0u8; 1024 * 1024];
         let layout_length = device.ioctl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX, &mut layout);
@@ -533,14 +587,18 @@ mod windows {
         let media = match seek_penalty {
             Some(true) => StorageMediaType::Hdd,
             Some(false) => StorageMediaType::Ssd,
-            None => StorageMediaType::Unknown,
+            None => match ata_rotation {
+                Some(1) => StorageMediaType::Ssd,
+                Some(value) if (0x0401..=0xfffe).contains(&value) => StorageMediaType::Hdd,
+                _ => StorageMediaType::Unknown,
+            },
         };
 
-        let device_kind = match bus {
+        let device_kind = match &bus {
             StorageBusType::Sd | StorageBusType::Mmc => StorageDeviceKind::MemoryCard,
             StorageBusType::Virtual | StorageBusType::FileBackedVirtual => StorageDeviceKind::VirtualDisk,
             StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
-            StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => match media {
+            StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => match &media {
                 StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
                 StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
                 _ => StorageDeviceKind::Unknown,
@@ -549,14 +607,14 @@ mod windows {
                 if removable == Some(true) {
                     StorageDeviceKind::UsbRemovableStorage
                 } else {
-                    match media {
+                    match &media {
                         StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
                         StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
                         _ => StorageDeviceKind::Unknown,
                     }
                 }
             }
-            _ => match media {
+            _ => match &media {
                 StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
                 StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
                 _ => StorageDeviceKind::Unknown,
@@ -565,12 +623,14 @@ mod windows {
 
         let disk = PhysicalDiskInfo {
             disk_id: format!("disk:{disk_number}"),
-            disk_number: observed(
-                disk_number,
-                "DeviceIoControl(IOCTL_STORAGE_GET_DEVICE_NUMBER)",
-                "DeviceNumber",
-                at,
-            ),
+            disk_number: actual_disk_number
+                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_GET_DEVICE_NUMBER)", "DeviceNumber", at))
+                .unwrap_or_else(|| observed(
+                    number,
+                    "PhysicalDrive enumeration",
+                    "device_path_index",
+                    at,
+                )),
             model: model
                 .map(|value| {
                     observed(
@@ -654,14 +714,19 @@ mod windows {
                 .unwrap_or_else(|| {
                     unavailable(at, "Tipo de barramento não informado pelo dispositivo.")
                 }),
-            interface_generation: unavailable(
-                at,
-                "Geração da interface ainda não foi exposta pelo dispositivo ou não pôde ser negociada.",
-            ),
-            protocol_version: unavailable(
-                at,
-                "Versão do protocolo não foi consultada para este tipo de dispositivo.",
-            ),
+            interface_generation: ata_current_speed
+                .map(|value| observed(value, "ATA IDENTIFY DEVICE", "SATA current signaling speed (word 77)", at))
+                .unwrap_or_else(|| unavailable(
+                    at,
+                    if bus == StorageBusType::Nvme {
+                        "Geração PCIe do link não foi exposta por uma fonte confiável; a revisão NVMe é coletada separadamente."
+                    } else {
+                        "Geração da interface não foi informada pelo dispositivo."
+                    },
+                )),
+            protocol_version: nvme_protocol_version
+                .map(|value| observed(value, "NVMe Identify Controller", "VER", at))
+                .unwrap_or_else(|| unavailable(at, "Versão do protocolo não foi informada pelo dispositivo.")),
             seek_penalty: seek_penalty
                 .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "IncursSeekPenalty", at))
                 .unwrap_or_else(|| unavailable(at, "Windows não informou a penalidade de busca.")),
