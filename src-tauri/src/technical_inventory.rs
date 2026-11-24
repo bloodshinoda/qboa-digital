@@ -1560,8 +1560,8 @@ mod tests {
         let storage = storage_fixture();
         storage.validate().unwrap();
         let json = serde_json::to_string(&storage).unwrap();
-        assert!(json.contains("\\"bus_type\\":{\\"value\\":\\"nvme\\""));
-        assert!(json.contains("\\"partition_style\\":{\\"value\\":\\"gpt\\""));
+        assert!(json.contains("\"bus_type\":{\"value\":\"nvme\""));
+        assert!(json.contains("\"partition_style\":{\"value\":\"gpt\""));
         assert_eq!(storage, serde_json::from_str(&json).unwrap());
     }
 
