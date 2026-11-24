@@ -1009,7 +1009,10 @@ mod windows {
                             | StorageBusType::Sd
                             | StorageBusType::Mmc
                             | StorageBusType::Ufs
-                    ) => StorageMediaType::Ssd,
+                    ) =>
+                    {
+                        StorageMediaType::Ssd
+                    }
                     _ => StorageMediaType::Unknown,
                 },
             }
@@ -1048,9 +1051,7 @@ mod windows {
                     StorageDeviceKind::VirtualDisk
                 }
                 StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
-                StorageBusType::Nvme | StorageBusType::Ufs => {
-                    StorageDeviceKind::SolidStateDrive
-                }
+                StorageBusType::Nvme | StorageBusType::Ufs => StorageDeviceKind::SolidStateDrive,
                 StorageBusType::Scm => StorageDeviceKind::Other,
                 StorageBusType::NvmeOf | StorageBusType::Iscsi | StorageBusType::Fibre => {
                     StorageDeviceKind::NetworkDisk
