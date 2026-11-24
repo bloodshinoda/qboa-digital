@@ -754,14 +754,19 @@ mod windows {
                 3 => Some("SATA Gen3 (6,0 Gb/s)".to_string()),
                 _ => None,
             });
-        let pcie_current_speed = pcie_speed_label(
-            pnp.current_pcie_speed.unwrap_or(0),
-            pnp.current_pcie_width,
-        );
-        let pcie_max_speed = pcie_speed_label(
-            pnp.max_pcie_speed.unwrap_or(0),
-            pnp.max_pcie_width,
-        );
+        let is_nvme = bus == StorageBusType::Nvme;
+        let pcie_current_speed = is_nvme.then(|| {
+            pcie_speed_label(
+                pnp.current_pcie_speed.unwrap_or(0),
+                pnp.current_pcie_width,
+            )
+        }).flatten();
+        let pcie_max_speed = is_nvme.then(|| {
+            pcie_speed_label(
+                pnp.max_pcie_speed.unwrap_or(0),
+                pnp.max_pcie_width,
+            )
+        }).flatten();
         let ata_max_speed = ata_identify
             .as_deref()
             .and_then(|data| ata_identify_word(data, 76))
