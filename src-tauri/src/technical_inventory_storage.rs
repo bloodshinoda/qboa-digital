@@ -6,7 +6,7 @@
 use crate::technical_inventory::{
     CategoryCollection, InventoryConfidence, InventoryIssue, InventorySource, InventoryValueState,
     Observed, PartitionInfo, PartitionStyle, PhysicalDiskInfo, Sensitive, SensitiveDataKind,
-    StorageBusType, StorageCategory, StorageMediaType, VolumeInfo,
+    StorageBusType, StorageCategory, StorageDeviceKind, StorageMediaType, VolumeInfo,
 };
 use std::time::Instant;
 
@@ -31,6 +31,7 @@ mod windows {
     const IOCTL_DISK_GET_DRIVE_LAYOUT_EX: u32 = 0x0007_0050;
     const IOCTL_DISK_GET_LENGTH_INFO: u32 = 0x0007_405c;
     const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002d_1400;
+    const IOCTL_STORAGE_GET_DEVICE_NUMBER: u32 = 0x002d_1080;
     const IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: u32 = 0x0056_0000;
 
     #[link(name = "kernel32")]
@@ -274,15 +275,25 @@ mod windows {
     fn bus_type(value: u32) -> StorageBusType {
         match value {
             1 => StorageBusType::Scsi,
+            2 => StorageBusType::Atapi,
             3 => StorageBusType::Ata,
+            4 => StorageBusType::Ieee1394,
+            5 => StorageBusType::Ssa,
+            6 => StorageBusType::Fibre,
+            7 => StorageBusType::Usb,
+            8 => StorageBusType::Raid,
+            9 => StorageBusType::Iscsi,
             10 => StorageBusType::Sas,
             11 => StorageBusType::Sata,
-            12 | 13 => StorageBusType::Sd,
+            12 => StorageBusType::Sd,
+            13 => StorageBusType::Mmc,
             14 => StorageBusType::Virtual,
             15 => StorageBusType::FileBackedVirtual,
             16 => StorageBusType::Spaces,
             17 => StorageBusType::Nvme,
-            7 => StorageBusType::Usb,
+            18 => StorageBusType::Scm,
+            19 => StorageBusType::Ufs,
+            20 => StorageBusType::NvmeOf,
             _ => StorageBusType::Unknown,
         }
     }
@@ -296,6 +307,12 @@ mod windows {
         }
     }
 
+    fn query_storage_property(device: &Device, property_id: u32, output: &mut [u8]) -> Option<usize> {
+        let mut query = [0u8; 12];
+        query[..4].copy_from_slice(&property_id.to_le_bytes());
+        device.ioctl_with_input(IOCTL_STORAGE_QUERY_PROPERTY, &mut query, output)
+    }
+
     fn collect_disk(
         number: u32,
         at: &str,
@@ -304,11 +321,14 @@ mod windows {
         let path = format!(r"\\.\PhysicalDrive{number}");
         let device = match Device::open(&path) {
             Some(device) => device,
-            None => {
-                warnings.push(format!("Não foi possível abrir o disco físico {number}; os demais dispositivos continuarão sendo coletados."));
-                return None;
-            }
+            None => return None,
         };
+
+        let mut device_number_buffer = [0u8; 16];
+        let actual_disk_number = device
+            .ioctl(IOCTL_STORAGE_GET_DEVICE_NUMBER, &mut device_number_buffer)
+            .and_then(|_| read_u32(&device_number_buffer, 4));
+        let disk_number = actual_disk_number.unwrap_or(number);
 
         let mut length_buffer = [0u8; 8];
         let capacity = device
@@ -322,6 +342,29 @@ mod windows {
             .ioctl(IOCTL_DISK_GET_DRIVE_GEOMETRY, &mut geometry)
             .and_then(|_| read_u32(&geometry, 20))
             .filter(|value| *value > 0);
+
+        // StorageAccessAlignmentProperty = 6.
+        let mut alignment = [0u8; 64];
+        let alignment_length = query_storage_property(&device, 6, &mut alignment);
+        let physical_sector_size = alignment_length
+            .filter(|length| *length >= 24)
+            .and_then(|_| read_u32(&alignment, 20))
+            .filter(|value| *value > 0);
+        let alignment_offset = alignment_length
+            .filter(|length| *length >= 28)
+            .and_then(|_| read_u32(&alignment, 24));
+
+        // StorageDeviceSeekPenaltyProperty = 7; descriptor BOOL is at offset 8.
+        let mut seek_penalty_buffer = [0u8; 16];
+        let seek_penalty = query_storage_property(&device, 7, &mut seek_penalty_buffer)
+            .filter(|length| *length >= 9)
+            .map(|_| seek_penalty_buffer[8] != 0);
+
+        // StorageDeviceTrimProperty = 8; descriptor BOOL is at offset 8.
+        let mut trim_buffer = [0u8; 16];
+        let trim_supported = query_storage_property(&device, 8, &mut trim_buffer)
+            .filter(|length| *length >= 9)
+            .map(|_| trim_buffer[8] != 0);
 
         // STORAGE_PROPERTY_QUERY: PropertyId=StorageDeviceProperty, QueryType=PropertyStandardQuery.
         // STORAGE_PROPERTY_QUERY inclui AdditionalParameters[1], totalizando 12 bytes.
@@ -484,16 +527,46 @@ mod windows {
         }
 
         let bus = bus.unwrap_or(StorageBusType::Unknown);
-        let media = match &bus {
-            StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => {
-                StorageMediaType::Unknown
-            }
-            _ => StorageMediaType::Unknown,
+
+        // A penalidade de busca é uma evidência de mídia magnética vs. flash,
+        // mas não substitui a identificação específica do protocolo.
+        let media = match seek_penalty {
+            Some(true) => StorageMediaType::Hdd,
+            Some(false) => StorageMediaType::Ssd,
+            None => StorageMediaType::Unknown,
         };
+
+        let device_kind = match bus {
+            StorageBusType::Sd | StorageBusType::Mmc => StorageDeviceKind::MemoryCard,
+            StorageBusType::Virtual | StorageBusType::FileBackedVirtual => StorageDeviceKind::VirtualDisk,
+            StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
+            StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => match media {
+                StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                _ => StorageDeviceKind::Unknown,
+            },
+            StorageBusType::Usb => {
+                if removable == Some(true) {
+                    StorageDeviceKind::UsbRemovableStorage
+                } else {
+                    match media {
+                        StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                        StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                        _ => StorageDeviceKind::Unknown,
+                    }
+                }
+            }
+            _ => match media {
+                StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                _ => StorageDeviceKind::Unknown,
+            },
+        };
+
         let disk = PhysicalDiskInfo {
-            disk_id: format!("disk:{number}"),
+            disk_id: format!("disk:{disk_number}"),
             disk_number: observed(
-                number,
+                disk_number,
                 "DeviceIoControl(IOCTL_STORAGE_GET_DEVICE_NUMBER)",
                 "DeviceNumber",
                 at,
@@ -565,12 +638,10 @@ mod windows {
                 .unwrap_or_else(|| {
                     unavailable(at, "Interface não informada pelo descritor do dispositivo.")
                 }),
-            media_type: observed(
-                media,
-                "Windows storage descriptor",
-                "media_type_not_exposed",
-                at,
-            ),
+            media_type: seek_penalty
+                .map(|_| observed(media, "IOCTL_STORAGE_QUERY_PROPERTY", "IncursSeekPenalty", at))
+                .unwrap_or_else(|| unavailable(at, "Tipo de mídia não pôde ser determinado por penalidade de busca.")),
+            device_kind: observed(device_kind, "QBoa/storage bus + media classification", "device_kind", at),
             bus_type: bus_raw
                 .map(|value| {
                     observed(
@@ -583,6 +654,23 @@ mod windows {
                 .unwrap_or_else(|| {
                     unavailable(at, "Tipo de barramento não informado pelo dispositivo.")
                 }),
+            interface_generation: unavailable(
+                at,
+                "Geração da interface ainda não foi exposta pelo dispositivo ou não pôde ser negociada.",
+            ),
+            protocol_version: unavailable(
+                at,
+                "Versão do protocolo não foi consultada para este tipo de dispositivo.",
+            ),
+            seek_penalty: seek_penalty
+                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "IncursSeekPenalty", at))
+                .unwrap_or_else(|| unavailable(at, "Windows não informou a penalidade de busca.")),
+            trim_supported: trim_supported
+                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "TrimEnabled", at))
+                .unwrap_or_else(|| unavailable(at, "Suporte a TRIM indisponível.")),
+            alignment_offset_bytes: alignment_offset
+                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "BytesOffsetForSectorAlignment", at))
+                .unwrap_or_else(|| unavailable(at, "Deslocamento de alinhamento indisponível.")),
             capacity_bytes: capacity
                 .map(|value| {
                     observed(
@@ -603,10 +691,9 @@ mod windows {
                     )
                 })
                 .unwrap_or_else(|| unavailable(at, "Tamanho do setor lógico indisponível.")),
-            physical_sector_bytes: unavailable(
-                at,
-                "A API de geometria consultada não distingue o tamanho físico do setor.",
-            ),
+            physical_sector_bytes: physical_sector_size
+                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "BytesPerPhysicalSector", at))
+                .unwrap_or_else(|| unavailable(at, "Tamanho do setor físico indisponível.")),
             is_removable: removable
                 .map(|value| {
                     observed(
@@ -885,19 +972,12 @@ mod windows {
 
         // A enumeração por número evita depender de letras de unidade e inclui
         // discos USB, virtuais e sem volumes montados. Buracos não encerram a busca.
-        let mut misses = 0u32;
-        for number in 0..64u32 {
+        for number in 0..256u32 {
             if let Some((disk, mut disk_partitions)) =
                 collect_disk(number, &started_at, &mut warnings)
             {
-                misses = 0;
                 physical_disks.push(disk);
                 partitions.append(&mut disk_partitions);
-            } else {
-                misses += 1;
-                if number > 0 && misses >= 8 {
-                    break;
-                }
             }
         }
 
