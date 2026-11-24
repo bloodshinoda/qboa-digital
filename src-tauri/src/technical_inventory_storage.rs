@@ -324,7 +324,8 @@ mod windows {
             .filter(|value| *value > 0);
 
         // STORAGE_PROPERTY_QUERY: PropertyId=StorageDeviceProperty, QueryType=PropertyStandardQuery.
-        let mut query = [0u8; 8];
+        // STORAGE_PROPERTY_QUERY inclui AdditionalParameters[1], totalizando 12 bytes.
+        let mut query = [0u8; 12];
         let mut descriptor = vec![0u8; 4096];
         let descriptor_result = device.ioctl_with_input_result(
             IOCTL_STORAGE_QUERY_PROPERTY,
