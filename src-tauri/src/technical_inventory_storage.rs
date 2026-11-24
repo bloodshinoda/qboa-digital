@@ -20,6 +20,37 @@ mod windows {
     type Handle = isize;
     type Bool = i32;
 
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Guid {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [u8; 8],
+    }
+
+    #[repr(C)]
+    struct DeviceInterfaceData {
+        cb_size: u32,
+        interface_class_guid: Guid,
+        flags: u32,
+        reserved: usize,
+    }
+
+    #[repr(C)]
+    struct DeviceInfoData {
+        cb_size: u32,
+        class_guid: Guid,
+        dev_inst: u32,
+        reserved: usize,
+    }
+
+    #[repr(C)]
+    struct DevPropKey {
+        fmtid: Guid,
+        pid: u32,
+    }
+
     const INVALID_HANDLE_VALUE: Handle = -1;
     const GENERIC_READ: u32 = 0x8000_0000;
     const FILE_SHARE_READ: u32 = 0x0000_0001;
@@ -33,6 +64,44 @@ mod windows {
     const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002d_1400;
     const IOCTL_STORAGE_GET_DEVICE_NUMBER: u32 = 0x002d_1080;
     const IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: u32 = 0x0056_0000;
+
+    #[link(name = "setupapi")]
+    unsafe extern "system" {
+        fn SetupDiGetClassDevsW(
+            class_guid: *const Guid,
+            enumerator: *const u16,
+            hwnd_parent: Handle,
+            flags: u32,
+        ) -> Handle;
+        fn SetupDiEnumDeviceInterfaces(
+            device_info_set: Handle,
+            device_info_data: *mut c_void,
+            interface_class_guid: *const Guid,
+            member_index: u32,
+            device_interface_data: *mut DeviceInterfaceData,
+        ) -> Bool;
+        fn SetupDiGetDeviceInterfaceDetailW(
+            device_info_set: Handle,
+            device_interface_data: *mut DeviceInterfaceData,
+            device_interface_detail_data: *mut c_void,
+            device_interface_detail_data_size: u32,
+            required_size: *mut u32,
+            device_info_data: *mut DeviceInfoData,
+        ) -> Bool;
+        fn SetupDiDestroyDeviceInfoList(device_info_set: Handle) -> Bool;
+    }
+
+    #[link(name = "cfgmgr32")]
+    unsafe extern "system" {
+        fn CM_Get_DevNode_PropertyW(
+            dev_inst: u32,
+            property_key: *const DevPropKey,
+            property_type: *mut u32,
+            property_buffer: *mut u8,
+            property_buffer_size: *mut u32,
+            flags: u32,
+        ) -> u32;
+    }
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -306,6 +375,190 @@ mod windows {
         }
     }
 
+    const GUID_DEVINTERFACE_DISK: Guid = Guid {
+        data1: 0x53f56307,
+        data2: 0xb6bf,
+        data3: 0x11d0,
+        data4: [0x94, 0xf2, 0x00, 0xa0, 0xc9, 0x1e, 0xfb, 0x8b],
+    };
+    const GUID_DEVPROP_DEVICE: Guid = Guid {
+        data1: 0xa45c254e,
+        data2: 0xdf1c,
+        data3: 0x4efd,
+        data4: [0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0],
+    };
+    const GUID_DEVPROP_PCI: Guid = Guid {
+        data1: 0x3ab22e31,
+        data2: 0x8264,
+        data3: 0x4b4e,
+        data4: [0x9a, 0xf5, 0xa8, 0xd2, 0xd8, 0xe3, 0x3e, 0x62],
+    };
+
+    fn devnode_property(dev_inst: u32, key: &DevPropKey) -> Option<Vec<u8>> {
+        let mut property_type = 0u32;
+        let mut required = 0u32;
+        let first = unsafe {
+            CM_Get_DevNode_PropertyW(
+                dev_inst,
+                key,
+                &mut property_type,
+                ptr::null_mut(),
+                &mut required,
+                0,
+            )
+        };
+        if required == 0 || first == 0 {
+            return None;
+        }
+        let mut buffer = vec![0u8; required as usize];
+        let result = unsafe {
+            CM_Get_DevNode_PropertyW(
+                dev_inst,
+                key,
+                &mut property_type,
+                buffer.as_mut_ptr(),
+                &mut required,
+                0,
+            )
+        };
+        (result == 0).then(|| {
+            buffer.truncate(required as usize);
+            buffer
+        })
+    }
+
+    fn devnode_string(dev_inst: u32, key: &DevPropKey) -> Option<String> {
+        let bytes = devnode_property(dev_inst, key)?;
+        let wide: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .take_while(|value| *value != 0)
+            .collect();
+        let value = String::from_utf16_lossy(&wide).trim().to_string();
+        (!value.is_empty()).then_some(value)
+    }
+
+    #[derive(Default)]
+    struct PnpDiskMetadata {
+        manufacturer: Option<String>,
+        current_pcie_speed: Option<u32>,
+        current_pcie_width: Option<u32>,
+        max_pcie_speed: Option<u32>,
+        max_pcie_width: Option<u32>,
+    }
+
+    fn collect_pnp_disk_metadata(target_disk_number: u32) -> PnpDiskMetadata {
+        let mut metadata = PnpDiskMetadata::default();
+        let set = unsafe {
+            SetupDiGetClassDevsW(
+                &GUID_DEVINTERFACE_DISK,
+                ptr::null(),
+                0,
+                0x2 | 0x10, // DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
+            )
+        };
+        if set == INVALID_HANDLE_VALUE {
+            return metadata;
+        }
+
+        let manufacturer_key = DevPropKey { fmtid: GUID_DEVPROP_DEVICE, pid: 13 };
+        let current_speed_key = DevPropKey { fmtid: GUID_DEVPROP_PCI, pid: 9 };
+        let current_width_key = DevPropKey { fmtid: GUID_DEVPROP_PCI, pid: 10 };
+        let max_speed_key = DevPropKey { fmtid: GUID_DEVPROP_PCI, pid: 11 };
+        let max_width_key = DevPropKey { fmtid: GUID_DEVPROP_PCI, pid: 12 };
+
+        for index in 0..4096u32 {
+            let mut interface = DeviceInterfaceData {
+                cb_size: std::mem::size_of::<DeviceInterfaceData>() as u32,
+                interface_class_guid: GUID_DEVINTERFACE_DISK,
+                flags: 0,
+                reserved: 0,
+            };
+            if unsafe {
+                SetupDiEnumDeviceInterfaces(set, ptr::null_mut(), &GUID_DEVINTERFACE_DISK, index, &mut interface)
+            } == 0 {
+                break;
+            }
+
+            let mut required = 0u32;
+            let mut info = DeviceInfoData {
+                cb_size: std::mem::size_of::<DeviceInfoData>() as u32,
+                class_guid: Guid { data1: 0, data2: 0, data3: 0, data4: [0; 8] },
+                dev_inst: 0,
+                reserved: 0,
+            };
+            let _ = unsafe {
+                SetupDiGetDeviceInterfaceDetailW(set, &mut interface, ptr::null_mut(), 0, &mut required, &mut info)
+            };
+            if required < 6 {
+                continue;
+            }
+            let mut detail = vec![0u8; required as usize];
+            detail[..4].copy_from_slice(&(if cfg!(target_pointer_width = "64") { 8u32 } else { 6u32 }).to_le_bytes());
+            if unsafe {
+                SetupDiGetDeviceInterfaceDetailW(
+                    set,
+                    &mut interface,
+                    detail.as_mut_ptr().cast(),
+                    required,
+                    &mut required,
+                    &mut info,
+                )
+            } == 0 {
+                continue;
+            }
+            let path_wide: Vec<u16> = detail[4..]
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .take_while(|value| *value != 0)
+                .collect();
+            let path = String::from_utf16_lossy(&path_wide);
+            let Some(device) = Device::open(&path) else {
+                continue;
+            };
+            let mut number_buffer = [0u8; 16];
+            let Some(disk_number) = device
+                .ioctl(IOCTL_STORAGE_GET_DEVICE_NUMBER, &mut number_buffer)
+                .and_then(|_| read_u32(&number_buffer, 4))
+            else {
+                continue;
+            };
+            if disk_number != target_disk_number {
+                continue;
+            }
+
+            metadata.manufacturer = devnode_string(info.dev_inst, &manufacturer_key);
+            metadata.current_pcie_speed = devnode_property(info.dev_inst, &current_speed_key)
+                .and_then(|bytes| read_u32(&bytes, 0));
+            metadata.current_pcie_width = devnode_property(info.dev_inst, &current_width_key)
+                .and_then(|bytes| read_u32(&bytes, 0));
+            metadata.max_pcie_speed = devnode_property(info.dev_inst, &max_speed_key)
+                .and_then(|bytes| read_u32(&bytes, 0));
+            metadata.max_pcie_width = devnode_property(info.dev_inst, &max_width_key)
+                .and_then(|bytes| read_u32(&bytes, 0));
+            break;
+        }
+
+        unsafe { SetupDiDestroyDeviceInfoList(set); }
+        metadata
+    }
+
+    fn pcie_speed_label(speed: u32, width: Option<u32>) -> Option<String> {
+        let (generation, rate) = match speed {
+            1 => (1, "2.5 GT/s"),
+            2 => (2, "5.0 GT/s"),
+            3 => (3, "8.0 GT/s"),
+            4 => (4, "16.0 GT/s"),
+            5 => (5, "32.0 GT/s"),
+            6 => (6, "64.0 GT/s"),
+            _ => return None,
+        };
+        Some(match width {
+            Some(width) if width > 0 => format!("PCIe Gen{generation} x{width} ({rate})"),
+            _ => format!("PCIe Gen{generation} ({rate})"),
+        })
+    }
+
     fn protocol_specific_data(
         device: &Device,
         protocol_type: u32,
@@ -375,6 +628,7 @@ mod windows {
             .ioctl(IOCTL_STORAGE_GET_DEVICE_NUMBER, &mut device_number_buffer)
             .and_then(|_| read_u32(&device_number_buffer, 4));
         let disk_number = actual_disk_number.unwrap_or(number);
+        let pnp = collect_pnp_disk_metadata(disk_number);
 
         let mut length_buffer = [0u8; 8];
         let capacity = device
@@ -449,7 +703,9 @@ mod windows {
             ));
         }
         let descriptor_data = descriptor_data.filter(|_| descriptor_ok);
-        let vendor = descriptor_data.and_then(|data| read_ansi_string(data, 12));
+        let vendor = descriptor_data
+            .and_then(|data| read_ansi_string(data, 12))
+            .or_else(|| pnp.manufacturer.clone());
         let model = descriptor_data.and_then(|data| read_ansi_string(data, 16));
         let firmware = descriptor_data.and_then(|data| read_ansi_string(data, 20));
         let serial = descriptor_data.and_then(|data| read_ansi_string(data, 24));
@@ -476,6 +732,10 @@ mod windows {
                 3 => Some("SATA Gen3 (6,0 Gb/s)".to_string()),
                 _ => None,
             });
+        let pcie_current_speed = pcie_speed_label(
+            pnp.current_pcie_speed.unwrap_or(0),
+            pnp.current_pcie_width,
+        );
         let ata_rotation = ata_identify.as_deref().and_then(|data| ata_identify_word(data, 217));
         let nvme_protocol_version = nvme_identify.as_deref()
             .and_then(|data| read_u32(data, 80))
@@ -664,8 +924,12 @@ mod windows {
                 .map(|value| {
                     observed(
                         value,
-                        "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
-                        "VendorId",
+                        if descriptor_data.is_some_and(|data| read_ansi_string(data, 12).is_some()) {
+                            "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)"
+                        } else {
+                            "Configuration Manager / DEVPKEY_Device_Manufacturer"
+                        },
+                        "Manufacturer",
                         at,
                     )
                 })
@@ -735,13 +999,15 @@ mod windows {
                 }),
             interface_generation: ata_current_speed
                 .map(|value| observed(value, "ATA IDENTIFY DEVICE", "SATA current signaling speed (word 77)", at))
+                .or_else(|| pcie_current_speed.map(|value| observed(
+                    value,
+                    "Configuration Manager / DEVPKEY_PciDevice_CurrentLinkSpeed",
+                    "PCIe current link speed + width",
+                    at,
+                )))
                 .unwrap_or_else(|| unavailable(
                     at,
-                    if bus == StorageBusType::Nvme {
-                        "Geração PCIe do link não foi exposta por uma fonte confiável; a revisão NVMe é coletada separadamente."
-                    } else {
-                        "Geração da interface não foi informada pelo dispositivo."
-                    },
+                    "Geração negociada da interface não foi exposta pelo dispositivo/driver.",
                 )),
             protocol_version: nvme_protocol_version
                 .map(|value| observed(value, "NVMe Identify Controller", "VER", at))
