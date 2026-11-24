@@ -769,7 +769,13 @@ impl StorageCategory {
             disk.firmware_revision.validate()?;
             disk.interface_type.validate()?;
             disk.media_type.validate()?;
+            disk.device_kind.validate()?;
             disk.bus_type.validate()?;
+            disk.interface_generation.validate()?;
+            disk.protocol_version.validate()?;
+            disk.seek_penalty.validate()?;
+            disk.trim_supported.validate()?;
+            disk.alignment_offset_bytes.validate()?;
             disk.capacity_bytes.validate()?;
             disk.logical_sector_bytes.validate()?;
             disk.physical_sector_bytes.validate()?;
@@ -904,7 +910,16 @@ pub struct PhysicalDiskInfo {
     pub firmware_revision: Observed<String>,
     pub interface_type: Observed<String>,
     pub media_type: Observed<StorageMediaType>,
+    pub device_kind: Observed<StorageDeviceKind>,
     pub bus_type: Observed<StorageBusType>,
+    /// Geração da interface efetivamente negociada, quando o dispositivo a expõe.
+    /// Exemplos: SATA Gen3 (6 Gb/s), PCIe Gen4 x4. Não confundir com versão do protocolo.
+    pub interface_generation: Observed<String>,
+    /// Revisão do protocolo reportada pelo próprio dispositivo, por exemplo NVMe 2.0.
+    pub protocol_version: Observed<String>,
+    pub seek_penalty: Observed<bool>,
+    pub trim_supported: Observed<bool>,
+    pub alignment_offset_bytes: Observed<u32>,
     pub capacity_bytes: Observed<u64>,
     pub logical_sector_bytes: Observed<u32>,
     pub physical_sector_bytes: Observed<u32>,
@@ -923,17 +938,43 @@ pub enum StorageMediaType {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum StorageDeviceKind {
+    HardDisk,
+    SolidStateDrive,
+    UsbFlashDrive,
+    UsbRemovableStorage,
+    MemoryCard,
+    OpticalDrive,
+    VirtualDisk,
+    StorageSpaces,
+    NetworkDisk,
+    Other,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum StorageBusType {
     Ata,
+    Atapi,
     Sata,
     Nvme,
     Scsi,
     Sas,
     Usb,
     Sd,
+    Mmc,
     Virtual,
     FileBackedVirtual,
     Spaces,
+    Raid,
+    Iscsi,
+    Fibre,
+    Ieee1394,
+    Ssa,
+    Scm,
+    Ufs,
+    NvmeOf,
     Unknown,
 }
 
@@ -1590,7 +1631,13 @@ mod tests {
                 firmware_revision: cpu_available("1.2.3".into()),
                 interface_type: cpu_available("PCIe".into()),
                 media_type: cpu_available(StorageMediaType::Ssd),
+                device_kind: cpu_available(StorageDeviceKind::SolidStateDrive),
                 bus_type: cpu_available(StorageBusType::Nvme),
+                interface_generation: cpu_available("PCIe Gen4 x4".into()),
+                protocol_version: cpu_available("NVMe 2.0".into()),
+                seek_penalty: cpu_available(false),
+                trim_supported: cpu_available(true),
+                alignment_offset_bytes: cpu_available(0),
                 capacity_bytes: cpu_available(1_000_000_000_000),
                 logical_sector_bytes: cpu_available(512),
                 physical_sector_bytes: cpu_available(4096),
