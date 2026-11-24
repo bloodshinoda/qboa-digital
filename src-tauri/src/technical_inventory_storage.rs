@@ -101,6 +101,7 @@ mod windows {
             property_buffer_size: *mut u32,
             flags: u32,
         ) -> u32;
+        fn CM_Get_Parent(parent: *mut u32, dev_inst: u32, flags: u32) -> u32;
     }
 
     #[link(name = "kernel32")]
@@ -585,14 +586,30 @@ mod windows {
             }
 
             metadata.manufacturer = devnode_string(info.dev_inst, &manufacturer_key);
-            metadata.current_pcie_speed = devnode_property(info.dev_inst, &current_speed_key)
-                .and_then(|bytes| read_u32(&bytes, 0));
-            metadata.current_pcie_width = devnode_property(info.dev_inst, &current_width_key)
-                .and_then(|bytes| read_u32(&bytes, 0));
-            metadata.max_pcie_speed = devnode_property(info.dev_inst, &max_speed_key)
-                .and_then(|bytes| read_u32(&bytes, 0));
-            metadata.max_pcie_width = devnode_property(info.dev_inst, &max_width_key)
-                .and_then(|bytes| read_u32(&bytes, 0));
+
+            // O disco pode ser um nó SCSI filho de um controlador NVMe PCIe.
+            // Percorremos a cadeia de pais para localizar as propriedades PCIe.
+            let mut pcie_dev_inst = info.dev_inst;
+            for _ in 0..8 {
+                metadata.current_pcie_speed = devnode_property(pcie_dev_inst, &current_speed_key)
+                    .and_then(|bytes| read_u32(&bytes, 0));
+                metadata.current_pcie_width = devnode_property(pcie_dev_inst, &current_width_key)
+                    .and_then(|bytes| read_u32(&bytes, 0));
+                metadata.max_pcie_speed = devnode_property(pcie_dev_inst, &max_speed_key)
+                    .and_then(|bytes| read_u32(&bytes, 0));
+                metadata.max_pcie_width = devnode_property(pcie_dev_inst, &max_width_key)
+                    .and_then(|bytes| read_u32(&bytes, 0));
+                if metadata.current_pcie_speed.is_some() || metadata.max_pcie_speed.is_some() {
+                    break;
+                }
+                let mut parent = 0u32;
+                if unsafe { CM_Get_Parent(&mut parent, pcie_dev_inst, 0) } != 0
+                    || parent == pcie_dev_inst
+                {
+                    break;
+                }
+                pcie_dev_inst = parent;
+            }
             break;
         }
 
@@ -814,7 +831,7 @@ mod windows {
                 3 => Some("SATA Gen3 (6,0 Gb/s)".to_string()),
                 _ => None,
             });
-        let is_nvme = bus == StorageBusType::Nvme;
+        let is_nvme = matches!(bus.as_ref(), Some(StorageBusType::Nvme));
         let pcie_current_speed = if is_nvme {
             pcie_speed_label(pnp.current_pcie_speed.unwrap_or(0), pnp.current_pcie_width)
         } else {
@@ -975,7 +992,9 @@ mod windows {
 
         // A penalidade de busca é uma evidência de mídia magnética vs. flash,
         // mas não substitui a identificação específica do protocolo.
-        let media = if scsi_device_type == Some(5) {
+        let media = if bus == StorageBusType::Scm {
+            StorageMediaType::Scm
+        } else if scsi_device_type == Some(5) {
             StorageMediaType::Unknown
         } else {
             match seek_penalty {
@@ -984,6 +1003,13 @@ mod windows {
                 None => match ata_rotation {
                     Some(1) => StorageMediaType::Ssd,
                     Some(value) if (0x0401..=0xfffe).contains(&value) => StorageMediaType::Hdd,
+                    _ if matches!(
+                        bus,
+                        StorageBusType::Nvme
+                            | StorageBusType::Sd
+                            | StorageBusType::Mmc
+                            | StorageBusType::Ufs
+                    ) => StorageMediaType::Ssd,
                     _ => StorageMediaType::Unknown,
                 },
             }
@@ -997,6 +1023,7 @@ mod windows {
         .to_ascii_lowercase();
         let usb_flash_hint = bus == StorageBusType::Usb
             && removable == Some(true)
+            && !identity_hint.contains("reader")
             && [
                 "flash",
                 "thumb",
@@ -1021,7 +1048,14 @@ mod windows {
                     StorageDeviceKind::VirtualDisk
                 }
                 StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
-                StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => match &media {
+                StorageBusType::Nvme | StorageBusType::Ufs => {
+                    StorageDeviceKind::SolidStateDrive
+                }
+                StorageBusType::Scm => StorageDeviceKind::Other,
+                StorageBusType::NvmeOf | StorageBusType::Iscsi | StorageBusType::Fibre => {
+                    StorageDeviceKind::NetworkDisk
+                }
+                StorageBusType::Sata | StorageBusType::Ata => match &media {
                     StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
                     StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
                     _ => StorageDeviceKind::Unknown,
@@ -1037,7 +1071,6 @@ mod windows {
                         }
                     }
                 }
-                StorageBusType::Iscsi | StorageBusType::Fibre => StorageDeviceKind::NetworkDisk,
                 _ => match &media {
                     StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
                     StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
