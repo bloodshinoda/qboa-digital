@@ -364,14 +364,10 @@ mod windows {
                 "msft",
                 "unknown",
                 "n/a",
-                "ata",
-                "scsi",
-                "nvme",
-                "usb",
-                "raid",
             ]
             .iter()
             .any(|generic| normalized == *generic || normalized.contains(generic))
+            || matches!(normalized.as_str(), "ata" | "scsi" | "nvme" | "usb" | "raid")
     }
 
     const STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE: usize = 36;
@@ -422,9 +418,11 @@ mod windows {
         if start == 0 {
             return Ok(None);
         }
-        if start < STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE {
+        let header_size = read_u32(data, 0)
+            .unwrap_or(STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32) as usize;
+        if start < header_size {
             return Err(format!(
-                "offset {start} aponta para dentro do cabeçalho (mínimo={STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE})"
+                "offset {start} aponta para dentro do cabeçalho (mínimo={header_size})"
             ));
         }
         if start >= data.len() {
@@ -881,8 +879,6 @@ mod windows {
                 }
             }
         });
-        let descriptor_size = descriptor_data.and_then(|data| read_u32(data, 4));
-        let descriptor_version = descriptor_data.and_then(|data| read_u32(data, 0));
         let descriptor_vendor = descriptor_data.and_then(|data| {
             read_descriptor_string(data, 12, "VendorIdOffset", number, warnings)
         });
