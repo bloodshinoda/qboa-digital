@@ -1741,7 +1741,7 @@ mod windows {
 
         #[test]
         fn accepts_complete_descriptor_and_reads_ansi_vendor() {
-            let data = descriptor_fixture(Some(b"Kingston\\0"));
+            let data = descriptor_fixture(Some(b"Kingston\0"));
             let validated = validate_storage_device_descriptor(&data, data.len()).unwrap();
             assert_eq!(
                 read_ansi_string(validated, 12).unwrap().as_deref(),
@@ -1751,7 +1751,7 @@ mod windows {
 
         #[test]
         fn rejects_declared_size_larger_than_returned_bytes() {
-            let mut data = descriptor_fixture(Some(b"Kingston\\0"));
+            let mut data = descriptor_fixture(Some(b"Kingston\0"));
             let declared = (data.len() + 8) as u32;
             data[4..8].copy_from_slice(&declared.to_le_bytes());
             assert!(validate_storage_device_descriptor(&data, data.len()).is_err());
@@ -1759,7 +1759,7 @@ mod windows {
 
         #[test]
         fn rejects_string_offset_inside_header() {
-            let mut data = descriptor_fixture(Some(b"Kingston\\0"));
+            let mut data = descriptor_fixture(Some(b"Kingston\0"));
             data[12..16].copy_from_slice(&35u32.to_le_bytes());
             let validated = validate_storage_device_descriptor(&data, data.len()).unwrap();
             assert!(read_ansi_string(validated, 12).is_err());
