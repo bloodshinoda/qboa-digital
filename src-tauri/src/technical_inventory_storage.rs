@@ -1,0 +1,663 @@
+//! Coleta nativa de discos, partições e volumes no Windows.
+//!
+//! Usa APIs Win32 de armazenamento e volume. Não executa PowerShell, não altera
+//! o estado dos dispositivos e mantém falhas locais como avisos de coleta.
+
+use crate::technical_inventory::{
+    CategoryCollection, InventoryConfidence, InventoryIssue, InventorySource, InventoryValueState,
+    Observed, PartitionInfo, PartitionStyle, PhysicalDiskInfo, Sensitive, SensitiveDataKind,
+    StorageBusType, StorageCategory, StorageMediaType, VolumeInfo,
+};
+use std::time::Instant;
+
+#[cfg(target_os = "windows")]
+mod windows {
+    use super::*;
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
+
+    type Handle = isize;
+    type Bool = i32;
+
+    const INVALID_HANDLE_VALUE: Handle = -1;
+    const GENERIC_READ: u32 = 0x8000_0000;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+
+    const IOCTL_DISK_GET_DRIVE_GEOMETRY: u32 = 0x0007_0000;
+    const IOCTL_DISK_GET_DRIVE_LAYOUT_EX: u32 = 0x0007_0050;
+    const IOCTL_DISK_GET_LENGTH_INFO: u32 = 0x0007_405c;
+    const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002d_1400;
+    const IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: u32 = 0x0056_0000;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateFileW(
+            name: *const u16,
+            access: u32,
+            share: u32,
+            security: *mut c_void,
+            creation: u32,
+            flags: u32,
+            template: Handle,
+        ) -> Handle;
+        fn CloseHandle(handle: Handle) -> Bool;
+        fn DeviceIoControl(
+            handle: Handle,
+            code: u32,
+            input: *mut c_void,
+            input_size: u32,
+            output: *mut c_void,
+            output_size: u32,
+            returned: *mut u32,
+            overlapped: *mut c_void,
+        ) -> Bool;
+        fn FindFirstVolumeW(name: *mut u16, length: u32) -> Handle;
+        fn FindNextVolumeW(search: Handle, name: *mut u16, length: u32) -> Bool;
+        fn FindVolumeClose(search: Handle) -> Bool;
+        fn GetVolumeInformationW(
+            root: *const u16,
+            label: *mut u16,
+            label_length: u32,
+            serial: *mut u32,
+            max_component: *mut u32,
+            flags: *mut u32,
+            filesystem: *mut u16,
+            filesystem_length: u32,
+        ) -> Bool;
+        fn GetDiskFreeSpaceW(
+            root: *const u16,
+            sectors_per_cluster: *mut u32,
+            bytes_per_sector: *mut u32,
+            free_clusters: *mut u32,
+            total_clusters: *mut u32,
+        ) -> Bool;
+        fn GetDiskFreeSpaceExW(
+            root: *const u16,
+            available: *mut u64,
+            total: *mut u64,
+            free: *mut u64,
+        ) -> Bool;
+        fn GetVolumePathNamesForVolumeNameW(
+            volume: *const u16,
+            paths: *mut u16,
+            length: u32,
+            required: *mut u32,
+        ) -> Bool;
+    }
+
+    fn wide(value: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    fn now_utc() -> String {
+        // FILETIME é contado em intervalos de 100 ns desde 1601-01-01 UTC.
+        #[repr(C)]
+        struct FileTime {
+            low: u32,
+            high: u32,
+        }
+        #[repr(C)]
+        struct SystemTime {
+            year: u16,
+            month: u16,
+            weekday: u16,
+            day: u16,
+            hour: u16,
+            minute: u16,
+            second: u16,
+            millis: u16,
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetSystemTimeAsFileTime(value: *mut FileTime);
+            fn FileTimeToSystemTime(value: *const FileTime, output: *mut SystemTime) -> Bool;
+        }
+        let mut file = FileTime { low: 0, high: 0 };
+        let mut system = SystemTime {
+            year: 0, month: 0, weekday: 0, day: 0, hour: 0, minute: 0, second: 0, millis: 0,
+        };
+        unsafe {
+            GetSystemTimeAsFileTime(&mut file);
+            if FileTimeToSystemTime(&file, &mut system) == 0 {
+                return "1970-01-01T00:00:00Z".into();
+            }
+        }
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            system.year, system.month, system.day, system.hour, system.minute, system.second
+        )
+    }
+
+    fn observed<T>(value: T, provider: &str, member: &str, at: &str) -> Observed<T> {
+        Observed {
+            value: Some(value),
+            state: InventoryValueState::Available,
+            confidence: InventoryConfidence::Confirmed,
+            source: Some(InventorySource {
+                provider: provider.into(),
+                member: Some(member.into()),
+                native_code: None,
+            }),
+            collected_at: at.into(),
+            note: None,
+        }
+    }
+
+    fn unavailable<T>(at: &str, note: &str) -> Observed<T> {
+        Observed {
+            value: None,
+            state: InventoryValueState::Unavailable,
+            confidence: InventoryConfidence::Unavailable,
+            source: None,
+            collected_at: at.into(),
+            note: Some(note.into()),
+        }
+    }
+
+    struct Device(Handle);
+
+    impl Device {
+        fn open(path: &str) -> Option<Self> {
+            let path = wide(path);
+            let handle = unsafe {
+                CreateFileW(
+                    path.as_ptr(),
+                    GENERIC_READ,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    ptr::null_mut(),
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    0,
+                )
+            };
+            (handle != INVALID_HANDLE_VALUE).then_some(Self(handle))
+        }
+
+        fn ioctl(&self, code: u32, output: &mut [u8]) -> Option<usize> {
+            let mut returned = 0u32;
+            let ok = unsafe {
+                DeviceIoControl(
+                    self.0,
+                    code,
+                    ptr::null_mut(),
+                    0,
+                    output.as_mut_ptr().cast(),
+                    output.len() as u32,
+                    &mut returned,
+                    ptr::null_mut(),
+                )
+            };
+            (ok != 0).then_some(returned as usize)
+        }
+    }
+
+    impl Drop for Device {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.0); }
+        }
+    }
+
+    fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
+        Some(u32::from_le_bytes(data.get(offset..offset + 4)?.try_into().ok()?))
+    }
+
+    fn read_u64(data: &[u8], offset: usize) -> Option<u64> {
+        Some(u64::from_le_bytes(data.get(offset..offset + 8)?.try_into().ok()?))
+    }
+
+    fn read_i64(data: &[u8], offset: usize) -> Option<i64> {
+        Some(i64::from_le_bytes(data.get(offset..offset + 8)?.try_into().ok()?))
+    }
+
+    fn read_wide_string(data: &[u8], offset: usize) -> Option<String> {
+        let start = *data.get(offset)? as usize;
+        if start == 0 || start >= data.len() {
+            return None;
+        }
+        let tail = &data[start..];
+        let end = tail.iter().position(|byte| *byte == 0)?;
+        let value = String::from_utf8_lossy(&tail[..end]).trim().to_string();
+        (!value.is_empty()).then_some(value)
+    }
+
+    fn bus_type(value: u32) -> StorageBusType {
+        match value {
+            1 => StorageBusType::Scsi,
+            3 => StorageBusType::Ata,
+            10 => StorageBusType::Sas,
+            11 => StorageBusType::Sata,
+            12 | 13 => StorageBusType::Sd,
+            14 => StorageBusType::Virtual,
+            15 => StorageBusType::FileBackedVirtual,
+            16 => StorageBusType::Spaces,
+            17 => StorageBusType::Nvme,
+            7 => StorageBusType::Usb,
+            _ => StorageBusType::Unknown,
+        }
+    }
+
+    fn partition_style(value: u32) -> PartitionStyle {
+        match value {
+            0 => PartitionStyle::Mbr,
+            1 => PartitionStyle::Gpt,
+            2 => PartitionStyle::Raw,
+            _ => PartitionStyle::Unknown,
+        }
+    }
+
+    fn collect_disk(
+        number: u32,
+        at: &str,
+        warnings: &mut Vec<String>,
+    ) -> Option<(PhysicalDiskInfo, Vec<PartitionInfo>)> {
+        let path = format!(r"\\.\PhysicalDrive{number}");
+        let device = match Device::open(&path) {
+            Some(device) => device,
+            None => {
+                warnings.push(format!("Não foi possível abrir o disco físico {number}; os demais dispositivos continuarão sendo coletados."));
+                return None;
+            }
+        };
+
+        let mut length_buffer = [0u8; 8];
+        let capacity = device
+            .ioctl(IOCTL_DISK_GET_LENGTH_INFO, &mut length_buffer)
+            .and_then(|_| read_i64(&length_buffer, 0))
+            .filter(|value| *value > 0)
+            .map(|value| value as u64);
+
+        let mut geometry = [0u8; 32];
+        let sector_size = device
+            .ioctl(IOCTL_DISK_GET_DRIVE_GEOMETRY, &mut geometry)
+            .and_then(|_| read_u32(&geometry, 20))
+            .filter(|value| *value > 0);
+
+        // STORAGE_PROPERTY_QUERY: PropertyId=StorageDeviceProperty, QueryType=PropertyStandardQuery.
+        let mut descriptor = vec![0u8; 4096];
+        descriptor[..8].copy_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
+        let descriptor_length = device.ioctl(IOCTL_STORAGE_QUERY_PROPERTY, &mut descriptor);
+        let descriptor_ok = descriptor_length.is_some_and(|length| length >= 36);
+        let vendor = descriptor_ok.then(|| read_wide_string(&descriptor, 12)).flatten();
+        let model = descriptor_ok.then(|| read_wide_string(&descriptor, 16)).flatten();
+        let firmware = descriptor_ok.then(|| read_wide_string(&descriptor, 20)).flatten();
+        let serial = descriptor_ok.then(|| read_wide_string(&descriptor, 24)).flatten();
+        let bus = descriptor_ok
+            .then(|| read_u32(&descriptor, 28))
+            .flatten()
+            .map(bus_type);
+        let removable = descriptor_ok.then(|| descriptor.get(10).copied().unwrap_or(0) != 0);
+        let bus_raw = descriptor_ok.then(|| read_u32(&descriptor, 28)).flatten();
+
+        let mut layout = vec![0u8; 1024 * 1024];
+        let layout_length = device.ioctl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX, &mut layout);
+        let mut partitions = Vec::new();
+        let style = layout_length
+            .filter(|length| *length >= 48)
+            .and_then(|_| read_u32(&layout, 0))
+            .map(partition_style);
+
+        if let Some(length) = layout_length.filter(|length| *length >= 48) {
+            let count = read_u32(&layout, 4).unwrap_or(0).min(4096) as usize;
+            let entry_size = 144usize;
+            for index in 0..count {
+                let offset = 48usize.saturating_add(index.saturating_mul(entry_size));
+                if offset + 32 > length {
+                    break;
+                }
+                let partition_number = read_u32(&layout, offset + 24).unwrap_or(index as u32 + 1);
+                let start = read_i64(&layout, offset + 8).filter(|value| *value >= 0).map(|v| v as u64);
+                let size = read_i64(&layout, offset + 16).filter(|value| *value > 0).map(|v| v as u64);
+                let style_value = read_u32(&layout, offset).unwrap_or(2);
+                let partition_type = match style_value {
+                    0 => layout.get(offset + 32).map(|value| format!("MBR 0x{value:02X}")),
+                    1 if offset + 48 <= length => {
+                        let guid = &layout[offset + 32..offset + 48];
+                        Some(format!(
+                            "GPT {{{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
+                            guid[3], guid[2], guid[1], guid[0], guid[5], guid[4], guid[7], guid[6],
+                            guid[8], guid[9], guid[10], guid[11], guid[12], guid[13], guid[14], guid[15]
+                        ))
+                    }
+                    _ => None,
+                };
+                let boot = if style_value == 0 {
+                    layout.get(offset + 33).map(|value| *value != 0)
+                } else {
+                    None
+                };
+                let system = partition_type.as_deref().is_some_and(|value| {
+                    value.contains("0xEF") || value.contains("C12A7328-F81F-11D2-BA4B-00A0C93EC93B")
+                });
+                let partition_id = format!("disk:{number}:partition:{partition_number}");
+                partitions.push(PartitionInfo {
+                    partition_id,
+                    disk_id: format!("disk:{number}"),
+                    partition_number: partition_number
+                        .checked_sub(0)
+                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "PartitionNumber", at))
+                        .unwrap_or_else(|| unavailable(at, "Número da partição indisponível.")),
+                    offset_bytes: start
+                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "StartingOffset", at))
+                        .unwrap_or_else(|| unavailable(at, "Offset da partição indisponível.")),
+                    size_bytes: size
+                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "PartitionLength", at))
+                        .unwrap_or_else(|| unavailable(at, "Tamanho da partição indisponível.")),
+                    partition_type: partition_type
+                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "PartitionType", at))
+                        .unwrap_or_else(|| unavailable(at, "Tipo da partição indisponível.")),
+                    is_boot: boot
+                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "BootIndicator", at))
+                        .unwrap_or_else(|| unavailable(at, "Indicador de inicialização não aplicável ou indisponível.")),
+                    is_system: observed(system, "QBoa/Windows partition layout", "system_partition_type", at),
+                });
+            }
+        } else {
+            warnings.push(format!("O Windows não forneceu o layout de partições do disco {number}."));
+        }
+
+        let bus = bus.unwrap_or(StorageBusType::Unknown);
+        let media = match bus {
+            StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => {
+                StorageMediaType::Unknown
+            }
+            _ => StorageMediaType::Unknown,
+        };
+        let disk = PhysicalDiskInfo {
+            disk_id: format!("disk:{number}"),
+            disk_number: observed(number, "DeviceIoControl(IOCTL_STORAGE_GET_DEVICE_NUMBER)", "DeviceNumber", at),
+            model: model
+                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "ProductId", at))
+                .unwrap_or_else(|| unavailable(at, "Modelo não informado pelo descritor do dispositivo.")),
+            manufacturer: vendor
+                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "VendorId", at))
+                .unwrap_or_else(|| unavailable(at, "Fabricante não informado pelo descritor do dispositivo.")),
+            serial_number: serial
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| observed(Sensitive { value, classification: SensitiveDataKind::HardwareSerial }, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "SerialNumber", at))
+                .unwrap_or_else(|| unavailable(at, "Número de série não informado pelo dispositivo.")),
+            firmware_revision: firmware
+                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "ProductRevision", at))
+                .unwrap_or_else(|| unavailable(at, "Firmware não informado pelo descritor do dispositivo.")),
+            interface_type: bus_raw
+                .map(|value| observed(format!("Windows STORAGE_BUS_TYPE ({value})"), "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "BusType", at))
+                .unwrap_or_else(|| unavailable(at, "Interface não informada pelo descritor do dispositivo.")),
+            media_type: observed(media, "Windows storage descriptor", "media_type_not_exposed", at),
+            bus_type: bus_raw
+                .map(|value| observed(bus, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "BusType", at))
+                .unwrap_or_else(|| unavailable(at, "Tipo de barramento não informado pelo dispositivo.")),
+            capacity_bytes: capacity
+                .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_LENGTH_INFO)", "Length", at))
+                .unwrap_or_else(|| unavailable(at, "Capacidade não informada pelo dispositivo.")),
+            logical_sector_bytes: sector_size
+                .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_GEOMETRY)", "BytesPerSector", at))
+                .unwrap_or_else(|| unavailable(at, "Tamanho do setor lógico indisponível.")),
+            physical_sector_bytes: unavailable(at, "A API de geometria consultada não distingue o tamanho físico do setor."),
+            is_removable: removable
+                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)", "RemovableMedia", at))
+                .unwrap_or_else(|| unavailable(at, "Indicador de mídia removível indisponível.")),
+            partition_style: style
+                .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "PartitionStyle", at))
+                .unwrap_or_else(|| unavailable(at, "Estilo de partição indisponível.")),
+        };
+        Some((disk, partitions))
+    }
+
+    fn volume_mount_paths(volume: &str) -> Vec<String> {
+        let volume_wide = wide(volume);
+        let mut buffer = vec![0u16; 32768];
+        let mut required = 0u32;
+        let ok = unsafe {
+            GetVolumePathNamesForVolumeNameW(
+                volume_wide.as_ptr(),
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                &mut required,
+            )
+        };
+        if ok == 0 && required as usize > buffer.len() {
+            buffer.resize(required as usize, 0);
+            let _ = unsafe {
+                GetVolumePathNamesForVolumeNameW(
+                    volume_wide.as_ptr(),
+                    buffer.as_mut_ptr(),
+                    buffer.len() as u32,
+                    &mut required,
+                )
+            };
+        }
+        let mut paths = Vec::new();
+        let mut start = 0usize;
+        while start < buffer.len() && buffer[start] != 0 {
+            let end = buffer[start..]
+                .iter()
+                .position(|value| *value == 0)
+                .map(|offset| start + offset)
+                .unwrap_or(buffer.len());
+            paths.push(String::from_utf16_lossy(&buffer[start..end]));
+            start = end + 1;
+        }
+        paths
+    }
+
+    fn volume_extents(device: &Device, at: &str) -> (Vec<u32>, Vec<(u32, u64, u64)>) {
+        let mut buffer = vec![0u8; 64 * 1024];
+        let Some(length) = device.ioctl(IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, &mut buffer) else {
+            return (Vec::new(), Vec::new());
+        };
+        let count = read_u32(&buffer, 0).unwrap_or(0).min(1024) as usize;
+        let mut disk_numbers = Vec::new();
+        let mut extents = Vec::new();
+        for index in 0..count {
+            let offset = 8 + index * 24;
+            if offset + 24 > length {
+                break;
+            }
+            let Some(disk) = read_u32(&buffer, offset) else { continue };
+            let start = read_i64(&buffer, offset + 8).filter(|value| *value >= 0).unwrap_or(0) as u64;
+            let size = read_i64(&buffer, offset + 16).filter(|value| *value >= 0).unwrap_or(0) as u64;
+            if !disk_numbers.contains(&disk) {
+                disk_numbers.push(disk);
+            }
+            extents.push((disk, start, size));
+        }
+        let _ = at;
+        (disk_numbers, extents)
+    }
+
+    fn collect_volumes(
+        at: &str,
+        disks: &[PhysicalDiskInfo],
+        partitions: &[PartitionInfo],
+        warnings: &mut Vec<String>,
+    ) -> Vec<VolumeInfo> {
+        let mut volumes = Vec::new();
+        let mut name_buffer = vec![0u16; 1024];
+        let search = unsafe { FindFirstVolumeW(name_buffer.as_mut_ptr(), name_buffer.len() as u32) };
+        if search == INVALID_HANDLE_VALUE {
+            warnings.push("O Windows não permitiu enumerar os volumes montados.".into());
+            return volumes;
+        }
+
+        let mut current = String::from_utf16_lossy(
+            &name_buffer[..name_buffer.iter().position(|value| *value == 0).unwrap_or(name_buffer.len())],
+        );
+        loop {
+            let paths = volume_mount_paths(&current);
+            let root = wide(&current);
+            let mut label_buffer = vec![0u16; 512];
+            let mut filesystem_buffer = vec![0u16; 128];
+            let mut serial = 0u32;
+            let mut max_component = 0u32;
+            let mut flags = 0u32;
+            let info_ok = unsafe {
+                GetVolumeInformationW(
+                    root.as_ptr(),
+                    label_buffer.as_mut_ptr(),
+                    label_buffer.len() as u32,
+                    &mut serial,
+                    &mut max_component,
+                    &mut flags,
+                    filesystem_buffer.as_mut_ptr(),
+                    filesystem_buffer.len() as u32,
+                )
+            } != 0;
+            let label = if info_ok {
+                let end = label_buffer.iter().position(|value| *value == 0).unwrap_or(label_buffer.len());
+                Some(String::from_utf16_lossy(&label_buffer[..end]))
+            } else { None };
+            let filesystem = if info_ok {
+                let end = filesystem_buffer.iter().position(|value| *value == 0).unwrap_or(filesystem_buffer.len());
+                Some(String::from_utf16_lossy(&filesystem_buffer[..end]))
+            } else { None };
+
+            let mut available = 0u64;
+            let mut capacity = 0u64;
+            let mut free = 0u64;
+            let space_ok = unsafe {
+                GetDiskFreeSpaceExW(root.as_ptr(), &mut available, &mut capacity, &mut free)
+            } != 0;
+            let mut sectors_per_cluster = 0u32;
+            let mut bytes_per_sector = 0u32;
+            let mut free_clusters = 0u32;
+            let mut total_clusters = 0u32;
+            let allocation = if unsafe {
+                GetDiskFreeSpaceW(
+                    root.as_ptr(),
+                    &mut sectors_per_cluster,
+                    &mut bytes_per_sector,
+                    &mut free_clusters,
+                    &mut total_clusters,
+                )
+            } != 0 {
+                sectors_per_cluster.checked_mul(bytes_per_sector).filter(|value| *value > 0)
+            } else { None };
+
+            let open_path = current.trim_end_matches('\\');
+            let extent_device = Device::open(open_path);
+            let (disk_numbers, extents) = extent_device
+                .as_ref()
+                .map(|device| volume_extents(device, at))
+                .unwrap_or_default();
+            let associated_disk_ids: Vec<String> = disk_numbers
+                .iter()
+                .filter(|number| disks.iter().any(|disk| disk.disk_number.value == Some(**number)))
+                .map(|number| format!("disk:{number}"))
+                .collect();
+            let mut associated_partition_ids = Vec::new();
+            for (disk_number, extent_start, extent_size) in extents {
+                let Some(extent_end) = extent_start.checked_add(extent_size) else { continue };
+                for partition in partitions.iter().filter(|partition| {
+                    partition.disk_id == format!("disk:{disk_number}")
+                }) {
+                    let (Some(start), Some(size)) = (partition.offset_bytes.value, partition.size_bytes.value) else { continue };
+                    let Some(partition_end) = start.checked_add(size) else { continue };
+                    if extent_start < partition_end && start < extent_end
+                        && !associated_partition_ids.contains(&partition.partition_id)
+                    {
+                        associated_partition_ids.push(partition.partition_id.clone());
+                    }
+                }
+            }
+
+            let drive_letter = paths.iter()
+                .find(|path| path.len() >= 2 && path.as_bytes().get(1) == Some(&b':'))
+                .map(|path| path[..2].to_string());
+            volumes.push(VolumeInfo {
+                volume_id: observed(current.clone(), "kernel32!FindFirstVolumeW", "Volume GUID path", at),
+                drive_letter: drive_letter
+                    .map(|value| observed(value, "kernel32!GetVolumePathNamesForVolumeNameW", "drive_letter", at))
+                    .unwrap_or_else(|| unavailable(at, "Volume sem letra de unidade; pode usar apenas ponto de montagem.")),
+                mount_points: paths,
+                label: label
+                    .map(|value| observed(value, "kernel32!GetVolumeInformationW", "VolumeName", at))
+                    .unwrap_or_else(|| unavailable(at, "Rótulo do volume indisponível ou volume sem sistema de arquivos reconhecido.")),
+                file_system: filesystem
+                    .map(|value| observed(value, "kernel32!GetVolumeInformationW", "FileSystemName", at))
+                    .unwrap_or_else(|| unavailable(at, "Sistema de arquivos indisponível.")),
+                capacity_bytes: space_ok
+                    .then(|| observed(capacity, "kernel32!GetDiskFreeSpaceExW", "TotalNumberOfBytes", at))
+                    .unwrap_or_else(|| unavailable(at, "Capacidade do volume indisponível.")),
+                free_bytes: space_ok
+                    .then(|| observed(free, "kernel32!GetDiskFreeSpaceExW", "TotalNumberOfFreeBytes", at))
+                    .unwrap_or_else(|| unavailable(at, "Espaço livre do volume indisponível.")),
+                allocation_unit_bytes: allocation
+                    .map(|value| observed(value, "kernel32!GetDiskFreeSpaceW", "sectors_per_cluster * bytes_per_sector", at))
+                    .unwrap_or_else(|| unavailable(at, "Unidade de alocação indisponível.")),
+                associated_disk_ids,
+                associated_partition_ids,
+            });
+
+            name_buffer.fill(0);
+            if unsafe { FindNextVolumeW(search, name_buffer.as_mut_ptr(), name_buffer.len() as u32) } == 0 {
+                break;
+            }
+            current = String::from_utf16_lossy(
+                &name_buffer[..name_buffer.iter().position(|value| *value == 0).unwrap_or(name_buffer.len())],
+            );
+        }
+        unsafe { FindVolumeClose(search); }
+        volumes
+    }
+
+    pub(super) fn collect() -> Result<CategoryCollection<StorageCategory>, String> {
+        let started = Instant::now();
+        let started_at = now_utc();
+        let mut warnings = Vec::new();
+        let mut physical_disks = Vec::new();
+        let mut partitions = Vec::new();
+
+        // A enumeração por número evita depender de letras de unidade e inclui
+        // discos USB, virtuais e sem volumes montados. Buracos não encerram a busca.
+        let mut misses = 0u32;
+        for number in 0..64u32 {
+            if let Some((disk, mut disk_partitions)) = collect_disk(number, &started_at, &mut warnings) {
+                misses = 0;
+                physical_disks.push(disk);
+                partitions.append(&mut disk_partitions);
+            } else {
+                misses += 1;
+                if number > 0 && misses >= 8 {
+                    break;
+                }
+            }
+        }
+
+        let volumes = collect_volumes(&started_at, &physical_disks, &partitions, &mut warnings);
+        if physical_disks.is_empty() {
+            warnings.push("Nenhum disco físico pôde ser enumerado; os volumes ainda foram consultados.".into());
+        }
+        let data = StorageCategory { physical_disks, partitions, volumes };
+        data.validate()?;
+
+        let finished_at = now_utc();
+        let duration_ms = started.elapsed().as_millis().max(1).min(u64::MAX as u128) as u64;
+        let collection = CategoryCollection {
+            state: InventoryValueState::Available,
+            started_at,
+            finished_at,
+            duration_ms,
+            data: Some(data),
+            issues: Vec::<InventoryIssue>::new(),
+            warnings,
+        };
+        collection.validate()?;
+        Ok(collection)
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn collect_storage_category() -> Result<CategoryCollection<StorageCategory>, String> {
+    windows::collect()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn collect_storage_category() -> Result<CategoryCollection<StorageCategory>, String> {
+    Err("O Inventário Técnico está disponível somente no Windows.".into())
+}
