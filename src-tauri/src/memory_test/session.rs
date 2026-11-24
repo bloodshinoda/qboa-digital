@@ -132,7 +132,9 @@ pub fn start<R: Runtime>(
 
             if let Ok(app_data_dir) = worker_app.path().app_data_dir() {
                 if let Err(error) = super::reports::persist_report(&app_data_dir, &report) {
-                    report.warnings.push(format!("O teste terminou, mas o laudo não pôde ser salvo: {error}"));
+                    report.warnings.push(format!(
+                        "O teste terminou, mas o laudo não pôde ser salvo: {error}"
+                    ));
                 }
             } else {
                 report.warnings.push("O teste terminou, mas a pasta de dados do QBoa não pôde ser localizada para salvar o laudo.".to_string());
