@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 const EVENT_PROGRESS: &str = "qboa-memory-test-progress";
 const EVENT_STATE: &str = "qboa-memory-test-state";
@@ -108,7 +108,7 @@ pub fn start<R: Runtime>(
     let spawn_result = std::thread::Builder::new()
         .name(format!("qboa-memory-test-{session_id}"))
         .spawn(move || {
-            let report = runner::run(config, &cancel, |progress| {
+            let mut report = runner::run(config, &cancel, |progress| {
                 let updated = {
                     let mut current = lock_registry();
                     match current.as_mut() {
@@ -129,6 +129,14 @@ pub fn start<R: Runtime>(
                     );
                 }
             });
+
+            if let Ok(app_data_dir) = worker_app.path().app_data_dir() {
+                if let Err(error) = super::reports::persist_report(&app_data_dir, &report) {
+                    report.warnings.push(format!("O teste terminou, mas o laudo não pôde ser salvo: {error}"));
+                }
+            } else {
+                report.warnings.push("O teste terminou, mas a pasta de dados do QBoa não pôde ser localizada para salvar o laudo.".to_string());
+            }
 
             let finished = {
                 let mut current = lock_registry();
