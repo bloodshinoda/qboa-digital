@@ -23,6 +23,10 @@ fn safe_report_id(id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
+pub(crate) fn should_persist_report(report: &super::runner::MemoryTestReport) -> bool {
+    report.memory_tested_bytes > 0
+}
+
 pub(crate) fn persist_report(
     app_data_dir: &Path,
     report: &super::runner::MemoryTestReport,
@@ -112,7 +116,11 @@ pub(crate) fn load_reports(app_data_dir: &Path) -> Result<Vec<Value>, String> {
             .and_then(Value::as_str)
             .unwrap_or("");
         let schema = report.get("schema_version").and_then(Value::as_u64);
-        if !safe_report_id(id) || schema != Some(SCHEMA_VERSION as u64) {
+        let tested_bytes = report
+            .get("memory_tested_bytes")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if !safe_report_id(id) || schema != Some(SCHEMA_VERSION as u64) || tested_bytes == 0 {
             continue;
         }
         reports.push(report);
@@ -178,6 +186,37 @@ mod tests {
             .starts_with("memory-"));
 
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn does_not_persist_reports_without_tested_bytes() {
+        let mut report = super::super::runner::MemoryTestReport {
+            schema_version: 1,
+            engine_version: "test".to_string(),
+            profile: super::super::runner::MemoryTestProfile::Fast,
+            status: super::super::runner::MemoryTestStatus::Inconclusive,
+            stop_reason: super::super::runner::StopReason::MemoryPressure,
+            started_at: "start".to_string(),
+            finished_at: "end".to_string(),
+            duration_ms: 0,
+            memory_budget_bytes: 1024,
+            memory_tested_bytes: 0,
+            block_size_preferred_bytes: 128,
+            largest_block_allocated_bytes: 0,
+            blocks_completed: 0,
+            passes_planned: 1,
+            passes_completed: 0,
+            algorithms_planned: vec!["A01".to_string()],
+            algorithms_executed: Vec::new(),
+            a04_seeds: Vec::new(),
+            mismatches_total: 0,
+            mismatches: Vec::new(),
+            coverage_description: "Nenhuma memória foi testada".to_string(),
+            warnings: Vec::new(),
+        };
+        assert!(!should_persist_report(&report));
+        report.memory_tested_bytes = 1;
+        assert!(should_persist_report(&report));
     }
 
     #[test]
