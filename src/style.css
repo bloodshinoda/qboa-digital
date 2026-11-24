@@ -1463,3 +1463,56 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 @media(prefers-reduced-motion:reduce) {
   .storage-live-benchmark,.storage-live-line { transition:none; }
 }
+
+
+/* Varredura explícita enquanto o QBoa enumera discos e volumes. */
+.storage-scan-indicator {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:12px 14px;
+  border:1px solid rgba(74, 169, 255, .28);
+  border-radius:10px;
+  background:rgba(35, 113, 170, .10);
+  color:#e6f4ff;
+}
+.storage-scan-indicator[hidden] { display:none !important; }
+.storage-scan-indicator > span:last-child { display:grid; gap:3px; }
+.storage-scan-indicator small { color:rgba(230,244,255,.72); font-size:.8rem; }
+.storage-scan-icon {
+  position:relative;
+  display:block;
+  flex:0 0 30px;
+  width:30px;
+  height:30px;
+  border:2px solid rgba(105,190,255,.48);
+  border-radius:50%;
+  background:radial-gradient(circle at center, rgba(105,190,255,.22) 0 3px, transparent 4px);
+  overflow:hidden;
+}
+.storage-scan-icon::before {
+  content:"";
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:50%;
+  height:2px;
+  transform-origin:left center;
+  background:linear-gradient(90deg, #7bc7ff, transparent);
+  box-shadow:0 0 8px #58b8ff;
+  animation:storage-scan-sweep 1.5s linear infinite;
+}
+.storage-scan-icon::after {
+  content:"";
+  position:absolute;
+  inset:4px;
+  border:1px solid rgba(105,190,255,.22);
+  border-radius:50%;
+}
+@keyframes storage-scan-sweep { to { transform:rotate(360deg); } }
+.memory-saved-reports { margin-top:16px; }
+.memory-saved-reports h3 { margin:0 0 9px; font-size:1rem; }
+.memory-saved-reports .diagnostic-history-list { max-height:220px; overflow:auto; }
+@media (prefers-reduced-motion: reduce) {
+  .storage-scan-icon::before { animation:none; }
+}
