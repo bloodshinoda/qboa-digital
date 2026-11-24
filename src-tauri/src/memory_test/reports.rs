@@ -139,6 +139,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn persists_and_loads_memory_reports() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("qboa-memory-reports-{unique}"));
+        let report = super::super::runner::MemoryTestReport {
+            schema_version: 1,
+            engine_version: "test".to_string(),
+            profile: super::super::runner::MemoryTestProfile::Fast,
+            status: super::super::runner::MemoryTestStatus::Passed,
+            stop_reason: super::super::runner::StopReason::Completed,
+            started_at: "2026-11-24T10:00:00Z".to_string(),
+            finished_at: "2026-11-24T10:00:01Z".to_string(),
+            duration_ms: 1000,
+            memory_budget_bytes: 256,
+            memory_tested_bytes: 256,
+            block_size_preferred_bytes: 128,
+            largest_block_allocated_bytes: 128,
+            blocks_completed: 2,
+            passes_planned: 1,
+            passes_completed: 1,
+            algorithms_planned: vec!["A01".to_string()],
+            algorithms_executed: vec!["A01".to_string()],
+            a04_seeds: Vec::new(),
+            mismatches_total: 0,
+            mismatches: Vec::new(),
+            coverage_description: "Cobertura de teste".to_string(),
+            warnings: Vec::new(),
+        };
+
+        persist_report(&directory, &report).unwrap();
+        let stored = load_reports(&directory).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0]["profile"], "fast");
+        assert_eq!(stored[0]["status"], "passed");
+        assert!(stored[0]["report_id"].as_str().unwrap().starts_with("memory-"));
+
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
     fn report_ids_reject_path_traversal() {
         assert!(safe_report_id("memory-1234_abcd"));
         assert!(!safe_report_id("../memory-report"));
