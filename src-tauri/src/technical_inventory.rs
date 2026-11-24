@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1726,10 +1726,21 @@ mod tests {
     #[test]
     fn storage_accepts_virtual_usb_and_spaces_bus_types() {
         for bus in [
+            StorageBusType::Atapi,
             StorageBusType::Virtual,
             StorageBusType::FileBackedVirtual,
             StorageBusType::Spaces,
             StorageBusType::Usb,
+            StorageBusType::Sd,
+            StorageBusType::Mmc,
+            StorageBusType::Raid,
+            StorageBusType::Iscsi,
+            StorageBusType::Fibre,
+            StorageBusType::Ieee1394,
+            StorageBusType::Ssa,
+            StorageBusType::Scm,
+            StorageBusType::Ufs,
+            StorageBusType::NvmeOf,
         ] {
             let mut storage = storage_fixture();
             storage.physical_disks[0].bus_type = cpu_available(bus);
