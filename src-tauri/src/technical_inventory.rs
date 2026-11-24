@@ -772,6 +772,7 @@ impl StorageCategory {
             disk.device_kind.validate()?;
             disk.bus_type.validate()?;
             disk.interface_generation.validate()?;
+            disk.interface_max_generation.validate()?;
             disk.protocol_version.validate()?;
             disk.seek_penalty.validate()?;
             disk.trim_supported.validate()?;
@@ -915,6 +916,8 @@ pub struct PhysicalDiskInfo {
     /// Geração da interface efetivamente negociada, quando o dispositivo a expõe.
     /// Exemplos: SATA Gen3 (6 Gb/s), PCIe Gen4 x4. Não confundir com versão do protocolo.
     pub interface_generation: Observed<String>,
+    /// Capacidade máxima de interface anunciada pelo dispositivo/link, distinta da velocidade atual.
+    pub interface_max_generation: Observed<String>,
     /// Revisão do protocolo reportada pelo próprio dispositivo, por exemplo NVMe 2.0.
     pub protocol_version: Observed<String>,
     pub seek_penalty: Observed<bool>,
@@ -1633,7 +1636,8 @@ mod tests {
                 media_type: cpu_available(StorageMediaType::Ssd),
                 device_kind: cpu_available(StorageDeviceKind::SolidStateDrive),
                 bus_type: cpu_available(StorageBusType::Nvme),
-                interface_generation: cpu_available("PCIe Gen4 x4".into()),
+                interface_generation: cpu_available("PCIe Gen4 x4 (16.0 GT/s)".into()),
+                interface_max_generation: cpu_available("PCIe Gen4 x4 (16.0 GT/s)".into()),
                 protocol_version: cpu_available("NVMe 2.0".into()),
                 seek_penalty: cpu_available(false),
                 trim_supported: cpu_available(true),
