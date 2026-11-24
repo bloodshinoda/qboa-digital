@@ -2926,6 +2926,15 @@ async fn start_memory_test(
 }
 
 #[tauri::command]
+fn get_memory_diagnostic_reports(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar a pasta de dados do QBoa: {error}"))?;
+    memory_test::reports::load_reports(&app_data_dir)
+}
+
+#[tauri::command]
 fn get_memory_test_session() -> Option<memory_test::session::MemoryTestSessionSnapshot> {
     memory_test::session::get_session()
 }
@@ -3572,6 +3581,7 @@ fn main() {
             get_storage_diagnostic_reports,
             start_memory_test,
             get_memory_test_session,
+            get_memory_diagnostic_reports,
             cancel_memory_test,
             get_memory_inventory,
             get_cpu_inventory,
