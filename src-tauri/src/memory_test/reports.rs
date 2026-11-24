@@ -44,10 +44,7 @@ pub(crate) fn persist_report(
     if !safe_report_id(&report_id) {
         return Err("Não foi possível gerar o identificador do laudo de memória.".into());
     }
-    object.insert(
-        "schema_version".into(),
-        serde_json::json!(SCHEMA_VERSION),
-    );
+    object.insert("schema_version".into(), serde_json::json!(SCHEMA_VERSION));
     object.insert("report_id".into(), serde_json::json!(report_id));
     let report_id = object
         .get("report_id")
@@ -175,7 +172,10 @@ mod tests {
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0]["profile"], "fast");
         assert_eq!(stored[0]["status"], "passed");
-        assert!(stored[0]["report_id"].as_str().unwrap().starts_with("memory-"));
+        assert!(stored[0]["report_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("memory-"));
 
         let _ = fs::remove_dir_all(directory);
     }
