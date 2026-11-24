@@ -239,6 +239,27 @@ mod windows {
         }
     }
 
+    fn estimated<T>(
+        value: T,
+        provider: &str,
+        member: &str,
+        at: &str,
+        note: &str,
+    ) -> Observed<T> {
+        Observed {
+            value: Some(value),
+            state: InventoryValueState::Available,
+            confidence: InventoryConfidence::Estimated,
+            source: Some(InventorySource {
+                provider: provider.into(),
+                member: Some(member.into()),
+                native_code: None,
+            }),
+            collected_at: at.into(),
+            note: Some(note.into()),
+        }
+    }
+
     struct Device(Handle);
 
     impl Device {
@@ -712,6 +733,7 @@ mod windows {
         let bus_raw = descriptor_data.and_then(|data| read_u32(data, 28));
         let bus = bus_raw.map(bus_type);
         let removable = descriptor_data.map(|data| data.get(10).copied().unwrap_or(0) != 0);
+        let scsi_device_type = descriptor_data.and_then(|data| data.get(8).copied());
 
         let ata_identify = if matches!(bus.as_ref(), Some(StorageBusType::Ata | StorageBusType::Sata)) {
             protocol_specific_data(&device, 2, 0, 512)
@@ -861,17 +883,38 @@ mod windows {
 
         // A penalidade de busca é uma evidência de mídia magnética vs. flash,
         // mas não substitui a identificação específica do protocolo.
-        let media = match seek_penalty {
-            Some(true) => StorageMediaType::Hdd,
-            Some(false) => StorageMediaType::Ssd,
-            None => match ata_rotation {
-                Some(1) => StorageMediaType::Ssd,
-                Some(value) if (0x0401..=0xfffe).contains(&value) => StorageMediaType::Hdd,
-                _ => StorageMediaType::Unknown,
-            },
+        let media = if scsi_device_type == Some(5) {
+            StorageMediaType::Unknown
+        } else {
+            match seek_penalty {
+                Some(true) => StorageMediaType::Hdd,
+                Some(false) => StorageMediaType::Ssd,
+                None => match ata_rotation {
+                    Some(1) => StorageMediaType::Ssd,
+                    Some(value) if (0x0401..=0xfffe).contains(&value) => StorageMediaType::Hdd,
+                    _ => StorageMediaType::Unknown,
+                },
+            }
         };
 
-        let device_kind = match &bus {
+        let identity_hint = format!(
+            "{} {}",
+            model.as_deref().unwrap_or_default(),
+            vendor.as_deref().unwrap_or_default()
+        )
+        .to_ascii_lowercase();
+        let usb_flash_hint = bus == Some(StorageBusType::Usb)
+            && removable == Some(true)
+            && ["flash", "thumb", "pendrive", "pen drive", "datatraveler", "cruzer", "jetflash", "usb disk"]
+                .iter()
+                .any(|hint| identity_hint.contains(hint));
+
+        let device_kind = if scsi_device_type == Some(5) {
+            StorageDeviceKind::OpticalDrive
+        } else if usb_flash_hint {
+            StorageDeviceKind::UsbFlashDrive
+        } else {
+            match &bus {
             StorageBusType::Sd | StorageBusType::Mmc => StorageDeviceKind::MemoryCard,
             StorageBusType::Virtual | StorageBusType::FileBackedVirtual => StorageDeviceKind::VirtualDisk,
             StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
@@ -891,11 +934,30 @@ mod windows {
                     }
                 }
             }
+            StorageBusType::Iscsi | StorageBusType::Fibre => StorageDeviceKind::NetworkDisk,
             _ => match &media {
                 StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
                 StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
                 _ => StorageDeviceKind::Unknown,
             },
+            }
+        };
+
+        let device_kind_observed = if usb_flash_hint {
+            estimated(
+                device_kind,
+                "QBoa/storage descriptor heuristic",
+                "removable USB flash product identity",
+                at,
+                "Classificação estimada por barramento USB, mídia removível e identificador comercial; leitores de cartão e dispositivos híbridos podem exigir confirmação.",
+            )
+        } else {
+            observed(
+                device_kind,
+                "QBoa/storage bus + media classification",
+                "device_kind",
+                at,
+            )
         };
 
         let disk = PhysicalDiskInfo {
@@ -979,16 +1041,18 @@ mod windows {
                 .unwrap_or_else(|| {
                     unavailable(at, "Interface não informada pelo descritor do dispositivo.")
                 }),
-            media_type: if seek_penalty.is_some() || matches!(ata_rotation, Some(1..=65534)) {
+            media_type: if scsi_device_type == Some(5) {
+                unavailable(at, "Unidade óptica não possui classificação de mídia HDD/SSD.")
+            } else if seek_penalty.is_some() || matches!(ata_rotation, Some(1..=65534)) {
                 observed(media, "IOCTL_STORAGE_QUERY_PROPERTY / ATA IDENTIFY DEVICE", "seek_penalty / nominal_media_rotation_rate", at)
             } else {
                 unavailable(at, "Tipo de mídia não pôde ser determinado pelas propriedades disponíveis.")
             },
-            device_kind: observed(device_kind, "QBoa/storage bus + media classification", "device_kind", at),
+            device_kind: device_kind_observed,
             bus_type: bus_raw
                 .map(|value| {
                     observed(
-                        bus,
+                        bus.clone(),
                         "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)",
                         "BusType",
                         at,
