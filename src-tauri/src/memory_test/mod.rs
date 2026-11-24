@@ -6,4 +6,5 @@
 
 pub mod algorithms;
 pub mod runner;
+pub mod reports;
 pub mod session;
