@@ -1509,7 +1509,6 @@ mod tests {
         assert!(motherboard.validate().is_err());
     }
 
-    #[test]
     fn storage_fixture() -> StorageCategory {
         StorageCategory {
             physical_disks: vec![PhysicalDiskInfo {
