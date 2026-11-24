@@ -364,22 +364,101 @@ mod windows {
                 "msft",
                 "unknown",
                 "n/a",
+                "ata",
+                "scsi",
+                "nvme",
+                "usb",
+                "raid",
             ]
             .iter()
             .any(|generic| normalized == *generic || normalized.contains(generic))
     }
 
-    // STORAGE_DEVICE_DESCRIPTOR armazena offsets ANSI como ULONG (u32), não
-    // como bytes isolados. Os offsets apontam para strings terminadas em NUL.
-    fn read_ansi_string(data: &[u8], offset_field: usize) -> Option<String> {
-        let start = read_u32(data, offset_field)? as usize;
-        if start == 0 || start >= data.len() {
-            return None;
+    const STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE: usize = 36;
+
+    // STORAGE_DEVICE_DESCRIPTOR declara o tamanho da estrutura (Version) e o
+    // tamanho total, incluindo strings (Size). Nunca interpretamos bytes além
+    // do menor limite confirmado pelo Windows e pelo buffer recebido.
+    fn validate_storage_device_descriptor(
+        buffer: &[u8],
+        returned: usize,
+    ) -> Result<&[u8], String> {
+        let available = returned.min(buffer.len());
+        if available < STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE {
+            return Err(format!(
+                "cabeçalho truncado: retornado={available}, mínimo={STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE}"
+            ));
         }
+
+        let version = read_u32(buffer, 0)
+            .ok_or_else(|| "campo Version ausente no cabeçalho".to_string())?;
+        let size = read_u32(buffer, 4)
+            .ok_or_else(|| "campo Size ausente no cabeçalho".to_string())?;
+
+        if version < STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32 {
+            return Err(format!(
+                "Version inválido: {version} (mínimo={STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE})"
+            ));
+        }
+        if size < version {
+            return Err(format!("Size inconsistente: {size} menor que Version={version}"));
+        }
+        if size as usize > available {
+            return Err(format!(
+                "descritor truncado: Version={version}, Size declarado={size}, bytes retornados={available}"
+            ));
+        }
+
+        Ok(&buffer[..size as usize])
+    }
+
+    // Os offsets de STORAGE_DEVICE_DESCRIPTOR são ULONG (u32), relativos ao
+    // início da estrutura. Zero significa campo ausente; offsets fora da área
+    // de strings ou sem terminador NUL são inconsistências, não ausência normal.
+    fn read_ansi_string(data: &[u8], offset_field: usize) -> Result<Option<String>, String> {
+        let start = read_u32(data, offset_field)
+            .ok_or_else(|| format!("campo de offset em {offset_field} está truncado"))?
+            as usize;
+        if start == 0 {
+            return Ok(None);
+        }
+        if start < STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE {
+            return Err(format!(
+                "offset {start} aponta para dentro do cabeçalho (mínimo={STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE})"
+            ));
+        }
+        if start >= data.len() {
+            return Err(format!(
+                "offset {start} ultrapassa o tamanho validado do descritor ({})",
+                data.len()
+            ));
+        }
+
         let tail = &data[start..];
-        let end = tail.iter().position(|byte| *byte == 0)?;
+        let end = tail
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or_else(|| format!("string no offset {start} não termina em NUL"))?;
         let value = String::from_utf8_lossy(&tail[..end]).trim().to_string();
-        (!value.is_empty()).then_some(value)
+        Ok((!value.is_empty()).then_some(value))
+    }
+
+    fn read_descriptor_string(
+        data: &[u8],
+        offset_field: usize,
+        field_name: &str,
+        disk_number: u32,
+        warnings: &mut Vec<String>,
+    ) -> Option<String> {
+        match read_ansi_string(data, offset_field) {
+            Ok(value) => value,
+            Err(reason) => {
+                warnings.push(format!(
+                    "Descritor de armazenamento do disco {disk_number}: {field_name} inválido ({reason})."
+                ));
+                None
+            }
+        }
     }
 
     fn bus_type(value: u32) -> StorageBusType {
@@ -789,30 +868,47 @@ mod windows {
                 None
             }
         };
-        let descriptor_data = descriptor_length.map(|length| &descriptor[..length]);
+        let descriptor_data = descriptor_length.and_then(|length| {
+            match validate_storage_device_descriptor(&descriptor, length) {
+                Ok(data) => Some(data),
+                Err(reason) => {
+                    let version = read_u32(&descriptor, 0);
+                    let size = read_u32(&descriptor, 4);
+                    warnings.push(format!(
+                        "Descritor de armazenamento do disco {number} inválido: {reason} (Version={version:?}, Size={size:?}, bytes retornados={length})."
+                    ));
+                    None
+                }
+            }
+        });
         let descriptor_size = descriptor_data.and_then(|data| read_u32(data, 4));
         let descriptor_version = descriptor_data.and_then(|data| read_u32(data, 0));
-        let descriptor_ok = descriptor_data.is_some()
-            && descriptor_version.is_some_and(|value| value >= 36)
-            && descriptor_size.is_some_and(|value| value >= 36);
-        if descriptor_data.is_some() && !descriptor_ok {
-            warnings.push(format!(
-                "Descritor de armazenamento do disco {number} possui cabeçalho inválido (Version={:?}, Size={:?}, retornado={:?}).",
-                descriptor_version, descriptor_size, descriptor_length
-            ));
-        }
-        let descriptor_data = descriptor_data.filter(|_| descriptor_ok);
-        let vendor = descriptor_data
-            .and_then(|data| read_ansi_string(data, 12))
+        let descriptor_vendor = descriptor_data.and_then(|data| {
+            read_descriptor_string(data, 12, "VendorIdOffset", number, warnings)
+        });
+        let model = descriptor_data.and_then(|data| {
+            read_descriptor_string(data, 16, "ProductIdOffset", number, warnings)
+        });
+        let firmware = descriptor_data.and_then(|data| {
+            read_descriptor_string(data, 20, "ProductRevisionOffset", number, warnings)
+        });
+        let serial = descriptor_data.and_then(|data| {
+            read_descriptor_string(data, 24, "SerialNumberOffset", number, warnings)
+        });
+        let vendor = descriptor_vendor
+            .clone()
             .filter(|value| !is_generic_manufacturer(value))
             .or_else(|| {
                 pnp.manufacturer
                     .clone()
                     .filter(|value| !is_generic_manufacturer(value))
             });
-        let model = descriptor_data.and_then(|data| read_ansi_string(data, 16));
-        let firmware = descriptor_data.and_then(|data| read_ansi_string(data, 20));
-        let serial = descriptor_data.and_then(|data| read_ansi_string(data, 24));
+        let manufacturer_note = format!(
+            "Fabricante não informado por uma fonte confiável (VendorIdOffset={:?}, VendorId={:?}, DEVPKEY_Device_Manufacturer={:?}).",
+            descriptor_data.and_then(|data| read_u32(data, 12)),
+            descriptor_vendor,
+            pnp.manufacturer
+        );
         let bus_raw = descriptor_data.and_then(|data| read_u32(data, 28));
         let bus = bus_raw.map(bus_type);
         let removable = descriptor_data.map(|data| data.get(10).copied().unwrap_or(0) != 0);
@@ -1162,12 +1258,7 @@ mod windows {
                         at,
                     )
                 })
-                .unwrap_or_else(|| {
-                    unavailable(
-                        at,
-                        "Fabricante não informado pelo descritor do dispositivo.",
-                    )
-                }),
+                .unwrap_or_else(|| unavailable(at, &manufacturer_note)),
             serial_number: serial
                 .filter(|value| !value.trim().is_empty())
                 .map(|value| {
@@ -1632,6 +1723,65 @@ mod windows {
             FindVolumeClose(search);
         }
         volumes
+    }
+
+    #[cfg(test)]
+    mod storage_device_descriptor_tests {
+        use super::*;
+
+        fn descriptor_fixture(value: Option<&[u8]>) -> Vec<u8> {
+            let payload = value.unwrap_or_default();
+            let size = STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE + payload.len();
+            let mut data = vec![0u8; size];
+            data[0..4].copy_from_slice(&(STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32).to_le_bytes());
+            data[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+            if value.is_some() {
+                data[12..16]
+                    .copy_from_slice(&(STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32).to_le_bytes());
+                data[STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE..].copy_from_slice(payload);
+            }
+            data
+        }
+
+        #[test]
+        fn accepts_complete_descriptor_and_reads_ansi_vendor() {
+            let data = descriptor_fixture(Some(b"Kingston\\0"));
+            let validated = validate_storage_device_descriptor(&data, data.len()).unwrap();
+            assert_eq!(
+                read_ansi_string(validated, 12).unwrap().as_deref(),
+                Some("Kingston")
+            );
+        }
+
+        #[test]
+        fn rejects_declared_size_larger_than_returned_bytes() {
+            let mut data = descriptor_fixture(Some(b"Kingston\\0"));
+            let declared = (data.len() + 8) as u32;
+            data[4..8].copy_from_slice(&declared.to_le_bytes());
+            assert!(validate_storage_device_descriptor(&data, data.len()).is_err());
+        }
+
+        #[test]
+        fn rejects_string_offset_inside_header() {
+            let mut data = descriptor_fixture(Some(b"Kingston\\0"));
+            data[12..16].copy_from_slice(&35u32.to_le_bytes());
+            let validated = validate_storage_device_descriptor(&data, data.len()).unwrap();
+            assert!(read_ansi_string(validated, 12).is_err());
+        }
+
+        #[test]
+        fn rejects_unterminated_string() {
+            let mut data = descriptor_fixture(Some(b"Kingston"));
+            let validated = validate_storage_device_descriptor(&data, data.len()).unwrap();
+            assert!(read_ansi_string(validated, 12).is_err());
+        }
+
+        #[test]
+        fn treats_zero_offset_as_absent() {
+            let data = descriptor_fixture(None);
+            let validated = validate_storage_device_descriptor(&data, data.len()).unwrap();
+            assert_eq!(read_ansi_string(validated, 12).unwrap(), None);
+        }
     }
 
     pub(super) fn collect() -> Result<CategoryCollection<StorageCategory>, String> {
