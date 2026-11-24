@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -320,6 +320,11 @@ impl TechnicalInventory {
         self.categories.memory.validate()?;
         self.categories.gpu.validate()?;
         self.categories.storage.validate()?;
+        if self.categories.storage.state == InventoryValueState::Available {
+            self.categories.storage.data.as_ref()
+                .ok_or_else(|| "categoria Armazenamento available exige data".to_string())?
+                .validate()?;
+        }
         self.categories.displays.validate()?;
         self.categories.network.validate()?;
         self.categories.audio_peripherals.validate()?;
@@ -740,29 +745,158 @@ pub struct GraphicsApiInfo {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct StorageCategory {
     pub physical_disks: Vec<PhysicalDiskInfo>,
+    pub partitions: Vec<PartitionInfo>,
     pub volumes: Vec<VolumeInfo>,
 }
+
+impl StorageCategory {
+    pub fn validate(&self) -> Result<(), String> {
+        use std::collections::HashSet;
+        let mut disk_ids = HashSet::new();
+        for (index, disk) in self.physical_disks.iter().enumerate() {
+            if disk.disk_id.trim().is_empty() || !disk_ids.insert(disk.disk_id.as_str()) {
+                return Err(format!("physical_disks[{index}] possui disk_id vazio ou duplicado"));
+            }
+            disk.disk_number.validate()?;
+            disk.model.validate()?;
+            disk.manufacturer.validate()?;
+            disk.serial_number.validate()?;
+            disk.firmware_revision.validate()?;
+            disk.interface_type.validate()?;
+            disk.media_type.validate()?;
+            disk.bus_type.validate()?;
+            disk.capacity_bytes.validate()?;
+            disk.logical_sector_bytes.validate()?;
+            disk.physical_sector_bytes.validate()?;
+            disk.is_removable.validate()?;
+            disk.partition_style.validate()?;
+            if disk.capacity_bytes.value == Some(0)
+                || disk.logical_sector_bytes.value == Some(0)
+                || disk.physical_sector_bytes.value == Some(0) {
+                return Err(format!("physical_disks[{index}] possui capacidade ou setor igual a zero"));
+            }
+        }
+
+        let mut partition_ids = HashSet::new();
+        for (index, partition) in self.partitions.iter().enumerate() {
+            if partition.partition_id.trim().is_empty()
+                || !partition_ids.insert(partition.partition_id.as_str()) {
+                return Err(format!("partitions[{index}] possui partition_id vazio ou duplicado"));
+            }
+            if !disk_ids.contains(partition.disk_id.as_str()) {
+                return Err(format!("partitions[{index}] referencia disco inexistente: {}", partition.disk_id));
+            }
+            partition.partition_number.validate()?;
+            partition.offset_bytes.validate()?;
+            partition.size_bytes.validate()?;
+            partition.partition_type.validate()?;
+            partition.is_boot.validate()?;
+            partition.is_system.validate()?;
+            if partition.size_bytes.value == Some(0) {
+                return Err(format!("partitions[{index}].size_bytes deve ser maior que zero"));
+            }
+            if let (Some(offset), Some(size)) = (partition.offset_bytes.value, partition.size_bytes.value) {
+                let end = offset.checked_add(size)
+                    .ok_or_else(|| format!("partitions[{index}] excede o limite numérico"))?;
+                let disk = self.physical_disks.iter().find(|disk| disk.disk_id == partition.disk_id)
+                    .expect("referência de disco validada");
+                if disk.capacity_bytes.value.is_some_and(|capacity| end > capacity) {
+                    return Err(format!("partitions[{index}] ultrapassa a capacidade do disco"));
+                }
+            }
+        }
+
+        let mut volume_ids = HashSet::new();
+        for (index, volume) in self.volumes.iter().enumerate() {
+            volume.volume_id.validate()?;
+            volume.drive_letter.validate()?;
+            volume.label.validate()?;
+            volume.file_system.validate()?;
+            volume.capacity_bytes.validate()?;
+            volume.free_bytes.validate()?;
+            volume.allocation_unit_bytes.validate()?;
+            let id = volume.volume_id.value.as_deref()
+                .ok_or_else(|| format!("volumes[{index}].volume_id precisa estar disponível"))?;
+            if id.trim().is_empty() || !volume_ids.insert(id) {
+                return Err(format!("volumes[{index}] possui volume_id vazio ou duplicado"));
+            }
+            if let (Some(capacity), Some(free)) = (volume.capacity_bytes.value, volume.free_bytes.value) {
+                if free > capacity {
+                    return Err(format!("volumes[{index}].free_bytes supera capacity_bytes"));
+                }
+            }
+            if volume.allocation_unit_bytes.value == Some(0) {
+                return Err(format!("volumes[{index}].allocation_unit_bytes deve ser maior que zero"));
+            }
+            let mut associated_disks = HashSet::new();
+            for disk_id in &volume.associated_disk_ids {
+                if !disk_ids.contains(disk_id.as_str()) || !associated_disks.insert(disk_id) {
+                    return Err(format!("volumes[{index}] possui disco inexistente ou referência duplicada: {disk_id}"));
+                }
+            }
+            let mut associated_partitions = HashSet::new();
+            for partition_id in &volume.associated_partition_ids {
+                if !partition_ids.contains(partition_id.as_str()) || !associated_partitions.insert(partition_id) {
+                    return Err(format!("volumes[{index}] possui partição inexistente ou referência duplicada: {partition_id}"));
+                }
+                let partition = self.partitions.iter().find(|item| item.partition_id == *partition_id)
+                    .expect("referência de partição validada");
+                if !volume.associated_disk_ids.contains(&partition.disk_id) {
+                    return Err(format!("volumes[{index}] não associa o disco da partição {partition_id}"));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct PhysicalDiskInfo {
+    /// Identificador válido somente dentro desta coleta.
+    pub disk_id: String,
+    pub disk_number: Observed<u32>,
     pub model: Observed<String>,
     pub manufacturer: Observed<String>,
     pub serial_number: Observed<Sensitive<String>>,
     pub firmware_revision: Observed<String>,
     pub interface_type: Observed<String>,
     pub media_type: Observed<StorageMediaType>,
-    pub bus_type: Observed<String>,
+    pub bus_type: Observed<StorageBusType>,
     pub capacity_bytes: Observed<u64>,
     pub logical_sector_bytes: Observed<u32>,
     pub physical_sector_bytes: Observed<u32>,
+    pub is_removable: Observed<bool>,
+    pub partition_style: Observed<PartitionStyle>,
 }
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum StorageMediaType {
-    Hdd,
-    Ssd,
-    Scm,
-    Unknown,
+pub enum StorageMediaType { Hdd, Ssd, Scm, Unknown }
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageBusType {
+    Ata, Sata, Nvme, Scsi, Sas, Usb, Sd, Virtual, FileBackedVirtual, Spaces, Unknown,
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PartitionStyle { Gpt, Mbr, Raw, Unknown }
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PartitionInfo {
+    /// Identificador único dentro desta coleta.
+    pub partition_id: String,
+    pub disk_id: String,
+    pub partition_number: Observed<u32>,
+    pub offset_bytes: Observed<u64>,
+    pub size_bytes: Observed<u64>,
+    /// Preserva GUID ou tipo original informado pelo Windows.
+    pub partition_type: Observed<String>,
+    pub is_boot: Observed<bool>,
+    pub is_system: Observed<bool>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct VolumeInfo {
     pub volume_id: Observed<String>,
@@ -772,7 +906,9 @@ pub struct VolumeInfo {
     pub file_system: Observed<String>,
     pub capacity_bytes: Observed<u64>,
     pub free_bytes: Observed<u64>,
+    pub allocation_unit_bytes: Observed<u32>,
     pub associated_disk_ids: Vec<String>,
+    pub associated_partition_ids: Vec<String>,
 }
 
 // Categoria 7 — monitores
@@ -1371,6 +1507,110 @@ mod tests {
             InventoryConfidence::Unavailable,
         );
         assert!(motherboard.validate().is_err());
+    }
+
+    #[test]
+    fn storage_fixture() -> StorageCategory {
+        StorageCategory {
+            physical_disks: vec![PhysicalDiskInfo {
+                disk_id: "disk-0".into(),
+                disk_number: cpu_available(0),
+                model: cpu_available("NVMe Example 1TB".into()),
+                manufacturer: cpu_available("Example".into()),
+                serial_number: observed(Some(Sensitive {
+                    value: "SERIAL-001".into(),
+                    classification: SensitiveDataKind::HardwareSerial,
+                }), InventoryValueState::Available, InventoryConfidence::Confirmed),
+                firmware_revision: cpu_available("1.2.3".into()),
+                interface_type: cpu_available("PCIe".into()),
+                media_type: cpu_available(StorageMediaType::Ssd),
+                bus_type: cpu_available(StorageBusType::Nvme),
+                capacity_bytes: cpu_available(1_000_000_000_000),
+                logical_sector_bytes: cpu_available(512),
+                physical_sector_bytes: cpu_available(4096),
+                is_removable: cpu_available(false),
+                partition_style: cpu_available(PartitionStyle::Gpt),
+            }],
+            partitions: vec![PartitionInfo {
+                partition_id: "disk-0-part-1".into(),
+                disk_id: "disk-0".into(),
+                partition_number: cpu_available(1),
+                offset_bytes: cpu_available(1_048_576),
+                size_bytes: cpu_available(500_000_000_000),
+                partition_type: cpu_available("EBD0A0A2-B9E5-4433-87C0-68B6B72699C7".into()),
+                is_boot: cpu_available(false),
+                is_system: cpu_available(false),
+            }],
+            volumes: vec![VolumeInfo {
+                volume_id: cpu_available(r"\\?\Volume{00000000-0000-0000-0000-000000000001}\\".into()),
+                drive_letter: cpu_available("C:".into()),
+                mount_points: vec!["C:\\".into()],
+                label: cpu_available("Windows".into()),
+                file_system: cpu_available("NTFS".into()),
+                capacity_bytes: cpu_available(499_000_000_000),
+                free_bytes: cpu_available(200_000_000_000),
+                allocation_unit_bytes: cpu_available(4096),
+                associated_disk_ids: vec!["disk-0".into()],
+                associated_partition_ids: vec!["disk-0-part-1".into()],
+            }],
+        }
+    }
+
+    #[test]
+    fn storage_serializes_round_trips_and_preserves_relationships() {
+        let storage = storage_fixture();
+        storage.validate().unwrap();
+        let json = serde_json::to_string(&storage).unwrap();
+        assert!(json.contains("\\"bus_type\\":{\\"value\\":\\"nvme\\""));
+        assert!(json.contains("\\"partition_style\\":{\\"value\\":\\"gpt\\""));
+        assert_eq!(storage, serde_json::from_str(&json).unwrap());
+    }
+
+    #[test]
+    fn storage_allows_hidden_partitions_without_drive_letters() {
+        let mut storage = storage_fixture();
+        storage.partitions.push(PartitionInfo {
+            partition_id: "disk-0-efi".into(),
+            disk_id: "disk-0".into(),
+            partition_number: cpu_available(2),
+            offset_bytes: cpu_available(0),
+            size_bytes: cpu_available(100 * 1024 * 1024),
+            partition_type: cpu_available("EFI System".into()),
+            is_boot: cpu_available(true),
+            is_system: cpu_available(true),
+        });
+        assert!(storage.validate().is_ok());
+    }
+
+    #[test]
+    fn storage_rejects_free_space_above_capacity() {
+        let mut storage = storage_fixture();
+        storage.volumes[0].free_bytes = cpu_available(600_000_000_000);
+        assert!(storage.validate().is_err());
+    }
+
+    #[test]
+    fn storage_rejects_dangling_references_and_out_of_bounds_partitions() {
+        let mut storage = storage_fixture();
+        storage.partitions[0].disk_id = "missing-disk".into();
+        assert!(storage.validate().is_err());
+
+        let mut storage = storage_fixture();
+        storage.volumes[0].associated_partition_ids = vec!["missing-partition".into()];
+        assert!(storage.validate().is_err());
+
+        let mut storage = storage_fixture();
+        storage.partitions[0].offset_bytes = cpu_available(900_000_000_000);
+        assert!(storage.validate().is_err());
+    }
+
+    #[test]
+    fn storage_accepts_virtual_usb_and_spaces_bus_types() {
+        for bus in [StorageBusType::Virtual, StorageBusType::FileBackedVirtual, StorageBusType::Spaces, StorageBusType::Usb] {
+            let mut storage = storage_fixture();
+            storage.physical_disks[0].bus_type = cpu_available(bus);
+            assert!(storage.validate().is_ok());
+        }
     }
 
     #[test]
