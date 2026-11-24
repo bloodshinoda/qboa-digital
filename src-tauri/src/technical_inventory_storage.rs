@@ -903,7 +903,7 @@ mod windows {
             vendor.as_deref().unwrap_or_default()
         )
         .to_ascii_lowercase();
-        let usb_flash_hint = bus == Some(StorageBusType::Usb)
+        let usb_flash_hint = bus == StorageBusType::Usb
             && removable == Some(true)
             && ["flash", "thumb", "pendrive", "pen drive", "datatraveler", "cruzer", "jetflash", "usb disk"]
                 .iter()
