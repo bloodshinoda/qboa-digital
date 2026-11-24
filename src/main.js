@@ -2013,9 +2013,9 @@ function renderStorageReport(report, append = false) {
   const classNames = {
     notebook_hdd: "HD de notebook",
     desktop_hdd: "HD de desktop",
-    sata_ssd: "SSD SATA",
-    nvme: "SSD NVMe",
-    usb: "Armazenamento USB",
+    sata_ssd: "SSD",
+    nvme: "SSD",
+    usb: "Armazenamento removível",
     unknown: "Classe não identificada"
   };
   const status = {
@@ -3213,8 +3213,8 @@ async function refreshStorageDisks(preserveSelection = true) {
       model.textContent = first.model || "Disco físico";
       const physicalMeta = document.createElement("small");
       const classNames = {
-        notebook_hdd: "HD de notebook", desktop_hdd: "HD de desktop", sata_ssd: "SSD SATA",
-        nvme: "SSD NVMe", usb: "Armazenamento USB", unknown: "Classe não identificada"
+        notebook_hdd: "HD de notebook", desktop_hdd: "HD de desktop", sata_ssd: "SSD",
+        nvme: "SSD", usb: "Armazenamento removível", unknown: "Classe não identificada"
       };
       physicalMeta.textContent = "Disco " + first.disk_number + " · " +
         (classNames[first.class] || classNames.unknown) + " · " + first.bus_type +
