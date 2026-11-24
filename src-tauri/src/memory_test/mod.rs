@@ -5,6 +5,6 @@
 //! A integração com eventos Tauri e a persistência do laudo ficam na camada externa.
 
 pub mod algorithms;
-pub mod runner;
 pub mod reports;
+pub mod runner;
 pub mod session;
