@@ -239,13 +239,7 @@ mod windows {
         }
     }
 
-    fn estimated<T>(
-        value: T,
-        provider: &str,
-        member: &str,
-        at: &str,
-        note: &str,
-    ) -> Observed<T> {
+    fn estimated<T>(value: T, provider: &str, member: &str, at: &str, note: &str) -> Observed<T> {
         Observed {
             value: Some(value),
             state: InventoryValueState::Available,
@@ -482,11 +476,26 @@ mod windows {
             return metadata;
         }
 
-        let manufacturer_key = DevPropKey { fmtid: GUID_DEVPROP_DEVICE, pid: 13 };
-        let current_speed_key = DevPropKey { fmtid: GUID_DEVPROP_PCI, pid: 9 };
-        let current_width_key = DevPropKey { fmtid: GUID_DEVPROP_PCI, pid: 10 };
-        let max_speed_key = DevPropKey { fmtid: GUID_DEVPROP_PCI, pid: 11 };
-        let max_width_key = DevPropKey { fmtid: GUID_DEVPROP_PCI, pid: 12 };
+        let manufacturer_key = DevPropKey {
+            fmtid: GUID_DEVPROP_DEVICE,
+            pid: 13,
+        };
+        let current_speed_key = DevPropKey {
+            fmtid: GUID_DEVPROP_PCI,
+            pid: 9,
+        };
+        let current_width_key = DevPropKey {
+            fmtid: GUID_DEVPROP_PCI,
+            pid: 10,
+        };
+        let max_speed_key = DevPropKey {
+            fmtid: GUID_DEVPROP_PCI,
+            pid: 11,
+        };
+        let max_width_key = DevPropKey {
+            fmtid: GUID_DEVPROP_PCI,
+            pid: 12,
+        };
 
         for index in 0..4096u32 {
             let mut interface = DeviceInterfaceData {
@@ -496,26 +505,52 @@ mod windows {
                 reserved: 0,
             };
             if unsafe {
-                SetupDiEnumDeviceInterfaces(set, ptr::null_mut(), &GUID_DEVINTERFACE_DISK, index, &mut interface)
-            } == 0 {
+                SetupDiEnumDeviceInterfaces(
+                    set,
+                    ptr::null_mut(),
+                    &GUID_DEVINTERFACE_DISK,
+                    index,
+                    &mut interface,
+                )
+            } == 0
+            {
                 break;
             }
 
             let mut required = 0u32;
             let mut info = DeviceInfoData {
                 cb_size: std::mem::size_of::<DeviceInfoData>() as u32,
-                class_guid: Guid { data1: 0, data2: 0, data3: 0, data4: [0; 8] },
+                class_guid: Guid {
+                    data1: 0,
+                    data2: 0,
+                    data3: 0,
+                    data4: [0; 8],
+                },
                 dev_inst: 0,
                 reserved: 0,
             };
             let _ = unsafe {
-                SetupDiGetDeviceInterfaceDetailW(set, &mut interface, ptr::null_mut(), 0, &mut required, &mut info)
+                SetupDiGetDeviceInterfaceDetailW(
+                    set,
+                    &mut interface,
+                    ptr::null_mut(),
+                    0,
+                    &mut required,
+                    &mut info,
+                )
             };
             if required < 6 {
                 continue;
             }
             let mut detail = vec![0u8; required as usize];
-            detail[..4].copy_from_slice(&(if cfg!(target_pointer_width = "64") { 8u32 } else { 6u32 }).to_le_bytes());
+            detail[..4].copy_from_slice(
+                &(if cfg!(target_pointer_width = "64") {
+                    8u32
+                } else {
+                    6u32
+                })
+                .to_le_bytes(),
+            );
             if unsafe {
                 SetupDiGetDeviceInterfaceDetailW(
                     set,
@@ -525,7 +560,8 @@ mod windows {
                     &mut required,
                     &mut info,
                 )
-            } == 0 {
+            } == 0
+            {
                 continue;
             }
             let path_wide: Vec<u16> = detail[4..]
@@ -560,7 +596,9 @@ mod windows {
             break;
         }
 
-        unsafe { SetupDiDestroyDeviceInfoList(set); }
+        unsafe {
+            SetupDiDestroyDeviceInfoList(set);
+        }
         metadata
     }
 
@@ -597,8 +635,8 @@ mod windows {
         input[24..28].copy_from_slice(&40u32.to_le_bytes());
         input[28..32].copy_from_slice(&data_length.to_le_bytes());
         let mut output = vec![0u8; 8192];
-        let returned = device
-            .ioctl_with_input(IOCTL_STORAGE_QUERY_PROPERTY, &mut input, &mut output)?;
+        let returned =
+            device.ioctl_with_input(IOCTL_STORAGE_QUERY_PROPERTY, &mut input, &mut output)?;
         let payload_start = 8usize.checked_add(40)?;
         let payload_end = payload_start.checked_add(data_length as usize)?;
         (returned >= payload_end).then(|| output[payload_start..payload_end].to_vec())
@@ -606,7 +644,9 @@ mod windows {
 
     fn ata_identify_word(data: &[u8], word: usize) -> Option<u16> {
         let offset = word.checked_mul(2)?;
-        Some(u16::from_le_bytes(data.get(offset..offset + 2)?.try_into().ok()?))
+        Some(u16::from_le_bytes(
+            data.get(offset..offset + 2)?.try_into().ok()?,
+        ))
     }
 
     fn partition_style(value: u32) -> PartitionStyle {
@@ -618,7 +658,11 @@ mod windows {
         }
     }
 
-    fn query_storage_property(device: &Device, property_id: u32, output: &mut [u8]) -> Option<usize> {
+    fn query_storage_property(
+        device: &Device,
+        property_id: u32,
+        output: &mut [u8],
+    ) -> Option<usize> {
         let mut query = [0u8; 12];
         query[..4].copy_from_slice(&property_id.to_le_bytes());
         device.ioctl_with_input(IOCTL_STORAGE_QUERY_PROPERTY, &mut query, output)
@@ -735,7 +779,10 @@ mod windows {
         let removable = descriptor_data.map(|data| data.get(10).copied().unwrap_or(0) != 0);
         let scsi_device_type = descriptor_data.and_then(|data| data.get(8).copied());
 
-        let ata_identify = if matches!(bus.as_ref(), Some(StorageBusType::Ata | StorageBusType::Sata)) {
+        let ata_identify = if matches!(
+            bus.as_ref(),
+            Some(StorageBusType::Ata | StorageBusType::Sata)
+        ) {
             protocol_specific_data(&device, 2, 0, 512)
         } else {
             None
@@ -745,7 +792,8 @@ mod windows {
         } else {
             None
         };
-        let ata_current_speed = ata_identify.as_deref()
+        let ata_current_speed = ata_identify
+            .as_deref()
             .and_then(|data| ata_identify_word(data, 77))
             .map(|word| (word >> 1) & 0x7)
             .and_then(|code| match code {
@@ -755,18 +803,19 @@ mod windows {
                 _ => None,
             });
         let is_nvme = bus == StorageBusType::Nvme;
-        let pcie_current_speed = is_nvme.then(|| {
+        let pcie_current_speed = if is_nvme {
             pcie_speed_label(
                 pnp.current_pcie_speed.unwrap_or(0),
                 pnp.current_pcie_width,
             )
-        }).flatten();
-        let pcie_max_speed = is_nvme.then(|| {
-            pcie_speed_label(
-                pnp.max_pcie_speed.unwrap_or(0),
-                pnp.max_pcie_width,
-            )
-        }).flatten();
+        } else {
+            None
+        };
+        let pcie_max_speed = if is_nvme {
+            pcie_speed_label(pnp.max_pcie_speed.unwrap_or(0), pnp.max_pcie_width)
+        } else {
+            None
+        };
         let ata_max_speed = ata_identify
             .as_deref()
             .and_then(|data| ata_identify_word(data, 76))
@@ -783,11 +832,20 @@ mod windows {
                     None
                 }
             });
-        let ata_rotation = ata_identify.as_deref().and_then(|data| ata_identify_word(data, 217));
-        let nvme_protocol_version = nvme_identify.as_deref()
+        let ata_rotation = ata_identify
+            .as_deref()
+            .and_then(|data| ata_identify_word(data, 217));
+        let nvme_protocol_version = nvme_identify
+            .as_deref()
             .and_then(|data| read_u32(data, 80))
             .filter(|version| *version != 0 && *version != u32::MAX)
-            .map(|version| format!("NVMe {}.{}", (version >> 16) & 0xffff, (version >> 8) & 0xff));
+            .map(|version| {
+                format!(
+                    "NVMe {}.{}",
+                    (version >> 16) & 0xffff,
+                    (version >> 8) & 0xff
+                )
+            });
 
         let mut layout = vec![0u8; 1024 * 1024];
         let layout_length = device.ioctl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX, &mut layout);
@@ -930,9 +988,18 @@ mod windows {
         .to_ascii_lowercase();
         let usb_flash_hint = bus == StorageBusType::Usb
             && removable == Some(true)
-            && ["flash", "thumb", "pendrive", "pen drive", "datatraveler", "cruzer", "jetflash", "usb disk"]
-                .iter()
-                .any(|hint| identity_hint.contains(hint));
+            && [
+                "flash",
+                "thumb",
+                "pendrive",
+                "pen drive",
+                "datatraveler",
+                "cruzer",
+                "jetflash",
+                "usb disk",
+            ]
+            .iter()
+            .any(|hint| identity_hint.contains(hint));
 
         let device_kind = if scsi_device_type == Some(5) {
             StorageDeviceKind::OpticalDrive
