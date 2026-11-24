@@ -770,7 +770,14 @@ mod windows {
         let descriptor_data = descriptor_data.filter(|_| descriptor_ok);
         let vendor = descriptor_data
             .and_then(|data| read_ansi_string(data, 12))
-            .or_else(|| pnp.manufacturer.clone());
+            .or_else(|| {
+                pnp.manufacturer.clone().filter(|value| {
+                    let normalized = value.to_ascii_lowercase();
+                    !["standard disk drives", "disk drives", "generic", "microsoft"]
+                        .iter()
+                        .any(|generic| normalized.contains(generic))
+                })
+            });
         let model = descriptor_data.and_then(|data| read_ansi_string(data, 16));
         let firmware = descriptor_data.and_then(|data| read_ansi_string(data, 20));
         let serial = descriptor_data.and_then(|data| read_ansi_string(data, 24));
@@ -1007,31 +1014,35 @@ mod windows {
             StorageDeviceKind::UsbFlashDrive
         } else {
             match &bus {
-            StorageBusType::Sd | StorageBusType::Mmc => StorageDeviceKind::MemoryCard,
-            StorageBusType::Virtual | StorageBusType::FileBackedVirtual => StorageDeviceKind::VirtualDisk,
-            StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
-            StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => match &media {
-                StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
-                StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
-                _ => StorageDeviceKind::Unknown,
-            },
-            StorageBusType::Usb => {
-                if removable == Some(true) {
-                    StorageDeviceKind::UsbRemovableStorage
-                } else {
+                StorageBusType::Sd | StorageBusType::Mmc => StorageDeviceKind::MemoryCard,
+                StorageBusType::Virtual | StorageBusType::FileBackedVirtual => {
+                    StorageDeviceKind::VirtualDisk
+                }
+                StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
+                StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => {
                     match &media {
                         StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
                         StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
                         _ => StorageDeviceKind::Unknown,
                     }
                 }
-            }
-            StorageBusType::Iscsi | StorageBusType::Fibre => StorageDeviceKind::NetworkDisk,
-            _ => match &media {
-                StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
-                StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
-                _ => StorageDeviceKind::Unknown,
-            },
+                StorageBusType::Usb => {
+                    if removable == Some(true) {
+                        StorageDeviceKind::UsbRemovableStorage
+                    } else {
+                        match &media {
+                            StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                            StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                            _ => StorageDeviceKind::Unknown,
+                        }
+                    }
+                }
+                StorageBusType::Iscsi | StorageBusType::Fibre => StorageDeviceKind::NetworkDisk,
+                _ => match &media {
+                    StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                    StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                    _ => StorageDeviceKind::Unknown,
+                },
             }
         };
 
@@ -1055,13 +1066,22 @@ mod windows {
         let disk = PhysicalDiskInfo {
             disk_id: format!("disk:{disk_number}"),
             disk_number: actual_disk_number
-                .map(|value| observed(value, "DeviceIoControl(IOCTL_STORAGE_GET_DEVICE_NUMBER)", "DeviceNumber", at))
-                .unwrap_or_else(|| observed(
-                    number,
-                    "PhysicalDrive enumeration",
-                    "device_path_index",
-                    at,
-                )),
+                .map(|value| {
+                    observed(
+                        value,
+                        "DeviceIoControl(IOCTL_STORAGE_GET_DEVICE_NUMBER)",
+                        "DeviceNumber",
+                        at,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    observed(
+                        number,
+                        "PhysicalDrive enumeration",
+                        "device_path_index",
+                        at,
+                    )
+                }),
             model: model
                 .map(|value| {
                     observed(
@@ -1078,7 +1098,9 @@ mod windows {
                 .map(|value| {
                     observed(
                         value,
-                        if descriptor_data.is_some_and(|data| read_ansi_string(data, 12).is_some()) {
+                        if descriptor_data
+                            .is_some_and(|data| read_ansi_string(data, 12).is_some())
+                        {
                             "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)"
                         } else {
                             "Configuration Manager / DEVPKEY_Device_Manufacturer"
@@ -1134,11 +1156,22 @@ mod windows {
                     unavailable(at, "Interface não informada pelo descritor do dispositivo.")
                 }),
             media_type: if scsi_device_type == Some(5) {
-                unavailable(at, "Unidade óptica não possui classificação de mídia HDD/SSD.")
+                unavailable(
+                    at,
+                    "Unidade óptica não possui classificação de mídia HDD/SSD.",
+                )
             } else if seek_penalty.is_some() || matches!(ata_rotation, Some(1..=65534)) {
-                observed(media, "IOCTL_STORAGE_QUERY_PROPERTY / ATA IDENTIFY DEVICE", "seek_penalty / nominal_media_rotation_rate", at)
+                observed(
+                    media,
+                    "IOCTL_STORAGE_QUERY_PROPERTY / ATA IDENTIFY DEVICE",
+                    "seek_penalty / nominal_media_rotation_rate",
+                    at,
+                )
             } else {
-                unavailable(at, "Tipo de mídia não pôde ser determinado pelas propriedades disponíveis.")
+                unavailable(
+                    at,
+                    "Tipo de mídia não pôde ser determinado pelas propriedades disponíveis.",
+                )
             },
             device_kind: device_kind_observed,
             bus_type: bus_raw
@@ -1154,37 +1187,89 @@ mod windows {
                     unavailable(at, "Tipo de barramento não informado pelo dispositivo.")
                 }),
             interface_generation: ata_current_speed
-                .map(|value| observed(value, "ATA IDENTIFY DEVICE", "SATA current signaling speed (word 77)", at))
-                .or_else(|| pcie_current_speed.map(|value| observed(
-                    value,
-                    "Configuration Manager / DEVPKEY_PciDevice_CurrentLinkSpeed",
-                    "PCIe current link speed + width",
-                    at,
-                )))
-                .unwrap_or_else(|| unavailable(
-                    at,
-                    "Geração negociada da interface não foi exposta pelo dispositivo/driver.",
-                )),
+                .map(|value| {
+                    observed(
+                        value,
+                        "ATA IDENTIFY DEVICE",
+                        "SATA current signaling speed (word 77)",
+                        at,
+                    )
+                })
+                .or_else(|| {
+                    pcie_current_speed.map(|value| {
+                        observed(
+                            value,
+                            "Configuration Manager / DEVPKEY_PciDevice_CurrentLinkSpeed",
+                            "PCIe current link speed + width",
+                            at,
+                        )
+                    })
+                })
+                .unwrap_or_else(|| {
+                    unavailable(
+                        at,
+                        "Geração negociada da interface não foi exposta pelo dispositivo/driver.",
+                    )
+                }),
             interface_max_generation: ata_max_speed
-                .map(|value| observed(value, "ATA IDENTIFY DEVICE", "SATA capabilities (word 76)", at))
-                .or_else(|| pcie_max_speed.map(|value| observed(
-                    value,
-                    "Configuration Manager / DEVPKEY_PciDevice_MaxLinkSpeed",
-                    "PCIe maximum link speed + width",
-                    at,
-                )))
-                .unwrap_or_else(|| unavailable(at, "Capacidade máxima da interface não foi informada.")),
+                .map(|value| {
+                    observed(
+                        value,
+                        "ATA IDENTIFY DEVICE",
+                        "SATA capabilities (word 76)",
+                        at,
+                    )
+                })
+                .or_else(|| {
+                    pcie_max_speed.map(|value| {
+                        observed(
+                            value,
+                            "Configuration Manager / DEVPKEY_PciDevice_MaxLinkSpeed",
+                            "PCIe maximum link speed + width",
+                            at,
+                        )
+                    })
+                })
+                .unwrap_or_else(|| {
+                    unavailable(at, "Capacidade máxima da interface não foi informada.")
+                }),
             protocol_version: nvme_protocol_version
                 .map(|value| observed(value, "NVMe Identify Controller", "VER", at))
-                .unwrap_or_else(|| unavailable(at, "Versão do protocolo não foi informada pelo dispositivo.")),
+                .unwrap_or_else(|| {
+                    unavailable(
+                        at,
+                        "Versão do protocolo não foi informada pelo dispositivo.",
+                    )
+                }),
             seek_penalty: seek_penalty
-                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "IncursSeekPenalty", at))
+                .map(|value| {
+                    observed(
+                        value,
+                        "IOCTL_STORAGE_QUERY_PROPERTY",
+                        "IncursSeekPenalty",
+                        at,
+                    )
+                })
                 .unwrap_or_else(|| unavailable(at, "Windows não informou a penalidade de busca.")),
             trim_supported: trim_supported
-                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "TrimEnabled", at))
+                .map(|value| {
+                    observed(
+                        value,
+                        "IOCTL_STORAGE_QUERY_PROPERTY",
+                        "TrimEnabled",
+                        at,
+                    )
+                })
                 .unwrap_or_else(|| unavailable(at, "Suporte a TRIM indisponível.")),
             alignment_offset_bytes: alignment_offset
-                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "BytesOffsetForSectorAlignment", at))
+                .map(|value| {
+                    observed(
+                        value,
+                        "IOCTL_STORAGE_QUERY_PROPERTY",
+                        "BytesOffsetForSectorAlignment",
+                        at,
+                    )
+                })
                 .unwrap_or_else(|| unavailable(at, "Deslocamento de alinhamento indisponível.")),
             capacity_bytes: capacity
                 .map(|value| {
@@ -1207,7 +1292,14 @@ mod windows {
                 })
                 .unwrap_or_else(|| unavailable(at, "Tamanho do setor lógico indisponível.")),
             physical_sector_bytes: physical_sector_size
-                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "BytesPerPhysicalSector", at))
+                .map(|value| {
+                    observed(
+                        value,
+                        "IOCTL_STORAGE_QUERY_PROPERTY",
+                        "BytesPerPhysicalSector",
+                        at,
+                    )
+                })
                 .unwrap_or_else(|| unavailable(at, "Tamanho do setor físico indisponível.")),
             is_removable: removable
                 .map(|value| {
