@@ -758,6 +758,26 @@ mod windows {
             pnp.current_pcie_speed.unwrap_or(0),
             pnp.current_pcie_width,
         );
+        let pcie_max_speed = pcie_speed_label(
+            pnp.max_pcie_speed.unwrap_or(0),
+            pnp.max_pcie_width,
+        );
+        let ata_max_speed = ata_identify
+            .as_deref()
+            .and_then(|data| ata_identify_word(data, 76))
+            .and_then(|word| {
+                if word == 0 || word == u16::MAX {
+                    None
+                } else if word & (1 << 3) != 0 {
+                    Some("SATA até Gen3 (6,0 Gb/s)".to_string())
+                } else if word & (1 << 2) != 0 {
+                    Some("SATA até Gen2 (3,0 Gb/s)".to_string())
+                } else if word & (1 << 1) != 0 {
+                    Some("SATA até Gen1 (1,5 Gb/s)".to_string())
+                } else {
+                    None
+                }
+            });
         let ata_rotation = ata_identify.as_deref().and_then(|data| ata_identify_word(data, 217));
         let nvme_protocol_version = nvme_identify.as_deref()
             .and_then(|data| read_u32(data, 80))
@@ -1073,6 +1093,15 @@ mod windows {
                     at,
                     "Geração negociada da interface não foi exposta pelo dispositivo/driver.",
                 )),
+            interface_max_generation: ata_max_speed
+                .map(|value| observed(value, "ATA IDENTIFY DEVICE", "SATA capabilities (word 76)", at))
+                .or_else(|| pcie_max_speed.map(|value| observed(
+                    value,
+                    "Configuration Manager / DEVPKEY_PciDevice_MaxLinkSpeed",
+                    "PCIe maximum link speed + width",
+                    at,
+                )))
+                .unwrap_or_else(|| unavailable(at, "Capacidade máxima da interface não foi informada.")),
             protocol_version: nvme_protocol_version
                 .map(|value| observed(value, "NVMe Identify Controller", "VER", at))
                 .unwrap_or_else(|| unavailable(at, "Versão do protocolo não foi informada pelo dispositivo.")),
