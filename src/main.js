@@ -148,10 +148,14 @@ function setCleanupSessionPhase(phase, taskName = "") {
   shell.classList.remove("hidden");
   shell.setAttribute("aria-hidden", "false");
   shell.dataset.phase = phase;
-  title.textContent = phase === "preparing" ? "Preparando a faxina" : phase === "ready" ? "Pronto para iniciar" : phase === "starting" ? "Preparando a proteção" : phase === "running" ? "Mãos à obra!" : "Como ficou a faxina";
+  title.textContent = phase === "preparing" ? "Preparando a faxina" : phase === "ready" ? "Pronto para iniciar " + (cleanupSessionTaskName || "a limpeza") : phase === "starting" ? "Preparando a proteção" : phase === "running" ? "Mãos à obra!" : "Como ficou a faxina";
   description.textContent = phase === "preparing" ? (preparationPromptOpen ? "Precisamos da sua decisão antes de continuar." : "Vamos conferir tudo antes de começar.") : phase === "ready" ? "Tudo conferido. Quando quiser, inicie a limpeza; nenhuma etapa de limpeza começou ainda." : phase === "starting" ? "O QBoa está preparando a proteção do sistema. A limpeza ainda não começou." : phase === "running" ? (cleanupSessionTaskName || "A limpeza está em andamento.") : "A sessão terminou. Confira o resumo abaixo.";
   intro.hidden = !["preparing", "starting"].includes(phase) || preparationPromptOpen;
-  if (progress) progress.hidden = phase !== "running";
+  if (progress) {
+    progress.hidden = phase !== "running";
+    progress.classList.add("qboa-activity-target");
+    progress.dataset.activity = phase === "running" ? "working" : "idle";
+  }
   if (summary) {
     summary.classList.toggle("hidden", phase !== "result");
     summary.setAttribute("aria-hidden", phase !== "result" ? "true" : "false");
@@ -322,6 +326,10 @@ const Qboa = {
     return invoke("get_memory_test_session");
   },
 
+  async getMemoryDiagnosticReports() {
+    return invoke("get_memory_diagnostic_reports");
+  },
+
   async cancelMemoryTest(sessionId) {
     return invoke("cancel_memory_test", { sessionId });
   },
@@ -447,7 +455,11 @@ function syncExecutionControls() {
   }
   if (toolbar) toolbar.hidden = !inCleanupSession || cleanupSessionPhase !== "running";
   const progress = document.getElementById("operation-progress");
-  if (progress) progress.hidden = !running || (inCleanupSession && cleanupSessionPhase !== "running");
+  if (progress) {
+    progress.hidden = !running || (inCleanupSession && cleanupSessionPhase !== "running");
+    progress.classList.add("qboa-activity-target");
+    progress.dataset.activity = running ? "working" : "idle";
+  }
   if (running && (!inCleanupSession || cleanupSessionPhase === "running")) updateOperationProgress(currentOperationName || taskDisplayName(activeTaskId), currentOperationStage || "Preparando a faxina…", null);
   else if (!running) clearTaskbarProgress();
 }
@@ -3155,6 +3167,8 @@ async function refreshStorageDisks(preserveSelection = true) {
   if (!list || !refreshButton || !runButton) return;
 
   const previous = preserveSelection ? new Set(selectedStorageDiskIds()) : new Set();
+  const scanner = document.getElementById("storage-scan-indicator");
+  if (scanner) scanner.hidden = false;
   refreshButton.disabled = true;
   setDiagnosticActivity("inventory:storage", true);
   list.replaceChildren();
@@ -3269,6 +3283,7 @@ async function refreshStorageDisks(preserveSelection = true) {
     runButton.disabled = true;
   } finally {
     refreshButton.disabled = false;
+    if (scanner) scanner.hidden = true;
     setDiagnosticActivity("inventory:storage", false);
   }
 }
@@ -3351,7 +3366,13 @@ function openDiagnosticModal(target = null, mode = "quick") {
     list.id = "storage-disk-list";
     list.className = "storage-disk-list";
     list.setAttribute("aria-label", "Selecione os volumes para o teste");
-    picker.append(toolbar, label, help, list);
+    const scanner = document.createElement("div");
+    scanner.id = "storage-scan-indicator";
+    scanner.className = "storage-scan-indicator";
+    scanner.hidden = true;
+    scanner.setAttribute("role", "status");
+    scanner.innerHTML = '<span class="storage-scan-icon" aria-hidden="true"></span><span><strong>Procurando unidades</strong><small>Consultando discos físicos e volumes disponíveis…</small></span>';
+    picker.append(toolbar, label, help, scanner, list);
     modal.querySelector(".diagnostic-modal-actions").before(picker);
     runButton.disabled = true;
 
@@ -3391,6 +3412,7 @@ function openDiagnosticModal(target = null, mode = "quick") {
   if (isMemoryTest) {
     void loadMemoryInventory();
     void loadMemoryTestSession();
+    void loadMemoryDiagnosticReports();
     return;
   }
   if (isCpuTest) {
@@ -3583,11 +3605,80 @@ function logMemoryTestActivity(session) {
   }
 }
 
-function renderMemoryTestSession(session) {
-  if (!session) {
-    memoryTestSessionSnapshot = null;
-    return;
+function renderMemoryReport(report) {
+  const result = document.getElementById("memory-test-result");
+  const details = document.getElementById("memory-test-result-details");
+  details.replaceChildren();
+  const summary = document.createElement("p");
+  summary.textContent = memoryTestStatusLabel(report.status);
+  result.replaceChildren(summary);
+  const meta = document.createElement("p");
+  meta.className = "memory-test-report-meta";
+  const parsed = report.started_at ? new Date(report.started_at) : null;
+  const started = parsed && !Number.isNaN(parsed.valueOf()) ? parsed.toLocaleString("pt-BR") : "data indisponível";
+  meta.textContent = "Perfil " + report.profile + " · " + formatMemoryBytes(report.memory_tested_bytes) +
+    " testados · " + Number(report.duration_ms || 0).toLocaleString("pt-BR") + " ms · " +
+    Number(report.mismatches_total || 0).toLocaleString("pt-BR") + " divergência(s) agregada(s) · " + started;
+  result.appendChild(meta);
+  if (report.coverage_description) {
+    const coverage = document.createElement("p");
+    coverage.textContent = report.coverage_description;
+    result.appendChild(coverage);
   }
+  (report.warnings || []).forEach((warning) => {
+    const item = document.createElement("li");
+    item.textContent = warning;
+    details.appendChild(item);
+  });
+  if (report.mismatches_total > 0) {
+    const note = document.createElement("p");
+    note.className = "memory-test-warning";
+    note.textContent = "Os offsets informados são posições dentro dos buffers virtuais do processo, não endereços físicos. A divergência observada, por si só, não identifica qual componente causou o problema.";
+    result.appendChild(note);
+  }
+}
+
+async function loadMemoryDiagnosticReports() {
+  const list = document.getElementById("memory-diagnostic-history");
+  if (!list) return;
+  try {
+    const reports = await Qboa.getMemoryDiagnosticReports();
+    list.replaceChildren();
+    if (!Array.isArray(reports) || !reports.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "Nenhum laudo de memória salvo ainda.";
+      list.appendChild(empty);
+      return;
+    }
+    reports.forEach((report) => {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "diagnostic-history-item";
+      const date = document.createElement("span");
+      const parsed = report.started_at ? new Date(report.started_at) : null;
+      date.textContent = parsed && !Number.isNaN(parsed.valueOf()) ? parsed.toLocaleString("pt-BR") : "Data indisponível";
+      const detail = document.createElement("small");
+      detail.textContent = "Memória RAM · " + report.profile + " · " + memoryTestStatusLabel(report.status);
+      button.append(date, detail);
+      button.addEventListener("click", () => {
+        renderMemoryReport(report);
+        const status = document.getElementById("diagnostic-status");
+        if (status) status.textContent = "Laudo de memória recuperado · " + (report.report_id || "ID indisponível");
+      });
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+  } catch (error) {
+    list.replaceChildren();
+    const failed = document.createElement("li");
+    failed.textContent = "Não foi possível carregar o histórico de memória: " + String(error);
+    list.appendChild(failed);
+  }
+}
+
+function renderMemoryTestSession(session) {
+  if (!session) { memoryTestSessionSnapshot = null; return; }
   logMemoryTestActivity(session);
   if (memoryTestSessionSnapshot) {
     const sameSession = memoryTestSessionSnapshot.session_id === session.session_id;
@@ -3599,22 +3690,13 @@ function renderMemoryTestSession(session) {
       const currentBytes = Number(memoryTestSessionSnapshot.progress?.memory_tested_bytes || 0);
       const incomingBytes = Number(session.progress?.memory_tested_bytes || 0);
       if (incomingRank === currentRank && incomingBytes < currentBytes) return;
-    } else {
-      // O backend só permite uma sessão por vez; IDs diferentes com timestamp
-      // anterior pertencem à sessão anterior e devem ser ignorados.
-      if (currentRank < 3 ||
-          String(session.started_at || "") <= String(memoryTestSessionSnapshot.started_at || "")) {
-        return;
-      }
-    }
+    } else if (currentRank < 3 || String(session.started_at || "") <= String(memoryTestSessionSnapshot.started_at || "")) return;
   }
   memoryTestSessionSnapshot = session;
   const active = ["running", "cancelling"].includes(session.lifecycle);
   setDiagnosticActivity("session:memory", active);
   const profile = document.getElementById("memory-test-profile");
-  if (session.profile && ["fast", "standard", "extended", "custom"].includes(session.profile)) {
-    profile.value = session.profile;
-  }
+  if (session.profile && ["fast", "standard", "extended", "custom"].includes(session.profile)) profile.value = session.profile;
   const customPicker = document.getElementById("memory-test-custom-picker");
   const customBudget = document.getElementById("memory-test-custom-budget");
   customPicker.hidden = profile.value !== "custom";
@@ -3624,21 +3706,17 @@ function renderMemoryTestSession(session) {
   const progress = session.progress;
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   profile.disabled = active;
-  customBudget.disabled = active || !memoryInventorySnapshot?.total_physical_bytes;
   start.disabled = active;
   start.textContent = active ? "Teste em andamento" : "Iniciar teste de RAM";
   cancel.hidden = !active;
   cancel.disabled = session.lifecycle === "cancelling";
   cancel.textContent = session.lifecycle === "cancelling" ? "Cancelando…" : "Cancelar teste";
-
   document.getElementById("memory-test-progress-bar").style.width = percent + "%";
   document.querySelector(".memory-test-progress-track").setAttribute("aria-valuenow", String(percent));
   document.getElementById("memory-test-progress-percent").textContent = percent + "%";
   const tested = formatMemoryBytes(progress?.memory_tested_bytes);
   const budget = formatMemoryBytes(progress?.memory_budget_bytes);
-  const block = progress?.current_block_bytes
-    ? " · bloco atual " + formatMemoryBytes(progress.current_block_bytes)
-    : "";
+  const block = progress?.current_block_bytes ? " · bloco atual " + formatMemoryBytes(progress.current_block_bytes) : "";
   document.getElementById("memory-test-progress-detail").textContent = progress
     ? tested + " de " + budget + " contabilizados · " + (progress.blocks_completed || 0) + " bloco(s) concluído(s)" + block + " · " + (progress.mismatches_total || 0) + " divergência(s)"
     : "Aguardando a primeira atualização do runner.";
@@ -3646,46 +3724,16 @@ function renderMemoryTestSession(session) {
     session.lifecycle === "cancelling" ? "Cancelamento solicitado; aguardando o término seguro do bloco atual." :
     session.lifecycle === "running" ? memoryPhaseLabel(progress?.phase) :
     session.lifecycle === "failed" ? "Falha ao iniciar a sessão" : "Execução finalizada";
-
-  const result = document.getElementById("memory-test-result");
-  const details = document.getElementById("memory-test-result-details");
-  details.replaceChildren();
-  if (session.report) {
-    const report = session.report;
-    const summary = document.createElement("p");
-    summary.textContent = memoryTestStatusLabel(report.status);
-    result.replaceChildren(summary);
-    const meta = document.createElement("p");
-    meta.className = "memory-test-report-meta";
-    meta.textContent = "Perfil " + report.profile + " · " + formatMemoryBytes(report.memory_tested_bytes) + " testados · " + report.duration_ms + " ms · " + report.mismatches_total + " divergência(s) agregada(s)";
-    result.appendChild(meta);
-    if (report.coverage_description) {
-      const coverage = document.createElement("p");
-      coverage.textContent = report.coverage_description;
-      result.appendChild(coverage);
-    }
-    (report.warnings || []).forEach((warning) => {
-      const item = document.createElement("li");
-      item.textContent = warning;
-      details.appendChild(item);
-    });
-    if (report.mismatches_total > 0) {
-      const note = document.createElement("p");
-      note.className = "memory-test-warning";
-      note.textContent = "Os offsets informados são posições dentro dos buffers virtuais do processo, não endereços físicos. A divergência observada, por si só, não identifica qual componente causou o problema.";
-      result.appendChild(note);
-    }
-  } else if (session.error) {
-    result.textContent = session.error;
-  } else if (session.lifecycle === "running" || session.lifecycle === "cancelling") {
-    result.textContent = session.lifecycle === "cancelling"
+  if (session.report) renderMemoryReport({ ...session.report, started_at: session.started_at });
+  else {
+    const result = document.getElementById("memory-test-result");
+    if (session.error) result.textContent = session.error;
+    else if (active) result.textContent = session.lifecycle === "cancelling"
       ? "Cancelamento solicitado. A sessão ainda está encerrando com segurança."
       : "O teste está sendo executado. Você pode cancelar a qualquer momento.";
-  } else {
-    result.textContent = "A sessão ainda não tem um relatório final.";
+    else result.textContent = "A sessão ainda não tem um relatório final.";
   }
 }
-
 async function loadMemoryTestSession() {
   try {
     const session = await Qboa.getMemoryTestSession();
@@ -4348,6 +4396,7 @@ async function registerEvents() {
     }),
     listen("qboa-memory-test-finished", (event) => {
       renderMemoryTestSession(event.payload?.session);
+      void loadMemoryDiagnosticReports();
     }),
     listen("qboa-cpu-test-progress", (event) => {
       renderCpuTestSession(event.payload?.session);
