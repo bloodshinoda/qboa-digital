@@ -773,9 +773,14 @@ mod windows {
             .or_else(|| {
                 pnp.manufacturer.clone().filter(|value| {
                     let normalized = value.to_ascii_lowercase();
-                    !["standard disk drives", "disk drives", "generic", "microsoft"]
-                        .iter()
-                        .any(|generic| normalized.contains(generic))
+                    ![
+                        "standard disk drives",
+                        "disk drives",
+                        "generic",
+                        "microsoft",
+                    ]
+                    .iter()
+                    .any(|generic| normalized.contains(generic))
                 })
             });
         let model = descriptor_data.and_then(|data| read_ansi_string(data, 16));
@@ -811,10 +816,7 @@ mod windows {
             });
         let is_nvme = bus == StorageBusType::Nvme;
         let pcie_current_speed = if is_nvme {
-            pcie_speed_label(
-                pnp.current_pcie_speed.unwrap_or(0),
-                pnp.current_pcie_width,
-            )
+            pcie_speed_label(pnp.current_pcie_speed.unwrap_or(0), pnp.current_pcie_width)
         } else {
             None
         };
@@ -1019,13 +1021,11 @@ mod windows {
                     StorageDeviceKind::VirtualDisk
                 }
                 StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
-                StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => {
-                    match &media {
-                        StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
-                        StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
-                        _ => StorageDeviceKind::Unknown,
-                    }
-                }
+                StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => match &media {
+                    StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                    StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                    _ => StorageDeviceKind::Unknown,
+                },
                 StorageBusType::Usb => {
                     if removable == Some(true) {
                         StorageDeviceKind::UsbRemovableStorage
@@ -1075,12 +1075,7 @@ mod windows {
                     )
                 })
                 .unwrap_or_else(|| {
-                    observed(
-                        number,
-                        "PhysicalDrive enumeration",
-                        "device_path_index",
-                        at,
-                    )
+                    observed(number, "PhysicalDrive enumeration", "device_path_index", at)
                 }),
             model: model
                 .map(|value| {
@@ -1098,8 +1093,7 @@ mod windows {
                 .map(|value| {
                     observed(
                         value,
-                        if descriptor_data
-                            .is_some_and(|data| read_ansi_string(data, 12).is_some())
+                        if descriptor_data.is_some_and(|data| read_ansi_string(data, 12).is_some())
                         {
                             "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)"
                         } else {
@@ -1252,14 +1246,7 @@ mod windows {
                 })
                 .unwrap_or_else(|| unavailable(at, "Windows não informou a penalidade de busca.")),
             trim_supported: trim_supported
-                .map(|value| {
-                    observed(
-                        value,
-                        "IOCTL_STORAGE_QUERY_PROPERTY",
-                        "TrimEnabled",
-                        at,
-                    )
-                })
+                .map(|value| observed(value, "IOCTL_STORAGE_QUERY_PROPERTY", "TrimEnabled", at))
                 .unwrap_or_else(|| unavailable(at, "Suporte a TRIM indisponível.")),
             alignment_offset_bytes: alignment_offset
                 .map(|value| {
