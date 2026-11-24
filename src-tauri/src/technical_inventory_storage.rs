@@ -352,6 +352,23 @@ mod windows {
         ))
     }
 
+    fn is_generic_manufacturer(value: &str) -> bool {
+        let normalized = value.trim().to_ascii_lowercase();
+        normalized.is_empty()
+            || [
+                "standard disk drives",
+                "disk drives",
+                "unidades de disco padrão",
+                "generic",
+                "microsoft",
+                "msft",
+                "unknown",
+                "n/a",
+            ]
+            .iter()
+            .any(|generic| normalized == *generic || normalized.contains(generic))
+    }
+
     // STORAGE_DEVICE_DESCRIPTOR armazena offsets ANSI como ULONG (u32), não
     // como bytes isolados. Os offsets apontam para strings terminadas em NUL.
     fn read_ansi_string(data: &[u8], offset_field: usize) -> Option<String> {
@@ -787,18 +804,11 @@ mod windows {
         let descriptor_data = descriptor_data.filter(|_| descriptor_ok);
         let vendor = descriptor_data
             .and_then(|data| read_ansi_string(data, 12))
+            .filter(|value| !is_generic_manufacturer(value))
             .or_else(|| {
-                pnp.manufacturer.clone().filter(|value| {
-                    let normalized = value.to_ascii_lowercase();
-                    ![
-                        "standard disk drives",
-                        "disk drives",
-                        "generic",
-                        "microsoft",
-                    ]
-                    .iter()
-                    .any(|generic| normalized.contains(generic))
-                })
+                pnp.manufacturer
+                    .clone()
+                    .filter(|value| !is_generic_manufacturer(value))
             });
         let model = descriptor_data.and_then(|data| read_ansi_string(data, 16));
         let firmware = descriptor_data.and_then(|data| read_ansi_string(data, 20));
@@ -1002,7 +1012,12 @@ mod windows {
 
         // A penalidade de busca é uma evidência de mídia magnética vs. flash,
         // mas não substitui a identificação específica do protocolo.
-        let media = if bus == StorageBusType::Scm {
+        let media = if matches!(
+            &bus,
+            StorageBusType::Virtual | StorageBusType::FileBackedVirtual
+        ) {
+            StorageMediaType::Unknown
+        } else if bus == StorageBusType::Scm {
             StorageMediaType::Scm
         } else if scsi_device_type == Some(5) {
             StorageMediaType::Unknown
@@ -1193,7 +1208,15 @@ mod windows {
                 .unwrap_or_else(|| {
                     unavailable(at, "Interface não informada pelo descritor do dispositivo.")
                 }),
-            media_type: if scsi_device_type == Some(5) {
+            media_type: if matches!(
+                &bus,
+                StorageBusType::Virtual | StorageBusType::FileBackedVirtual
+            ) {
+                unavailable(
+                    at,
+                    "Disco virtual não expõe o tipo de mídia do armazenamento subjacente.",
+                )
+            } else if scsi_device_type == Some(5) {
                 unavailable(
                     at,
                     "Unidade óptica não possui classificação de mídia HDD/SSD.",
