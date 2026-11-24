@@ -181,13 +181,17 @@ mod windows {
         }
 
         fn ioctl(&self, code: u32, output: &mut [u8]) -> Option<usize> {
+            self.ioctl_with_input(code, &mut [], output)
+        }
+
+        fn ioctl_with_input(&self, code: u32, input: &mut [u8], output: &mut [u8]) -> Option<usize> {
             let mut returned = 0u32;
             let ok = unsafe {
                 DeviceIoControl(
                     self.0,
                     code,
-                    ptr::null_mut(),
-                    0,
+                    if input.is_empty() { ptr::null_mut() } else { input.as_mut_ptr().cast() },
+                    input.len() as u32,
                     output.as_mut_ptr().cast(),
                     output.len() as u32,
                     &mut returned,
@@ -280,9 +284,13 @@ mod windows {
             .filter(|value| *value > 0);
 
         // STORAGE_PROPERTY_QUERY: PropertyId=StorageDeviceProperty, QueryType=PropertyStandardQuery.
+        let mut query = [0u8; 8];
         let mut descriptor = vec![0u8; 4096];
-        descriptor[..8].copy_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
-        let descriptor_length = device.ioctl(IOCTL_STORAGE_QUERY_PROPERTY, &mut descriptor);
+        let descriptor_length = device.ioctl_with_input(
+            IOCTL_STORAGE_QUERY_PROPERTY,
+            &mut query,
+            &mut descriptor,
+        );
         let descriptor_ok = descriptor_length.is_some_and(|length| length >= 36);
         let vendor = descriptor_ok.then(|| read_wide_string(&descriptor, 12)).flatten();
         let model = descriptor_ok.then(|| read_wide_string(&descriptor, 16)).flatten();
@@ -339,10 +347,12 @@ mod windows {
                 partitions.push(PartitionInfo {
                     partition_id,
                     disk_id: format!("disk:{number}"),
-                    partition_number: partition_number
-                        .checked_sub(0)
-                        .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "PartitionNumber", at))
-                        .unwrap_or_else(|| unavailable(at, "Número da partição indisponível.")),
+                    partition_number: observed(
+                        partition_number,
+                        "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)",
+                        "PartitionNumber",
+                        at,
+                    ),
                     offset_bytes: start
                         .map(|value| observed(value, "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)", "StartingOffset", at))
                         .unwrap_or_else(|| unavailable(at, "Offset da partição indisponível.")),
@@ -363,7 +373,7 @@ mod windows {
         }
 
         let bus = bus.unwrap_or(StorageBusType::Unknown);
-        let media = match bus {
+        let media = match &bus {
             StorageBusType::Nvme | StorageBusType::Sata | StorageBusType::Ata => {
                 StorageMediaType::Unknown
             }
