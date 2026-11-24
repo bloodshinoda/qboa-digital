@@ -1244,7 +1244,7 @@ mod windows {
                 .map(|value| {
                     observed(
                         value,
-                        if descriptor_data.is_some_and(|data| read_ansi_string(data, 12).is_some())
+                        if descriptor_data.is_some_and(|data| matches!(read_ansi_string(data, 12), Ok(Some(_))))
                         {
                             "DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)"
                         } else {
