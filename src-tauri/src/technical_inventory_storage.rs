@@ -1221,11 +1221,21 @@ mod windows {
                     at,
                     "Unidade óptica não possui classificação de mídia HDD/SSD.",
                 )
-            } else if seek_penalty.is_some() || matches!(ata_rotation, Some(1..=65534)) {
+            } else if seek_penalty.is_some()
+                || matches!(ata_rotation, Some(1..=65534))
+                || matches!(
+                    &bus,
+                    StorageBusType::Nvme
+                        | StorageBusType::Sd
+                        | StorageBusType::Mmc
+                        | StorageBusType::Ufs
+                        | StorageBusType::Scm
+                )
+            {
                 observed(
                     media,
-                    "IOCTL_STORAGE_QUERY_PROPERTY / ATA IDENTIFY DEVICE",
-                    "seek_penalty / nominal_media_rotation_rate",
+                    "IOCTL_STORAGE_QUERY_PROPERTY / ATA IDENTIFY DEVICE / storage bus",
+                    "seek_penalty / nominal_media_rotation_rate / BusType",
                     at,
                 )
             } else {
