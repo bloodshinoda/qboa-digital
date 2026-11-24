@@ -367,7 +367,10 @@ mod windows {
             ]
             .iter()
             .any(|generic| normalized == *generic || normalized.contains(generic))
-            || matches!(normalized.as_str(), "ata" | "scsi" | "nvme" | "usb" | "raid")
+            || matches!(
+                normalized.as_str(),
+                "ata" | "scsi" | "nvme" | "usb" | "raid"
+            )
     }
 
     const STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE: usize = 36;
@@ -375,10 +378,7 @@ mod windows {
     // STORAGE_DEVICE_DESCRIPTOR declara o tamanho da estrutura (Version) e o
     // tamanho total, incluindo strings (Size). Nunca interpretamos bytes além
     // do menor limite confirmado pelo Windows e pelo buffer recebido.
-    fn validate_storage_device_descriptor(
-        buffer: &[u8],
-        returned: usize,
-    ) -> Result<&[u8], String> {
+    fn validate_storage_device_descriptor(buffer: &[u8], returned: usize) -> Result<&[u8], String> {
         let available = returned.min(buffer.len());
         if available < STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE {
             return Err(format!(
@@ -386,10 +386,10 @@ mod windows {
             ));
         }
 
-        let version = read_u32(buffer, 0)
-            .ok_or_else(|| "campo Version ausente no cabeçalho".to_string())?;
-        let size = read_u32(buffer, 4)
-            .ok_or_else(|| "campo Size ausente no cabeçalho".to_string())?;
+        let version =
+            read_u32(buffer, 0).ok_or_else(|| "campo Version ausente no cabeçalho".to_string())?;
+        let size =
+            read_u32(buffer, 4).ok_or_else(|| "campo Size ausente no cabeçalho".to_string())?;
 
         if version < STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32 {
             return Err(format!(
@@ -397,7 +397,9 @@ mod windows {
             ));
         }
         if size < version {
-            return Err(format!("Size inconsistente: {size} menor que Version={version}"));
+            return Err(format!(
+                "Size inconsistente: {size} menor que Version={version}"
+            ));
         }
         if size as usize > available {
             return Err(format!(
@@ -418,8 +420,8 @@ mod windows {
         if start == 0 {
             return Ok(None);
         }
-        let header_size = read_u32(data, 0)
-            .unwrap_or(STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32) as usize;
+        let header_size =
+            read_u32(data, 0).unwrap_or(STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32) as usize;
         if start < header_size {
             return Err(format!(
                 "offset {start} aponta para dentro do cabeçalho (mínimo={header_size})"
@@ -879,12 +881,10 @@ mod windows {
                 }
             }
         });
-        let descriptor_vendor = descriptor_data.and_then(|data| {
-            read_descriptor_string(data, 12, "VendorIdOffset", number, warnings)
-        });
-        let model = descriptor_data.and_then(|data| {
-            read_descriptor_string(data, 16, "ProductIdOffset", number, warnings)
-        });
+        let descriptor_vendor = descriptor_data
+            .and_then(|data| read_descriptor_string(data, 12, "VendorIdOffset", number, warnings));
+        let model = descriptor_data
+            .and_then(|data| read_descriptor_string(data, 16, "ProductIdOffset", number, warnings));
         let firmware = descriptor_data.and_then(|data| {
             read_descriptor_string(data, 20, "ProductRevisionOffset", number, warnings)
         });
@@ -1729,7 +1729,8 @@ mod windows {
             let payload = value.unwrap_or_default();
             let size = STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE + payload.len();
             let mut data = vec![0u8; size];
-            data[0..4].copy_from_slice(&(STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32).to_le_bytes());
+            data[0..4]
+                .copy_from_slice(&(STORAGE_DEVICE_DESCRIPTOR_HEADER_SIZE as u32).to_le_bytes());
             data[4..8].copy_from_slice(&(size as u32).to_le_bytes());
             if value.is_some() {
                 data[12..16]
