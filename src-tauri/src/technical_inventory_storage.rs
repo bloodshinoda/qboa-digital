@@ -173,7 +173,7 @@ mod windows {
     struct Device(Handle);
 
     impl Device {
-        fn open(path: &str) -> Option<Self> {
+        fn open_with_error(path: &str) -> Result<Self, u32> {
             let path = wide(path);
             let handle = unsafe {
                 CreateFileW(
@@ -186,7 +186,15 @@ mod windows {
                     0,
                 )
             };
-            (handle != INVALID_HANDLE_VALUE).then_some(Self(handle))
+            if handle == INVALID_HANDLE_VALUE {
+                Err(unsafe { GetLastError() })
+            } else {
+                Ok(Self(handle))
+            }
+        }
+
+        fn open(path: &str) -> Option<Self> {
+            Self::open_with_error(path).ok()
         }
 
         fn ioctl(&self, code: u32, output: &mut [u8]) -> Option<usize> {
@@ -348,9 +356,18 @@ mod windows {
         warnings: &mut Vec<String>,
     ) -> Option<(PhysicalDiskInfo, Vec<PartitionInfo>)> {
         let path = format!(r"\\.\PhysicalDrive{number}");
-        let device = match Device::open(&path) {
-            Some(device) => device,
-            None => return None,
+        let device = match Device::open_with_error(&path) {
+            Ok(device) => device,
+            Err(error) => {
+                // Ausência de um índice PhysicalDrive é normal. Outros erros
+                // (por exemplo acesso negado ou dispositivo ocupado) são relevantes.
+                if !matches!(error, 2 | 3 | 21) {
+                    warnings.push(format!(
+                        "Não foi possível abrir {path} (GetLastError={error}); os demais dispositivos continuarão sendo coletados."
+                    ));
+                }
+                return None;
+            }
         };
 
         let mut device_number_buffer = [0u8; 16];
@@ -440,12 +457,12 @@ mod windows {
         let bus = bus_raw.map(bus_type);
         let removable = descriptor_data.map(|data| data.get(10).copied().unwrap_or(0) != 0);
 
-        let ata_identify = if matches!(bus, Some(StorageBusType::Ata | StorageBusType::Sata)) {
+        let ata_identify = if matches!(bus.as_ref(), Some(StorageBusType::Ata | StorageBusType::Sata)) {
             protocol_specific_data(&device, 2, 0, 512)
         } else {
             None
         };
-        let nvme_identify = if matches!(bus, Some(StorageBusType::Nvme)) {
+        let nvme_identify = if matches!(bus.as_ref(), Some(StorageBusType::Nvme)) {
             protocol_specific_data(&device, 3, 1, 4096)
         } else {
             None
@@ -511,10 +528,10 @@ mod windows {
                 let system = partition_type.as_deref().is_some_and(|value| {
                     value.contains("0xEF") || value.contains("C12A7328-F81F-11D2-BA4B-00A0C93EC93B")
                 });
-                let partition_id = format!("disk:{number}:partition:{partition_number}");
+                let partition_id = format!("disk:{disk_number}:partition:{partition_number}");
                 partitions.push(PartitionInfo {
                     partition_id,
-                    disk_id: format!("disk:{number}"),
+                    disk_id: format!("disk:{disk_number}"),
                     partition_number: observed(
                         partition_number,
                         "DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX)",
@@ -698,9 +715,11 @@ mod windows {
                 .unwrap_or_else(|| {
                     unavailable(at, "Interface não informada pelo descritor do dispositivo.")
                 }),
-            media_type: seek_penalty
-                .map(|_| observed(media, "IOCTL_STORAGE_QUERY_PROPERTY", "IncursSeekPenalty", at))
-                .unwrap_or_else(|| unavailable(at, "Tipo de mídia não pôde ser determinado por penalidade de busca.")),
+            media_type: if seek_penalty.is_some() || matches!(ata_rotation, Some(1..=65534)) {
+                observed(media, "IOCTL_STORAGE_QUERY_PROPERTY / ATA IDENTIFY DEVICE", "seek_penalty / nominal_media_rotation_rate", at)
+            } else {
+                unavailable(at, "Tipo de mídia não pôde ser determinado pelas propriedades disponíveis.")
+            },
             device_kind: observed(device_kind, "QBoa/storage bus + media classification", "device_kind", at),
             bus_type: bus_raw
                 .map(|value| {
