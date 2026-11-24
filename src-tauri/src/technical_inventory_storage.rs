@@ -889,13 +889,23 @@ mod windows {
                 if offset + 32 > length {
                     break;
                 }
-                let partition_number = read_u32(&layout, offset + 24).unwrap_or(index as u32 + 1);
+                let Some(partition_number) = read_u32(&layout, offset + 24) else {
+                    continue;
+                };
                 let start = read_i64(&layout, offset + 8)
                     .filter(|value| *value >= 0)
                     .map(|v| v as u64);
                 let size = read_i64(&layout, offset + 16)
                     .filter(|value| *value > 0)
                     .map(|v| v as u64);
+
+                // DRIVE_LAYOUT_INFORMATION_EX também reserva entradas para slots
+                // livres. Elas vêm com PartitionNumber/Length zerados e não são
+                // partições reais; incluí-las cria IDs repetidos (partition:0).
+                if partition_number == 0 || start.is_none() || size.is_none() {
+                    continue;
+                }
+
                 let style_value = read_u32(&layout, offset).unwrap_or(2);
                 let partition_type = match style_value {
                     0 => layout
