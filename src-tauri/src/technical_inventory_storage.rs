@@ -1004,7 +1004,7 @@ mod windows {
                     Some(1) => StorageMediaType::Ssd,
                     Some(value) if (0x0401..=0xfffe).contains(&value) => StorageMediaType::Hdd,
                     _ if matches!(
-                        bus,
+                        &bus,
                         StorageBusType::Nvme
                             | StorageBusType::Sd
                             | StorageBusType::Mmc
