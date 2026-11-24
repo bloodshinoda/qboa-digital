@@ -45,6 +45,7 @@ mod windows {
             template: Handle,
         ) -> Handle;
         fn CloseHandle(handle: Handle) -> Bool;
+        fn GetLastError() -> u32;
         fn DeviceIoControl(
             handle: Handle,
             code: u32,
@@ -197,6 +198,15 @@ mod windows {
             input: &mut [u8],
             output: &mut [u8],
         ) -> Option<usize> {
+            self.ioctl_with_input_result(code, input, output).ok()
+        }
+
+        fn ioctl_with_input_result(
+            &self,
+            code: u32,
+            input: &mut [u8],
+            output: &mut [u8],
+        ) -> Result<usize, u32> {
             let mut returned = 0u32;
             let ok = unsafe {
                 DeviceIoControl(
@@ -214,7 +224,11 @@ mod windows {
                     ptr::null_mut(),
                 )
             };
-            (ok != 0).then_some(returned as usize)
+            if ok != 0 {
+                Ok(returned as usize)
+            } else {
+                Err(unsafe { GetLastError() })
+            }
         }
     }
 
@@ -244,8 +258,10 @@ mod windows {
         ))
     }
 
-    fn read_wide_string(data: &[u8], offset: usize) -> Option<String> {
-        let start = *data.get(offset)? as usize;
+    // STORAGE_DEVICE_DESCRIPTOR armazena offsets ANSI como ULONG (u32), não
+    // como bytes isolados. Os offsets apontam para strings terminadas em NUL.
+    fn read_ansi_string(data: &[u8], offset_field: usize) -> Option<String> {
+        let start = read_u32(data, offset_field)? as usize;
         if start == 0 || start >= data.len() {
             return None;
         }
@@ -310,27 +326,46 @@ mod windows {
         // STORAGE_PROPERTY_QUERY: PropertyId=StorageDeviceProperty, QueryType=PropertyStandardQuery.
         let mut query = [0u8; 8];
         let mut descriptor = vec![0u8; 4096];
-        let descriptor_length =
-            device.ioctl_with_input(IOCTL_STORAGE_QUERY_PROPERTY, &mut query, &mut descriptor);
-        let descriptor_ok = descriptor_length.is_some_and(|length| length >= 36);
-        let vendor = descriptor_ok
-            .then(|| read_wide_string(&descriptor, 12))
-            .flatten();
-        let model = descriptor_ok
-            .then(|| read_wide_string(&descriptor, 16))
-            .flatten();
-        let firmware = descriptor_ok
-            .then(|| read_wide_string(&descriptor, 20))
-            .flatten();
-        let serial = descriptor_ok
-            .then(|| read_wide_string(&descriptor, 24))
-            .flatten();
-        let bus = descriptor_ok
-            .then(|| read_u32(&descriptor, 28))
-            .flatten()
-            .map(bus_type);
-        let removable = descriptor_ok.then(|| descriptor.get(10).copied().unwrap_or(0) != 0);
-        let bus_raw = descriptor_ok.then(|| read_u32(&descriptor, 28)).flatten();
+        let descriptor_result = device.ioctl_with_input_result(
+            IOCTL_STORAGE_QUERY_PROPERTY,
+            &mut query,
+            &mut descriptor,
+        );
+        let descriptor_length = match descriptor_result {
+            Ok(length) if length >= 36 => Some(length.min(descriptor.len())),
+            Ok(length) => {
+                warnings.push(format!(
+                    "Descritor de armazenamento do disco {number} incompleto: Windows retornou {length} bytes (mínimo esperado: 36)."
+                ));
+                None
+            }
+            Err(error) => {
+                warnings.push(format!(
+                    "IOCTL_STORAGE_QUERY_PROPERTY falhou no disco {number} (GetLastError={error})."
+                ));
+                None
+            }
+        };
+        let descriptor_data = descriptor_length.map(|length| &descriptor[..length]);
+        let descriptor_size = descriptor_data.and_then(|data| read_u32(data, 4));
+        let descriptor_version = descriptor_data.and_then(|data| read_u32(data, 0));
+        let descriptor_ok = descriptor_data.is_some()
+            && descriptor_version.is_some_and(|value| value >= 36)
+            && descriptor_size.is_some_and(|value| value >= 36);
+        if descriptor_data.is_some() && !descriptor_ok {
+            warnings.push(format!(
+                "Descritor de armazenamento do disco {number} possui cabeçalho inválido (Version={:?}, Size={:?}, retornado={:?}).",
+                descriptor_version, descriptor_size, descriptor_length
+            ));
+        }
+        let descriptor_data = descriptor_data.filter(|_| descriptor_ok);
+        let vendor = descriptor_data.and_then(|data| read_ansi_string(data, 12));
+        let model = descriptor_data.and_then(|data| read_ansi_string(data, 16));
+        let firmware = descriptor_data.and_then(|data| read_ansi_string(data, 20));
+        let serial = descriptor_data.and_then(|data| read_ansi_string(data, 24));
+        let bus_raw = descriptor_data.and_then(|data| read_u32(data, 28));
+        let bus = bus_raw.map(bus_type);
+        let removable = descriptor_data.map(|data| data.get(10).copied().unwrap_or(0) != 0);
 
         let mut layout = vec![0u8; 1024 * 1024];
         let layout_length = device.ioctl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX, &mut layout);
