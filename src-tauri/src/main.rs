@@ -3169,10 +3169,15 @@ async fn run_storage_integrity_check(
         let candidate = candidates
             .into_iter()
             .find(|candidate| candidate.volume.volume_id == volume_id)
-            .ok_or_else(|| "O volume não consta mais na enumeração atual; a verificação foi bloqueada.".to_string())?;
+            .ok_or_else(|| {
+                "O volume não consta mais na enumeração atual; a verificação foi bloqueada."
+                    .to_string()
+            })?;
 
         if candidate.volume.drive_letter.as_deref() != Some(drive_letter.as_str()) {
-            return Err("A letra do volume mudou desde a seleção; a verificação foi bloqueada.".into());
+            return Err(
+                "A letra do volume mudou desde a seleção; a verificação foi bloqueada.".into(),
+            );
         }
 
         Ok(storage_integrity_executor::execute(candidate))
