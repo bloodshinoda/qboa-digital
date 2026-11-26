@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub(crate) const STORAGE_INTEGRITY_SCHEMA_VERSION: u32 = 1;
+pub(crate) const STORAGE_INTEGRITY_SCHEMA_VERSION: u32 = 2;
 
 /// Sistema de arquivos informado pelo Windows para o volume examinado.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,7 +23,7 @@ pub(crate) enum StorageFileSystem {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StorageIntegrityMethod {
-    VolumeScan,
+    ChkdskNoRepair,
 }
 
 /// Estado operacional da tentativa de diagnóstico.
@@ -68,6 +68,9 @@ pub(crate) struct StorageIntegrityReport {
     pub finding: StorageIntegrityFinding,
     pub started_at_unix_ms: u64,
     pub finished_at_unix_ms: u64,
+    /// Código de saída do processo, quando ele chegou a ser iniciado e finalizado.
+    pub process_exit_code: Option<i32>,
+    /// Tempo decorrido medido por relógio monotônico, independente do relógio civil.
     pub duration_ms: u64,
     /// Campo explícito para impedir que um resultado de diagnóstico seja confundido
     /// com uma execução corretiva. Deve permanecer false neste contrato.
@@ -83,10 +86,8 @@ impl StorageIntegrityReport {
             || !is_valid_volume_id(&self.volume.volume_id)
             || !is_non_empty_text(&self.message)
             || self.repair_performed
-            || self
-                .finished_at_unix_ms
-                .checked_sub(self.started_at_unix_ms)
-                != Some(self.duration_ms)
+            || self.started_at_unix_ms == 0
+            || self.finished_at_unix_ms < self.started_at_unix_ms
         {
             return false;
         }
@@ -99,15 +100,19 @@ impl StorageIntegrityReport {
         }
 
         match self.status {
-            StorageIntegrityExecutionStatus::Completed => matches!(
-                self.finding,
-                StorageIntegrityFinding::Clean
-                    | StorageIntegrityFinding::CorruptionDetected
-                    | StorageIntegrityFinding::Inconclusive
-            ),
+            StorageIntegrityExecutionStatus::Completed => {
+                self.process_exit_code.is_some()
+                    && matches!(
+                        self.finding,
+                        StorageIntegrityFinding::Clean
+                            | StorageIntegrityFinding::CorruptionDetected
+                            | StorageIntegrityFinding::Inconclusive
+                    )
+            }
             StorageIntegrityExecutionStatus::Unsupported
             | StorageIntegrityExecutionStatus::VolumeUnavailable => {
-                self.finding == StorageIntegrityFinding::NotApplicable
+                self.process_exit_code.is_none()
+                    && self.finding == StorageIntegrityFinding::NotApplicable
             }
             StorageIntegrityExecutionStatus::Cancelled
             | StorageIntegrityExecutionStatus::Failed => matches!(
@@ -359,11 +364,12 @@ mod tests {
                 drive_letter: Some("C:".into()),
                 file_system: StorageFileSystem::Ntfs,
             },
-            method: StorageIntegrityMethod::VolumeScan,
+            method: StorageIntegrityMethod::ChkdskNoRepair,
             status,
             finding,
             started_at_unix_ms: 1_000,
             finished_at_unix_ms: 2_500,
+            process_exit_code: matches!(status, StorageIntegrityExecutionStatus::Completed).then_some(0),
             duration_ms: 1_500,
             repair_performed: false,
             message: "Verificação concluída.".into(),
@@ -479,6 +485,7 @@ mod tests {
         );
         assert!(value.is_valid());
         assert!(!value.repair_performed);
+        assert_eq!(value.process_exit_code, Some(0));
     }
 
     #[test]
@@ -563,6 +570,28 @@ mod tests {
     }
 
     #[test]
+    fn execucao_concluida_exige_codigo_de_saida_do_processo() {
+        let mut value = report(StorageIntegrityExecutionStatus::Completed, StorageIntegrityFinding::Inconclusive);
+        value.process_exit_code = None;
+        assert!(!value.is_valid());
+    }
+
+    #[test]
+    fn estados_sem_execucao_nao_podem_informar_codigo_de_saida() {
+        for status in [StorageIntegrityExecutionStatus::Unsupported, StorageIntegrityExecutionStatus::VolumeUnavailable] {
+            let mut value = report(status, StorageIntegrityFinding::NotApplicable);
+            value.process_exit_code = Some(0);
+            assert!(!value.is_valid(), "{status:?}");
+        }
+    }
+
+    #[test]
+    fn resultado_integro_registra_codigo_de_saida_sem_inferir_resultado() {
+        let mut value = report(StorageIntegrityExecutionStatus::Completed, StorageIntegrityFinding::Clean);
+        value.process_exit_code = Some(1);
+        assert!(value.is_valid());
+    }
+    #[test]
     fn rejeita_qualquer_indicacao_de_reparo() {
         let mut value = report(
             StorageIntegrityExecutionStatus::Completed,
@@ -637,37 +666,30 @@ mod tests {
     }
 
     #[test]
-    fn aceita_duracao_zero_quando_timestamps_coincidem() {
+    fn aceita_duracao_monotonica_independente_dos_timestamps_civis() {
         let mut value = report(
             StorageIntegrityExecutionStatus::Completed,
             StorageIntegrityFinding::Clean,
         );
-        value.finished_at_unix_ms = value.started_at_unix_ms;
+        value.finished_at_unix_ms = value.started_at_unix_ms + 10_000;
         value.duration_ms = 0;
         assert!(value.is_valid());
     }
 
     #[test]
-    fn exige_duracao_exatamente_igual_a_diferenca_dos_timestamps() {
-        let mut value = report(
-            StorageIntegrityExecutionStatus::Completed,
-            StorageIntegrityFinding::Clean,
-        );
-        value.duration_ms += 1;
-        assert!(!value.is_valid());
-
-        let mut value = report(
-            StorageIntegrityExecutionStatus::Completed,
-            StorageIntegrityFinding::Clean,
-        );
-        value.finished_at_unix_ms += 1;
-        assert!(!value.is_valid());
-
+    fn rejeita_timestamps_civis_invertidos_ou_inicio_invalido() {
         let mut value = report(
             StorageIntegrityExecutionStatus::Completed,
             StorageIntegrityFinding::Clean,
         );
         value.finished_at_unix_ms = value.started_at_unix_ms - 1;
+        assert!(!value.is_valid());
+
+        let mut value = report(
+            StorageIntegrityExecutionStatus::Completed,
+            StorageIntegrityFinding::Clean,
+        );
+        value.started_at_unix_ms = 0;
         assert!(!value.is_valid());
     }
 
@@ -678,12 +700,13 @@ mod tests {
             StorageIntegrityFinding::CorruptionDetected,
         );
         let json = serde_json::to_value(value).unwrap();
-        assert_eq!(json["method"], "volume_scan");
+        assert_eq!(json["method"], "chkdsk_no_repair");
         assert_eq!(json["status"], "completed");
         assert_eq!(json["finding"], "corruption_detected");
         assert_eq!(json["volume"]["file_system"], "ntfs");
         assert_eq!(json["repair_performed"], false);
-        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["schema_version"], 2);
+        assert_eq!(json["process_exit_code"], 0);
     }
 
     #[test]
@@ -701,7 +724,7 @@ mod tests {
     #[test]
     fn rejeita_campos_desconhecidos_no_laudo_e_no_volume() {
         let report_json = serde_json::json!({
-            "schema_version": 1,
+            "schema_version": 2,
             "check_id": "integrity-test-001",
             "volume": {
                 "volume_id": VALID_VOLUME_ID,
@@ -709,11 +732,12 @@ mod tests {
                 "file_system": "ntfs",
                 "unexpected": true
             },
-            "method": "volume_scan",
+            "method": "chkdsk_no_repair",
             "status": "completed",
             "finding": "clean",
             "started_at_unix_ms": 1000,
             "finished_at_unix_ms": 2500,
+            "process_exit_code": 0,
             "duration_ms": 1500,
             "repair_performed": false,
             "message": "Verificação concluída."
