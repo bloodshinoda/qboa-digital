@@ -410,8 +410,8 @@ mod tests {
 
     #[test]
     fn decodificacao_preserva_caracteres_acentuados_em_portugues() {
-        let bytes = "O Windows não encontrou problemas; nenhuma ação adicional é necessária."
-            .as_bytes();
+        let bytes =
+            "O Windows não encontrou problemas; nenhuma ação adicional é necessária.".as_bytes();
         assert_eq!(
             decode_chkdsk_output(bytes),
             "O Windows não encontrou problemas; nenhuma ação adicional é necessária."
