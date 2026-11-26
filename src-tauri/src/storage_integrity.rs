@@ -143,7 +143,6 @@ fn is_valid_volume_id(value: &str) -> bool {
             })
 }
 
-
 use crate::technical_inventory::{StorageBusType, StorageCategory, StorageDeviceKind};
 /// Resultado da avaliação prévia de um volume; não inicia nenhuma verificação.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -370,7 +369,6 @@ mod tests {
             message: "Verificação concluída.".into(),
         }
     }
-
 
     fn candidate_volume(
         file_system: Option<&str>,
