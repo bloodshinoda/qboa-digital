@@ -934,15 +934,19 @@ mod windows {
                     .clone()
                     .filter(|value| !is_generic_manufacturer(value))
             });
-        let manufacturer_note = format!(
-            "Fabricante não informado por uma fonte confiável (VendorIdOffset={:?}, VendorId={:?}, DEVPKEY_Device_Manufacturer={:?}, DEVPKEY_Device_FriendlyName={:?}, DEVPKEY_Device_DeviceDesc={:?}, DEVPKEY_Device_HardwareIds={:?}).",
-            descriptor_data.and_then(|data| read_u32(data, 12)),
-            descriptor_vendor,
-            pnp.manufacturer,
-            pnp.friendly_name,
-            pnp.device_description,
-            pnp.hardware_ids
-        );
+        let manufacturer_note =
+            "Fabricante não identificado por fontes confiáveis disponíveis.".to_string();
+        if vendor.is_none() {
+            warnings.push(format!(
+                "Diagnóstico do fabricante do disco {number}: VendorIdOffset={:?}, VendorId={:?}, DEVPKEY_Device_Manufacturer={:?}, DEVPKEY_Device_FriendlyName={:?}, DEVPKEY_Device_DeviceDesc={:?}, DEVPKEY_Device_HardwareIds={:?}.",
+                descriptor_data.and_then(|data| read_u32(data, 12)),
+                descriptor_vendor,
+                pnp.manufacturer,
+                pnp.friendly_name,
+                pnp.device_description,
+                pnp.hardware_ids
+            ));
+        }
         let bus_raw = descriptor_data.and_then(|data| read_u32(data, 28));
         let bus = bus_raw.map(bus_type);
         let removable = descriptor_data.map(|data| data.get(10).copied().unwrap_or(0) != 0);
@@ -1817,6 +1821,20 @@ mod windows {
             let data = descriptor_fixture(None);
             let validated = validate_storage_device_descriptor(&data, data.len()).unwrap();
             assert_eq!(read_ansi_string(validated, 12).unwrap(), None);
+        }
+
+        #[test]
+        fn rejects_generic_windows_and_virtual_vendor_labels_as_manufacturer() {
+            assert!(is_generic_manufacturer("(Unidades de disco padrão)"));
+            assert!(is_generic_manufacturer("Msft"));
+            assert!(!is_generic_manufacturer("Kingston"));
+        }
+
+        #[test]
+        fn keeps_missing_manufacturer_note_concise_without_inference() {
+            let note = "Fabricante não identificado por fontes confiáveis disponíveis.";
+            assert!(note.len() < 100);
+            assert!(!note.contains("Kingston"));
         }
     }
 
