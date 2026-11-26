@@ -447,8 +447,7 @@ mod windows {
         data: &[u8],
         offset_field: usize,
         field_name: &str,
-        disk_number: u32,
-        warnings: &mut Vec<String>,
+        disk_number: u32,        warnings: &mut Vec<String>,
     ) -> Option<String> {
         match read_ansi_string(data, offset_field) {
             Ok(value) => value,
@@ -550,9 +549,29 @@ mod windows {
         (!value.is_empty()).then_some(value)
     }
 
+    fn devnode_multi_string(dev_inst: u32, key: &DevPropKey) -> Vec<String> {
+        let Some(bytes) = devnode_property(dev_inst, key) else {
+            return Vec::new();
+        };
+        let wide: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        wide.split(|value| *value == 0)
+            .take_while(|part| !part.is_empty())
+            .map(String::from_utf16_lossy)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .take(16)
+            .collect()
+    }
+
     #[derive(Default)]
     struct PnpDiskMetadata {
         manufacturer: Option<String>,
+        device_description: Option<String>,
+        friendly_name: Option<String>,
+        hardware_ids: Vec<String>,
         current_pcie_speed: Option<u32>,
         current_pcie_width: Option<u32>,
         max_pcie_speed: Option<u32>,
@@ -576,6 +595,18 @@ mod windows {
         let manufacturer_key = DevPropKey {
             fmtid: GUID_DEVPROP_DEVICE,
             pid: 13,
+        };
+        let device_description_key = DevPropKey {
+            fmtid: GUID_DEVPROP_DEVICE,
+            pid: 2,
+        };
+        let hardware_ids_key = DevPropKey {
+            fmtid: GUID_DEVPROP_DEVICE,
+            pid: 3,
+        };
+        let friendly_name_key = DevPropKey {
+            fmtid: GUID_DEVPROP_DEVICE,
+            pid: 14,
         };
         let current_speed_key = DevPropKey {
             fmtid: GUID_DEVPROP_PCI,
@@ -682,6 +713,9 @@ mod windows {
             }
 
             metadata.manufacturer = devnode_string(info.dev_inst, &manufacturer_key);
+            metadata.device_description = devnode_string(info.dev_inst, &device_description_key);
+            metadata.friendly_name = devnode_string(info.dev_inst, &friendly_name_key);
+            metadata.hardware_ids = devnode_multi_string(info.dev_inst, &hardware_ids_key);
 
             // O disco pode ser um nó SCSI filho de um controlador NVMe PCIe.
             // Percorremos a cadeia de pais para localizar as propriedades PCIe.
@@ -897,13 +931,15 @@ mod windows {
             .or_else(|| {
                 pnp.manufacturer
                     .clone()
-                    .filter(|value| !is_generic_manufacturer(value))
-            });
+                    .filter(|value| !is_generic_manufacturer(value))            });
         let manufacturer_note = format!(
-            "Fabricante não informado por uma fonte confiável (VendorIdOffset={:?}, VendorId={:?}, DEVPKEY_Device_Manufacturer={:?}).",
+            "Fabricante não informado por uma fonte confiável (VendorIdOffset={:?}, VendorId={:?}, DEVPKEY_Device_Manufacturer={:?}, DEVPKEY_Device_FriendlyName={:?}, DEVPKEY_Device_DeviceDesc={:?}, DEVPKEY_Device_HardwareIds={:?}).",
             descriptor_data.and_then(|data| read_u32(data, 12)),
             descriptor_vendor,
-            pnp.manufacturer
+            pnp.manufacturer,
+            pnp.friendly_name,
+            pnp.device_description,
+            pnp.hardware_ids
         );
         let bus_raw = descriptor_data.and_then(|data| read_u32(data, 28));
         let bus = bus_raw.map(bus_type);
@@ -1347,8 +1383,7 @@ mod windows {
                 }),
             interface_generation: ata_current_speed
                 .map(|value| {
-                    observed(
-                        value,
+                    observed(                        value,
                         "ATA IDENTIFY DEVICE",
                         "SATA current signaling speed (word 77)",
                         at,
