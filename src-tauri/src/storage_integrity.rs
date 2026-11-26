@@ -369,7 +369,8 @@ mod tests {
             finding,
             started_at_unix_ms: 1_000,
             finished_at_unix_ms: 2_500,
-            process_exit_code: matches!(status, StorageIntegrityExecutionStatus::Completed).then_some(0),
+            process_exit_code: matches!(status, StorageIntegrityExecutionStatus::Completed)
+                .then_some(0),
             duration_ms: 1_500,
             repair_performed: false,
             message: "Verificação concluída.".into(),
@@ -571,14 +572,20 @@ mod tests {
 
     #[test]
     fn execucao_concluida_exige_codigo_de_saida_do_processo() {
-        let mut value = report(StorageIntegrityExecutionStatus::Completed, StorageIntegrityFinding::Inconclusive);
+        let mut value = report(
+            StorageIntegrityExecutionStatus::Completed,
+            StorageIntegrityFinding::Inconclusive,
+        );
         value.process_exit_code = None;
         assert!(!value.is_valid());
     }
 
     #[test]
     fn estados_sem_execucao_nao_podem_informar_codigo_de_saida() {
-        for status in [StorageIntegrityExecutionStatus::Unsupported, StorageIntegrityExecutionStatus::VolumeUnavailable] {
+        for status in [
+            StorageIntegrityExecutionStatus::Unsupported,
+            StorageIntegrityExecutionStatus::VolumeUnavailable,
+        ] {
             let mut value = report(status, StorageIntegrityFinding::NotApplicable);
             value.process_exit_code = Some(0);
             assert!(!value.is_valid(), "{status:?}");
@@ -587,7 +594,10 @@ mod tests {
 
     #[test]
     fn resultado_integro_registra_codigo_de_saida_sem_inferir_resultado() {
-        let mut value = report(StorageIntegrityExecutionStatus::Completed, StorageIntegrityFinding::Clean);
+        let mut value = report(
+            StorageIntegrityExecutionStatus::Completed,
+            StorageIntegrityFinding::Clean,
+        );
         value.process_exit_code = Some(1);
         assert!(value.is_valid());
     }
