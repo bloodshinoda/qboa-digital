@@ -447,7 +447,8 @@ mod windows {
         data: &[u8],
         offset_field: usize,
         field_name: &str,
-        disk_number: u32,        warnings: &mut Vec<String>,
+        disk_number: u32,
+        warnings: &mut Vec<String>,
     ) -> Option<String> {
         match read_ansi_string(data, offset_field) {
             Ok(value) => value,
@@ -931,7 +932,8 @@ mod windows {
             .or_else(|| {
                 pnp.manufacturer
                     .clone()
-                    .filter(|value| !is_generic_manufacturer(value))            });
+                    .filter(|value| !is_generic_manufacturer(value))
+            });
         let manufacturer_note = format!(
             "Fabricante não informado por uma fonte confiável (VendorIdOffset={:?}, VendorId={:?}, DEVPKEY_Device_Manufacturer={:?}, DEVPKEY_Device_FriendlyName={:?}, DEVPKEY_Device_DeviceDesc={:?}, DEVPKEY_Device_HardwareIds={:?}).",
             descriptor_data.and_then(|data| read_u32(data, 12)),
@@ -1383,7 +1385,8 @@ mod windows {
                 }),
             interface_generation: ata_current_speed
                 .map(|value| {
-                    observed(                        value,
+                    observed(
+                        value,
                         "ATA IDENTIFY DEVICE",
                         "SATA current signaling speed (word 77)",
                         at,
