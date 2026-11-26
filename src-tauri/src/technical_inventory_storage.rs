@@ -477,6 +477,7 @@ mod windows {
         .to_ascii_lowercase();
         let usb_flash_hint = *bus == StorageBusType::Usb
             && removable == Some(true)
+            && scsi_device_type != Some(5)
             && !identity_hint.contains("reader")
             && [
                 "flash",
@@ -1940,7 +1941,7 @@ mod windows {
                 None,
             );
             assert_eq!(kind, StorageDeviceKind::OpticalDrive);
-            assert!(estimated);
+            assert!(!estimated);
         }
     }
 
