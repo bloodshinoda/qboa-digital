@@ -239,7 +239,24 @@ fn decode_chkdsk_output_with_code_page(bytes: &[u8], code_page: u32) -> String {
 }
 
 fn decode_chkdsk_output(bytes: &[u8]) -> String {
-    decode_chkdsk_output_with_code_page(bytes, 1) // CP_OEMCP
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+
+    // A saída redirecionada do CHKDSK pode seguir a página OEM ou ANSI,
+    // dependendo da versão/configuração do Windows. Preferimos a primeira
+    // decodificação que contenha um resumo reconhecível pelo classificador.
+    let oem = decode_chkdsk_output_with_code_page(bytes, 1); // CP_OEMCP
+    if classify_output(&oem) != StorageIntegrityFinding::Inconclusive {
+        return oem;
+    }
+
+    let ansi = decode_chkdsk_output_with_code_page(bytes, 0); // CP_ACP
+    if classify_output(&ansi) != StorageIntegrityFinding::Inconclusive {
+        return ansi;
+    }
+
+    oem
 }
 
 #[cfg(target_os = "windows")]
