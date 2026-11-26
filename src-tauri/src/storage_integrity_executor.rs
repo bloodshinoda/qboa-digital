@@ -39,9 +39,12 @@ fn compact_output(output: &str) -> String {
         })
         .collect();
     let compact = compact.split_whitespace().collect::<Vec<_>>().join(" ");
-    let shortened: String = compact.chars().take(900).collect();
+    let total_chars = compact.chars().count();
+    let shortened: String = compact.chars().skip(total_chars.saturating_sub(900)).collect();
     if shortened.is_empty() {
         "O CHKDSK não retornou texto de diagnóstico.".into()
+    } else if total_chars > 900 {
+        format!("…{shortened}")
     } else {
         shortened
     }
@@ -174,6 +177,61 @@ pub(crate) fn execute(candidate: StorageIntegrityCandidate) -> StorageIntegrityR
     run_chkdsk(candidate.volume, &letter, started_at, started)
 }
 
+/// Decodifica a saída do CHKDSK. O processo usa a página OEM do console
+/// no Windows; UTF-8 é aceito primeiro para manter compatibilidade com builds
+/// e ambientes que já emitam essa codificação.
+fn decode_chkdsk_output(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_string();
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn MultiByteToWideChar(
+                code_page: u32,
+                flags: u32,
+                input: *const i8,
+                input_len: i32,
+                output: *mut u16,
+                output_len: i32,
+            ) -> i32;
+        }
+
+        if !bytes.is_empty() && bytes.len() <= i32::MAX as usize {
+            let required = unsafe {
+                MultiByteToWideChar(
+                    1, // CP_OEMCP
+                    0,
+                    bytes.as_ptr().cast(),
+                    bytes.len() as i32,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
+            if required > 0 {
+                let mut wide = vec![0u16; required as usize];
+                let written = unsafe {
+                    MultiByteToWideChar(
+                        1,
+                        0,
+                        bytes.as_ptr().cast(),
+                        bytes.len() as i32,
+                        wide.as_mut_ptr(),
+                        required,
+                    )
+                };
+                if written > 0 {
+                    return String::from_utf16_lossy(&wide[..written as usize]);
+                }
+            }
+        }
+    }
+
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
 #[cfg(target_os = "windows")]
 fn run_chkdsk(
     volume: StorageIntegrityVolume,
@@ -197,9 +255,9 @@ fn run_chkdsk(
     match result {
         Ok(output) => {
             let exit_code = output.status.code();
-            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+            let mut text = decode_chkdsk_output(&output.stdout);
             text.push('\n');
-            text.push_str(&String::from_utf8_lossy(&output.stderr));
+            text.push_str(&decode_chkdsk_output(&output.stderr));
             let finding = classify_output(&text);
             let message = format!(
                 "{} (código de saída: {}).",
@@ -325,10 +383,37 @@ mod tests {
     }
 
     #[test]
-    fn compactacao_remove_controles_e_limita_tamanho() {
-        let value = compact_output(&format!("linha\n{}\nfim", "x".repeat(2_000)));
+    fn compactacao_remove_controles_limita_tamanho_e_preserva_o_final() {
+        let value = compact_output(&format!("início\n{}\nRESUMO FINAL: volume íntegro", "x".repeat(2_000)));
         assert!(!value.chars().any(char::is_control));
-        assert!(value.chars().count() <= 900);
+        assert!(value.chars().count() <= 901);
+        assert!(value.ends_with("RESUMO FINAL: volume íntegro"));
+        assert!(value.starts_with('…'));
+    }
+
+    #[test]
+    fn classificacao_usa_a_saida_completa_antes_da_compactacao() {
+        let output = format!(
+            "{}\nO Windows verificou o sistema de arquivos e não encontrou problemas.",
+            "progresso ".repeat(2_000)
+        );
+        assert_eq!(classify_output(&output), StorageIntegrityFinding::Clean);
+        let persisted = compact_output(&output);
+        assert!(persisted.ends_with("não encontrou problemas."));
+    }
+
+    #[test]
+    fn decodificacao_preserva_caracteres_acentuados_em_portugues() {
+        let bytes = "O Windows não encontrou problemas; nenhuma ação adicional é necessária."
+            .as_bytes();
+        assert_eq!(
+            decode_chkdsk_output(bytes),
+            "O Windows não encontrou problemas; nenhuma ação adicional é necessária."
+        );
+        assert_eq!(
+            classify_output(&decode_chkdsk_output(bytes)),
+            StorageIntegrityFinding::Clean
+        );
     }
 
     #[test]
