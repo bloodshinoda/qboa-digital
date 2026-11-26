@@ -276,7 +276,7 @@ fn classify_volume_candidate(
             }
         }
         if matches!(
-            disk.bus_type,
+            disk.bus_type.as_ref(),
             Some(
                 StorageBusType::Virtual
                     | StorageBusType::FileBackedVirtual
@@ -358,6 +358,88 @@ mod tests {
             repair_performed: false,
             message: "Verificação concluída.".into(),
         }
+    }
+
+
+    fn candidate_volume(file_system: Option<&str>, drive_letter: Option<&str>) -> VolumeEligibilityInput {
+        VolumeEligibilityInput {
+            volume_id: VALID_VOLUME_ID.into(),
+            drive_letter: drive_letter.map(str::to_string),
+            file_system: file_system.map(str::to_string),
+            associated_disk_ids: vec!["disk:0".into()],
+        }
+    }
+
+    fn fixed_ssd() -> DiskEligibilityContext {
+        DiskEligibilityContext {
+            disk_id: "disk:0".into(),
+            device_kind: Some(StorageDeviceKind::SolidStateDrive),
+            bus_type: Some(StorageBusType::Sata),
+            is_removable: Some(false),
+        }
+    }
+
+    #[test]
+    fn ntfs_em_disco_fixo_e_elegivel_sem_executar_varredura() {
+        let candidate = classify_volume_candidate(candidate_volume(Some("NTFS"), Some("C:")), &[fixed_ssd()]);
+        assert_eq!(candidate.eligibility, StorageIntegrityEligibility::Eligible);
+        assert_eq!(candidate.volume.file_system, StorageFileSystem::Ntfs);
+    }
+
+    #[test]
+    fn sistema_de_arquivos_nao_ntfs_e_excluido() {
+        for file_system in ["ReFS", "FAT32", "exFAT", "RAW"] {
+            let candidate = classify_volume_candidate(
+                candidate_volume(Some(file_system), Some("D:")),
+                &[fixed_ssd()],
+            );
+            assert_eq!(
+                candidate.eligibility,
+                StorageIntegrityEligibility::Unsupported,
+                "{file_system}"
+            );
+        }
+    }
+
+    #[test]
+    fn volume_sem_letra_nao_e_elegivel_na_primeira_etapa() {
+        let candidate = classify_volume_candidate(candidate_volume(Some("NTFS"), None), &[fixed_ssd()]);
+        assert_eq!(candidate.eligibility, StorageIntegrityEligibility::Unsupported);
+    }
+
+    #[test]
+    fn dispositivo_removivel_virtual_ou_desconhecido_nao_e_elegivel() {
+        let mut removable = fixed_ssd();
+        removable.is_removable = Some(true);
+        assert_eq!(
+            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("E:")), &[removable]).eligibility,
+            StorageIntegrityEligibility::Unsupported
+        );
+
+        let mut virtual = fixed_ssd();
+        virtual.device_kind = Some(StorageDeviceKind::VirtualDisk);
+        virtual.bus_type = Some(StorageBusType::FileBackedVirtual);
+        assert_eq!(
+            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("F:")), &[virtual]).eligibility,
+            StorageIntegrityEligibility::Unsupported
+        );
+
+        let mut unknown = fixed_ssd();
+        unknown.is_removable = None;
+        assert_eq!(
+            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("G:")), &[unknown]).eligibility,
+            StorageIntegrityEligibility::Unavailable
+        );
+    }
+
+    #[test]
+    fn volume_sem_associacao_confiavel_nao_e_elegivel() {
+        let mut volume = candidate_volume(Some("NTFS"), Some("C:"));
+        volume.associated_disk_ids.clear();
+        assert_eq!(
+            classify_volume_candidate(volume, &[fixed_ssd()]).eligibility,
+            StorageIntegrityEligibility::Unavailable
+        );
     }
 
     #[test]
