@@ -58,7 +58,10 @@ fn classify_output(output: &str) -> StorageIntegrityFinding {
         "nao encontrou problemas",
         "nenhum problema foi encontrado",
     ];
-    if clean_markers.iter().any(|marker| normalized.contains(marker)) {
+    if clean_markers
+        .iter()
+        .any(|marker| normalized.contains(marker))
+    {
         return StorageIntegrityFinding::Clean;
     }
 
@@ -198,9 +201,13 @@ fn run_chkdsk(
             text.push('\n');
             text.push_str(&String::from_utf8_lossy(&output.stderr));
             let finding = classify_output(&text);
-            let message = format!("{} (código de saída: {}).", compact_output(&text), exit_code
-                .map(|code| code.to_string())
-                .unwrap_or_else(|| "indisponível".into()));
+            let message = format!(
+                "{} (código de saída: {}).",
+                compact_output(&text),
+                exit_code
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "indisponível".into())
+            );
 
             let status = if exit_code.is_some() {
                 StorageIntegrityExecutionStatus::Completed
