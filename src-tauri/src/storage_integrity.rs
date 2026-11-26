@@ -275,20 +275,29 @@ fn classify_volume_candidate(
                 );
             }
         }
-        if matches!(
-            disk.bus_type.as_ref(),
+        match disk.bus_type.as_ref() {
+            None | Some(StorageBusType::Unknown) => {
+                return result(
+                    StorageIntegrityEligibility::Unavailable,
+                    "Barramento do dispositivo associado não identificado.",
+                );
+            }
             Some(
-                StorageBusType::Virtual
-                    | StorageBusType::FileBackedVirtual
-                    | StorageBusType::Spaces
-                    | StorageBusType::Iscsi
-                    | StorageBusType::NvmeOf
-            )
-        ) {
-            return result(
-                StorageIntegrityEligibility::Unsupported,
-                "Dispositivos virtuais, Storage Spaces e armazenamento em rede ficam fora da primeira etapa.",
-            );
+                StorageBusType::Usb
+                | StorageBusType::Sd
+                | StorageBusType::Mmc
+                | StorageBusType::Virtual
+                | StorageBusType::FileBackedVirtual
+                | StorageBusType::Spaces
+                | StorageBusType::Iscsi
+                | StorageBusType::NvmeOf,
+            ) => {
+                return result(
+                    StorageIntegrityEligibility::Unsupported,
+                    "Dispositivos removíveis, virtuais, Storage Spaces e armazenamento em rede ficam fora da primeira etapa.",
+                );
+            }
+            Some(_) => {}
         }
     }
 
@@ -416,11 +425,15 @@ mod tests {
             StorageIntegrityEligibility::Unsupported
         );
 
-        let mut virtual = fixed_ssd();
-        virtual.device_kind = Some(StorageDeviceKind::VirtualDisk);
-        virtual.bus_type = Some(StorageBusType::FileBackedVirtual);
+        let mut virtual_disk = fixed_ssd();
+        virtual_disk.device_kind = Some(StorageDeviceKind::VirtualDisk);
+        virtual_disk.bus_type = Some(StorageBusType::FileBackedVirtual);
         assert_eq!(
-            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("F:")), &[virtual]).eligibility,
+            classify_volume_candidate(
+                candidate_volume(Some("NTFS"), Some("F:")),
+                &[virtual_disk]
+            )
+            .eligibility,
             StorageIntegrityEligibility::Unsupported
         );
 
