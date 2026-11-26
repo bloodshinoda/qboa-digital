@@ -18,6 +18,7 @@ mod service_manager;
 mod service_profiles;
 mod storage_diagnostic;
 mod storage_integrity;
+mod storage_integrity_executor;
 mod system_compat;
 mod task_registry;
 mod technical_inventory;
@@ -3153,6 +3154,33 @@ fn get_storage_integrity_candidates(
     Ok(storage_integrity::classify_storage_volumes(&storage))
 }
 
+/// Revalida o volume antes de executar CHKDSK sem parâmetros de reparo.
+#[tauri::command]
+async fn run_storage_integrity_check(
+    volume_id: String,
+    drive_letter: String,
+) -> Result<storage_integrity::StorageIntegrityReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = technical_inventory_storage::collect_storage_category()?;
+        let storage = collection
+            .data
+            .ok_or_else(|| "A coleta de armazenamento não retornou dados.".to_string())?;
+        let candidates = storage_integrity::classify_storage_volumes(&storage);
+        let candidate = candidates
+            .into_iter()
+            .find(|candidate| candidate.volume.volume_id == volume_id)
+            .ok_or_else(|| "O volume não consta mais na enumeração atual; a verificação foi bloqueada.".to_string())?;
+
+        if candidate.volume.drive_letter.as_deref() != Some(drive_letter.as_str()) {
+            return Err("A letra do volume mudou desde a seleção; a verificação foi bloqueada.".into());
+        }
+
+        Ok(storage_integrity_executor::execute(candidate))
+    })
+    .await
+    .map_err(|error| format!("Falha ao aguardar o executor de integridade: {error}"))?
+}
+
 #[derive(Clone, Serialize)]
 struct ServiceProfileState {
     system: service_profiles::DetectedSystem,
@@ -3625,6 +3653,7 @@ fn main() {
             get_technical_inventory_cpu_snapshot,
             get_technical_inventory_storage_snapshot,
             get_storage_integrity_candidates,
+            run_storage_integrity_check,
             list_windows_services,
             manage_windows_service,
             repair_windows_update,
