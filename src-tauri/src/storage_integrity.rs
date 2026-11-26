@@ -144,10 +144,7 @@ fn is_valid_volume_id(value: &str) -> bool {
 }
 
 
-use crate::technical_inventory::{
-    StorageBusType, StorageCategory, StorageDeviceKind,
-};
-
+use crate::technical_inventory::{StorageBusType, StorageCategory, StorageDeviceKind};
 /// Resultado da avaliação prévia de um volume; não inicia nenhuma verificação.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -184,7 +181,12 @@ fn classify_volume_candidate(
     volume: VolumeEligibilityInput,
     disks: &[DiskEligibilityContext],
 ) -> StorageIntegrityCandidate {
-    let file_system = match volume.file_system.as_deref().map(str::to_ascii_lowercase).as_deref() {
+    let file_system = match volume
+        .file_system
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("ntfs") => StorageFileSystem::Ntfs,
         Some("refs") => StorageFileSystem::Refs,
         Some("fat32") => StorageFileSystem::Fat32,
@@ -370,7 +372,10 @@ mod tests {
     }
 
 
-    fn candidate_volume(file_system: Option<&str>, drive_letter: Option<&str>) -> VolumeEligibilityInput {
+    fn candidate_volume(
+        file_system: Option<&str>,
+        drive_letter: Option<&str>,
+    ) -> VolumeEligibilityInput {
         VolumeEligibilityInput {
             volume_id: VALID_VOLUME_ID.into(),
             drive_letter: drive_letter.map(str::to_string),
@@ -390,7 +395,8 @@ mod tests {
 
     #[test]
     fn ntfs_em_disco_fixo_e_elegivel_sem_executar_varredura() {
-        let candidate = classify_volume_candidate(candidate_volume(Some("NTFS"), Some("C:")), &[fixed_ssd()]);
+        let candidate =
+            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("C:")), &[fixed_ssd()]);
         assert_eq!(candidate.eligibility, StorageIntegrityEligibility::Eligible);
         assert_eq!(candidate.volume.file_system, StorageFileSystem::Ntfs);
     }
@@ -412,8 +418,12 @@ mod tests {
 
     #[test]
     fn volume_sem_letra_nao_e_elegivel_na_primeira_etapa() {
-        let candidate = classify_volume_candidate(candidate_volume(Some("NTFS"), None), &[fixed_ssd()]);
-        assert_eq!(candidate.eligibility, StorageIntegrityEligibility::Unsupported);
+        let candidate =
+            classify_volume_candidate(candidate_volume(Some("NTFS"), None), &[fixed_ssd()]);
+        assert_eq!(
+            candidate.eligibility,
+            StorageIntegrityEligibility::Unsupported
+        );
     }
 
     #[test]
@@ -421,7 +431,8 @@ mod tests {
         let mut removable = fixed_ssd();
         removable.is_removable = Some(true);
         assert_eq!(
-            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("E:")), &[removable]).eligibility,
+            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("E:")), &[removable])
+                .eligibility,
             StorageIntegrityEligibility::Unsupported
         );
 
@@ -429,18 +440,16 @@ mod tests {
         virtual_disk.device_kind = Some(StorageDeviceKind::VirtualDisk);
         virtual_disk.bus_type = Some(StorageBusType::FileBackedVirtual);
         assert_eq!(
-            classify_volume_candidate(
-                candidate_volume(Some("NTFS"), Some("F:")),
-                &[virtual_disk]
-            )
-            .eligibility,
+            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("F:")), &[virtual_disk])
+                .eligibility,
             StorageIntegrityEligibility::Unsupported
         );
 
         let mut unknown = fixed_ssd();
         unknown.is_removable = None;
         assert_eq!(
-            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("G:")), &[unknown]).eligibility,
+            classify_volume_candidate(candidate_volume(Some("NTFS"), Some("G:")), &[unknown])
+                .eligibility,
             StorageIntegrityEligibility::Unavailable
         );
     }
