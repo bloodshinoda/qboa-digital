@@ -461,6 +461,79 @@ mod windows {
         }
     }
 
+    fn classify_device_kind(
+        bus: &StorageBusType,
+        removable: Option<bool>,
+        scsi_device_type: Option<u8>,
+        media: &StorageMediaType,
+        model: Option<&str>,
+        vendor: Option<&str>,
+    ) -> (StorageDeviceKind, bool) {
+        let identity_hint = format!(
+            "{} {}",
+            model.unwrap_or_default(),
+            vendor.unwrap_or_default()
+        )
+        .to_ascii_lowercase();
+        let usb_flash_hint = *bus == StorageBusType::Usb
+            && removable == Some(true)
+            && !identity_hint.contains("reader")
+            && [
+                "flash",
+                "thumb",
+                "pendrive",
+                "pen drive",
+                "datatraveler",
+                "cruzer",
+                "jetflash",
+                "usb disk",
+            ]
+            .iter()
+            .any(|hint| identity_hint.contains(hint));
+
+        let kind = if scsi_device_type == Some(5) {
+            StorageDeviceKind::OpticalDrive
+        } else if usb_flash_hint {
+            StorageDeviceKind::UsbFlashDrive
+        } else {
+            match bus {
+                StorageBusType::Sd | StorageBusType::Mmc => StorageDeviceKind::MemoryCard,
+                StorageBusType::Virtual | StorageBusType::FileBackedVirtual => {
+                    StorageDeviceKind::VirtualDisk
+                }
+                StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
+                StorageBusType::Nvme | StorageBusType::Ufs => StorageDeviceKind::SolidStateDrive,
+                StorageBusType::Scm => StorageDeviceKind::Other,
+                StorageBusType::NvmeOf | StorageBusType::Iscsi | StorageBusType::Fibre => {
+                    StorageDeviceKind::NetworkDisk
+                }
+                StorageBusType::Sata | StorageBusType::Ata => match media {
+                    StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                    StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                    _ => StorageDeviceKind::Unknown,
+                },
+                StorageBusType::Usb => {
+                    if removable == Some(true) {
+                        StorageDeviceKind::UsbRemovableStorage
+                    } else {
+                        match media {
+                            StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                            StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                            _ => StorageDeviceKind::Unknown,
+                        }
+                    }
+                }
+                _ => match media {
+                    StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
+                    StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
+                    _ => StorageDeviceKind::Unknown,
+                },
+            }
+        };
+
+        (kind, usb_flash_hint)
+    }
+
     fn bus_type(value: u32) -> StorageBusType {
         match value {
             1 => StorageBusType::Scsi,
@@ -1177,67 +1250,14 @@ mod windows {
             }
         };
 
-        let identity_hint = format!(
-            "{} {}",
-            model.as_deref().unwrap_or_default(),
-            vendor.as_deref().unwrap_or_default()
-        )
-        .to_ascii_lowercase();
-        let usb_flash_hint = bus == StorageBusType::Usb
-            && removable == Some(true)
-            && !identity_hint.contains("reader")
-            && [
-                "flash",
-                "thumb",
-                "pendrive",
-                "pen drive",
-                "datatraveler",
-                "cruzer",
-                "jetflash",
-                "usb disk",
-            ]
-            .iter()
-            .any(|hint| identity_hint.contains(hint));
-
-        let device_kind = if scsi_device_type == Some(5) {
-            StorageDeviceKind::OpticalDrive
-        } else if usb_flash_hint {
-            StorageDeviceKind::UsbFlashDrive
-        } else {
-            match &bus {
-                StorageBusType::Sd | StorageBusType::Mmc => StorageDeviceKind::MemoryCard,
-                StorageBusType::Virtual | StorageBusType::FileBackedVirtual => {
-                    StorageDeviceKind::VirtualDisk
-                }
-                StorageBusType::Spaces => StorageDeviceKind::StorageSpaces,
-                StorageBusType::Nvme | StorageBusType::Ufs => StorageDeviceKind::SolidStateDrive,
-                StorageBusType::Scm => StorageDeviceKind::Other,
-                StorageBusType::NvmeOf | StorageBusType::Iscsi | StorageBusType::Fibre => {
-                    StorageDeviceKind::NetworkDisk
-                }
-                StorageBusType::Sata | StorageBusType::Ata => match &media {
-                    StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
-                    StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
-                    _ => StorageDeviceKind::Unknown,
-                },
-                StorageBusType::Usb => {
-                    if removable == Some(true) {
-                        StorageDeviceKind::UsbRemovableStorage
-                    } else {
-                        match &media {
-                            StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
-                            StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
-                            _ => StorageDeviceKind::Unknown,
-                        }
-                    }
-                }
-                _ => match &media {
-                    StorageMediaType::Hdd => StorageDeviceKind::HardDisk,
-                    StorageMediaType::Ssd => StorageDeviceKind::SolidStateDrive,
-                    _ => StorageDeviceKind::Unknown,
-                },
-            }
-        };
+        let (device_kind, usb_flash_hint) = classify_device_kind(
+            &bus,
+            removable,
+            scsi_device_type,
+            &media,
+            model.as_deref(),
+            vendor.as_deref(),
+        );
 
         let device_kind_observed = if usb_flash_hint {
             estimated(
@@ -1835,6 +1855,92 @@ mod windows {
             let note = "Fabricante não identificado por fontes confiáveis disponíveis.";
             assert!(note.len() < 100);
             assert!(!note.contains("Kingston"));
+        }
+
+        #[test]
+        fn usb_removivel_generico_nao_e_classificado_automaticamente_como_pendrive() {
+            let (kind, estimated) = classify_device_kind(
+                &StorageBusType::Usb,
+                Some(true),
+                Some(0),
+                &StorageMediaType::Unknown,
+                Some("USB Storage Device"),
+                None,
+            );
+            assert_eq!(kind, StorageDeviceKind::UsbRemovableStorage);
+            assert!(!estimated);
+        }
+
+        #[test]
+        fn usb_com_identificador_de_flash_e_classificado_como_estimativa() {
+            let (kind, estimated) = classify_device_kind(
+                &StorageBusType::Usb,
+                Some(true),
+                Some(0),
+                &StorageMediaType::Unknown,
+                Some("SanDisk Cruzer Blade"),
+                None,
+            );
+            assert_eq!(kind, StorageDeviceKind::UsbFlashDrive);
+            assert!(estimated);
+        }
+
+        #[test]
+        fn leitor_de_cartao_usb_nao_e_classificado_como_pendrive() {
+            let (kind, estimated) = classify_device_kind(
+                &StorageBusType::Usb,
+                Some(true),
+                Some(0),
+                &StorageMediaType::Unknown,
+                Some("USB Card Reader Flash"),
+                None,
+            );
+            assert_eq!(kind, StorageDeviceKind::UsbRemovableStorage);
+            assert!(!estimated);
+        }
+
+        #[test]
+        fn armazenamento_usb_fixo_preserva_classificacao_por_midia() {
+            let (kind, estimated) = classify_device_kind(
+                &StorageBusType::Usb,
+                Some(false),
+                Some(0),
+                &StorageMediaType::Ssd,
+                Some("External SSD"),
+                None,
+            );
+            assert_eq!(kind, StorageDeviceKind::SolidStateDrive);
+            assert!(!estimated);
+        }
+
+        #[test]
+        fn barramentos_sd_e_mmc_sao_classificados_como_cartao_de_memoria() {
+            for bus in [StorageBusType::Sd, StorageBusType::Mmc] {
+                let (kind, estimated) = classify_device_kind(
+                    &bus,
+                    Some(true),
+                    Some(0),
+                    &StorageMediaType::Unknown,
+                    Some("Generic Storage"),
+                    None,
+                );
+                assert_eq!(kind, StorageDeviceKind::MemoryCard);
+                assert!(!estimated);
+            }
+        }
+
+        #[test]
+        fn dispositivo_optico_tem_precedencia_sobre_identificador_usb() {
+            let (kind, estimated) = classify_device_kind(
+                &StorageBusType::Usb,
+                Some(true),
+                Some(5),
+                &StorageMediaType::Unknown,
+                Some("USB Flash Drive"),
+                None,
+            );
+            assert_eq!(kind, StorageDeviceKind::OpticalDrive);
+            assert!(estimated);
         }
     }
 
