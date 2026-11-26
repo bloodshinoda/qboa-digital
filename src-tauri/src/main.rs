@@ -3142,6 +3142,17 @@ fn get_technical_inventory_storage_snapshot() -> Result<TechnicalInventoryStorag
     Ok(TechnicalInventoryStorageSnapshot { storage })
 }
 
+/// Enumera e classifica volumes; não inicia verificação nem altera o armazenamento.
+#[tauri::command]
+fn get_storage_integrity_candidates(
+) -> Result<Vec<storage_integrity::StorageIntegrityCandidate>, String> {
+    let collection = technical_inventory_storage::collect_storage_category()?;
+    let storage = collection
+        .data
+        .ok_or_else(|| "A coleta de armazenamento não retornou dados.".to_string())?;
+    Ok(storage_integrity::classify_storage_volumes(&storage))
+}
+
 #[derive(Clone, Serialize)]
 struct ServiceProfileState {
     system: service_profiles::DetectedSystem,
@@ -3613,6 +3624,7 @@ fn main() {
             get_technical_inventory_firmware_snapshot,
             get_technical_inventory_cpu_snapshot,
             get_technical_inventory_storage_snapshot,
+            get_storage_integrity_candidates,
             list_windows_services,
             manage_windows_service,
             repair_windows_update,
