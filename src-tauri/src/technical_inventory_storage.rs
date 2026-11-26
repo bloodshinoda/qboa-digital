@@ -1943,6 +1943,81 @@ mod windows {
             assert_eq!(kind, StorageDeviceKind::OpticalDrive);
             assert!(!estimated);
         }
+
+        #[test]
+        fn nvme_e_classificado_como_ssd_sem_depender_do_modelo() {
+            let (kind, estimated) = classify_device_kind(
+                &StorageBusType::Nvme,
+                Some(false),
+                Some(0),
+                &StorageMediaType::Ssd,
+                Some("Generic NVMe Controller"),
+                None,
+            );
+            assert_eq!(kind, StorageDeviceKind::SolidStateDrive);
+            assert!(!estimated);
+        }
+
+        #[test]
+        fn nvme_over_fabrics_nao_e_classificado_como_ssd_local() {
+            let (kind, estimated) = classify_device_kind(
+                &StorageBusType::NvmeOf,
+                Some(false),
+                Some(0),
+                &StorageMediaType::Unknown,
+                Some("NVMe-oF Target"),
+                None,
+            );
+            assert_eq!(kind, StorageDeviceKind::NetworkDisk);
+            assert!(!estimated);
+        }
+
+        #[test]
+        fn mapeia_velocidades_pcie_para_geracoes_e_largura_do_link() {
+            let cases = [
+                (1, "PCIe Gen1 x4 (2.5 GT/s)"),
+                (2, "PCIe Gen2 x4 (5.0 GT/s)"),
+                (3, "PCIe Gen3 x4 (8.0 GT/s)"),
+                (4, "PCIe Gen4 x4 (16.0 GT/s)"),
+                (5, "PCIe Gen5 x4 (32.0 GT/s)"),
+                (6, "PCIe Gen6 x4 (64.0 GT/s)"),
+            ];
+            for (speed, expected) in cases {
+                assert_eq!(pcie_speed_label(speed, Some(4)).as_deref(), Some(expected));
+            }
+        }
+
+        #[test]
+        fn velocidade_pcie_sem_largura_nao_inventa_numero_de_pistas() {
+            assert_eq!(
+                pcie_speed_label(4, None).as_deref(),
+                Some("PCIe Gen4 (16.0 GT/s)")
+            );
+            assert_eq!(
+                pcie_speed_label(4, Some(0)).as_deref(),
+                Some("PCIe Gen4 (16.0 GT/s)")
+            );
+        }
+
+        #[test]
+        fn velocidade_pcie_desconhecida_permanece_indisponivel() {
+            for speed in [0, 7, u32::MAX] {
+                assert_eq!(pcie_speed_label(speed, Some(4)), None);
+            }
+        }
+
+        #[test]
+        fn velocidade_pcie_nao_e_confundida_com_versao_do_protocolo_nvme() {
+            let pcie = pcie_speed_label(4, Some(4)).unwrap();
+            let nvme_version = {
+                let mut identify = vec![0u8; 4096];
+                identify[80..84].copy_from_slice(&0x0002_0100u32.to_le_bytes());
+                let version = read_u32(&identify, 80).unwrap();
+                format!("NVMe {}.{}", (version >> 16) & 0xffff, (version >> 8) & 0xff)
+            };
+            assert_eq!(pcie, "PCIe Gen4 x4 (16.0 GT/s)");
+            assert_eq!(nvme_version, "NVMe 2.1");
+        }
     }
 
     pub(super) fn collect() -> Result<CategoryCollection<StorageCategory>, String> {
