@@ -1,7 +1,7 @@
 //! Contrato de dados para diagnóstico de integridade lógica de volumes.
 //!
-//! Este módulo não executa comandos nem realiza reparos. Ele define apenas o formato
-//! validado que será consumido pelo futuro executor de verificação.
+//! Este módulo define o contrato de dados, a elegibilidade e os tipos compartilhados
+//! pelo executor. A execução não inclui parâmetros nem operações de reparo.
 
 use serde::{Deserialize, Serialize};
 
