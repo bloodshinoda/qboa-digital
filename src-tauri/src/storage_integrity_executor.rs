@@ -137,7 +137,7 @@ pub(crate) fn execute(candidate: StorageIntegrityCandidate) -> StorageIntegrityR
         StorageIntegrityEligibility::Eligible => {}
     }
 
-    let Some(letter) = candidate.volume.drive_letter.as_deref() else {
+    let Some(letter) = candidate.volume.drive_letter.clone() else {
         return build_report(
             candidate.volume,
             StorageIntegrityExecutionStatus::VolumeUnavailable,
@@ -168,7 +168,7 @@ pub(crate) fn execute(candidate: StorageIntegrityCandidate) -> StorageIntegrityR
         );
     }
 
-    run_chkdsk(candidate.volume, letter, started_at, started)
+    run_chkdsk(candidate.volume, &letter, started_at, started)
 }
 
 #[cfg(target_os = "windows")]
