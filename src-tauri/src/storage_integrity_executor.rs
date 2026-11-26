@@ -386,10 +386,7 @@ mod tests {
             0xE3, 0x6F, 0x20, 0x6E, 0x65, 0x63, 0x65, 0x73, 0x73, 0xE1, 0x72, 0x69, 0x61, 0x2E,
         ];
         let decoded = decode_chkdsk_output(&bytes);
-        assert_eq!(
-            decoded,
-            "Não há problemas; nenhuma ação necessária."
-        );
+        assert_eq!(decoded, "Não há problemas; nenhuma ação necessária.");
         assert_eq!(classify_output(&decoded), StorageIntegrityFinding::Clean);
     }
 
