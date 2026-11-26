@@ -143,6 +143,194 @@ fn is_valid_volume_id(value: &str) -> bool {
             })
 }
 
+
+use crate::technical_inventory::{
+    StorageBusType, StorageCategory, StorageDeviceKind,
+};
+
+/// Resultado da avaliação prévia de um volume; não inicia nenhuma verificação.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StorageIntegrityEligibility {
+    Eligible,
+    Unsupported,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct StorageIntegrityCandidate {
+    pub volume: StorageIntegrityVolume,
+    pub eligibility: StorageIntegrityEligibility,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug)]
+struct DiskEligibilityContext {
+    disk_id: String,
+    device_kind: Option<StorageDeviceKind>,
+    bus_type: Option<StorageBusType>,
+    is_removable: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+struct VolumeEligibilityInput {
+    volume_id: String,
+    drive_letter: Option<String>,
+    file_system: Option<String>,
+    associated_disk_ids: Vec<String>,
+}
+
+fn classify_volume_candidate(
+    volume: VolumeEligibilityInput,
+    disks: &[DiskEligibilityContext],
+) -> StorageIntegrityCandidate {
+    let file_system = match volume.file_system.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("ntfs") => StorageFileSystem::Ntfs,
+        Some("refs") => StorageFileSystem::Refs,
+        Some("fat32") => StorageFileSystem::Fat32,
+        Some("exfat") => StorageFileSystem::ExFat,
+        Some(_) => StorageFileSystem::Other,
+        None => StorageFileSystem::Unknown,
+    };
+
+    let base = StorageIntegrityVolume {
+        volume_id: volume.volume_id,
+        drive_letter: volume.drive_letter,
+        file_system,
+    };
+
+    let result = |eligibility, reason: &str| StorageIntegrityCandidate {
+        volume: base.clone(),
+        eligibility,
+        reason: reason.into(),
+    };
+
+    if !is_valid_volume_id(&base.volume_id) {
+        return result(
+            StorageIntegrityEligibility::Unavailable,
+            "Identidade GUID do volume inválida ou indisponível.",
+        );
+    }
+    if base.file_system == StorageFileSystem::Unknown {
+        return result(
+            StorageIntegrityEligibility::Unavailable,
+            "Sistema de arquivos não identificado.",
+        );
+    }
+    if base.file_system != StorageFileSystem::Ntfs {
+        return result(
+            StorageIntegrityEligibility::Unsupported,
+            "A primeira implementação de verificação online será limitada a NTFS.",
+        );
+    }
+    let Some(letter) = base.drive_letter.as_deref() else {
+        return result(
+            StorageIntegrityEligibility::Unsupported,
+            "Volume sem letra de unidade; ficará fora da primeira etapa por segurança.",
+        );
+    };
+    let bytes = letter.as_bytes();
+    if bytes.len() != 2 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' {
+        return result(
+            StorageIntegrityEligibility::Unavailable,
+            "Letra de unidade inválida.",
+        );
+    }
+    if volume.associated_disk_ids.is_empty() {
+        return result(
+            StorageIntegrityEligibility::Unavailable,
+            "Não foi possível confirmar o dispositivo físico associado ao volume.",
+        );
+    }
+
+    for disk_id in &volume.associated_disk_ids {
+        let Some(disk) = disks.iter().find(|disk| disk.disk_id == *disk_id) else {
+            return result(
+                StorageIntegrityEligibility::Unavailable,
+                "O dispositivo associado não consta na coleta atual.",
+            );
+        };
+        if disk.is_removable != Some(false) {
+            return result(
+                if disk.is_removable == Some(true) {
+                    StorageIntegrityEligibility::Unsupported
+                } else {
+                    StorageIntegrityEligibility::Unavailable
+                },
+                "Não foi possível confirmar que o dispositivo é fixo.",
+            );
+        }
+        match disk.device_kind.as_ref() {
+            Some(StorageDeviceKind::HardDisk | StorageDeviceKind::SolidStateDrive) => {}
+            Some(_) => {
+                return result(
+                    StorageIntegrityEligibility::Unsupported,
+                    "A primeira etapa aceita somente discos locais fixos identificados como HDD ou SSD.",
+                );
+            }
+            None => {
+                return result(
+                    StorageIntegrityEligibility::Unavailable,
+                    "Tipo do dispositivo associado não identificado.",
+                );
+            }
+        }
+        if matches!(
+            disk.bus_type,
+            Some(
+                StorageBusType::Virtual
+                    | StorageBusType::FileBackedVirtual
+                    | StorageBusType::Spaces
+                    | StorageBusType::Iscsi
+                    | StorageBusType::NvmeOf
+            )
+        ) {
+            return result(
+                StorageIntegrityEligibility::Unsupported,
+                "Dispositivos virtuais, Storage Spaces e armazenamento em rede ficam fora da primeira etapa.",
+            );
+        }
+    }
+
+    result(
+        StorageIntegrityEligibility::Eligible,
+        "Volume NTFS local em disco fixo identificado; elegível para a etapa de verificação.",
+    )
+}
+
+/// Classifica volumes a partir de uma coleta independente, sem alterar o inventário.
+pub(crate) fn classify_storage_volumes(
+    storage: &StorageCategory,
+) -> Vec<StorageIntegrityCandidate> {
+    let disks: Vec<DiskEligibilityContext> = storage
+        .physical_disks
+        .iter()
+        .map(|disk| DiskEligibilityContext {
+            disk_id: disk.disk_id.clone(),
+            device_kind: disk.device_kind.value.clone(),
+            bus_type: disk.bus_type.value.clone(),
+            is_removable: disk.is_removable.value,
+        })
+        .collect();
+
+    storage
+        .volumes
+        .iter()
+        .filter_map(|volume| {
+            let volume_id = volume.volume_id.value.clone()?;
+            Some(classify_volume_candidate(
+                VolumeEligibilityInput {
+                    volume_id,
+                    drive_letter: volume.drive_letter.value.clone(),
+                    file_system: volume.file_system.value.clone(),
+                    associated_disk_ids: volume.associated_disk_ids.clone(),
+                },
+                &disks,
+            ))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
