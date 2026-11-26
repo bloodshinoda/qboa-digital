@@ -2013,7 +2013,11 @@ mod windows {
                 let mut identify = vec![0u8; 4096];
                 identify[80..84].copy_from_slice(&0x0002_0100u32.to_le_bytes());
                 let version = read_u32(&identify, 80).unwrap();
-                format!("NVMe {}.{}", (version >> 16) & 0xffff, (version >> 8) & 0xff)
+                format!(
+                    "NVMe {}.{}",
+                    (version >> 16) & 0xffff,
+                    (version >> 8) & 0xff
+                )
             };
             assert_eq!(pcie, "PCIe Gen4 x4 (16.0 GT/s)");
             assert_eq!(nvme_version, "NVMe 2.1");
