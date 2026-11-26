@@ -90,10 +90,7 @@ impl StorageIntegrityReport {
 
         if let Some(letter) = self.volume.drive_letter.as_deref() {
             let bytes = letter.as_bytes();
-            if bytes.len() != 2
-                || !bytes[0].is_ascii_alphabetic()
-                || bytes[1] != b':'
-            {
+            if bytes.len() != 2 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' {
                 return false;
             }
         }
@@ -112,8 +109,7 @@ impl StorageIntegrityReport {
             StorageIntegrityExecutionStatus::Cancelled
             | StorageIntegrityExecutionStatus::Failed => matches!(
                 self.finding,
-                StorageIntegrityFinding::Inconclusive
-                    | StorageIntegrityFinding::NotApplicable
+                StorageIntegrityFinding::Inconclusive | StorageIntegrityFinding::NotApplicable
             ),
         }
     }
@@ -131,8 +127,7 @@ mod tests {
             schema_version: STORAGE_INTEGRITY_SCHEMA_VERSION,
             check_id: "integrity-test-001".into(),
             volume: StorageIntegrityVolume {
-                volume_id: r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\"
-                    .into(),
+                volume_id: r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\".into(),
                 drive_letter: Some("C:".into()),
                 file_system: StorageFileSystem::Ntfs,
             },
