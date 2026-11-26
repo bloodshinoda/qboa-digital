@@ -40,7 +40,10 @@ fn compact_output(output: &str) -> String {
         .collect();
     let compact = compact.split_whitespace().collect::<Vec<_>>().join(" ");
     let total_chars = compact.chars().count();
-    let shortened: String = compact.chars().skip(total_chars.saturating_sub(900)).collect();
+    let shortened: String = compact
+        .chars()
+        .skip(total_chars.saturating_sub(900))
+        .collect();
     if shortened.is_empty() {
         "O CHKDSK não retornou texto de diagnóstico.".into()
     } else if total_chars > 900 {
@@ -384,7 +387,10 @@ mod tests {
 
     #[test]
     fn compactacao_remove_controles_limita_tamanho_e_preserva_o_final() {
-        let value = compact_output(&format!("início\n{}\nRESUMO FINAL: volume íntegro", "x".repeat(2_000)));
+        let value = compact_output(&format!(
+            "início\n{}\nRESUMO FINAL: volume íntegro",
+            "x".repeat(2_000)
+        ));
         assert!(!value.chars().any(char::is_control));
         assert!(value.chars().count() <= 901);
         assert!(value.ends_with("RESUMO FINAL: volume íntegro"));
