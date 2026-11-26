@@ -83,7 +83,9 @@ impl StorageIntegrityReport {
             || !is_valid_volume_id(&self.volume.volume_id)
             || !is_non_empty_text(&self.message)
             || self.repair_performed
-            || self.finished_at_unix_ms.checked_sub(self.started_at_unix_ms)
+            || self
+                .finished_at_unix_ms
+                .checked_sub(self.started_at_unix_ms)
                 != Some(self.duration_ms)
         {
             return false;
@@ -239,7 +241,10 @@ mod tests {
                 StorageIntegrityFinding::NotApplicable,
             ),
         ] {
-            assert!(report(status, finding).is_valid(), "{status:?} / {finding:?}");
+            assert!(
+                report(status, finding).is_valid(),
+                "{status:?} / {finding:?}"
+            );
         }
     }
 
@@ -324,7 +329,10 @@ mod tests {
                 StorageIntegrityFinding::Clean,
             );
             value.volume.drive_letter = Some(invalid_letter.into());
-            assert!(!value.is_valid(), "Letra deveria ser rejeitada: {invalid_letter}");
+            assert!(
+                !value.is_valid(),
+                "Letra deveria ser rejeitada: {invalid_letter}"
+            );
         }
     }
 
