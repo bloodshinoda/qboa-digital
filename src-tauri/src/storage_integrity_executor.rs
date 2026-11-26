@@ -63,6 +63,8 @@ fn classify_output(output: &str) -> StorageIntegrityFinding {
         "não encontrou problemas",
         "nao encontrou problemas",
         "nenhum problema foi encontrado",
+        "não há problemas no sistema de arquivos",
+        "nao ha problemas no sistema de arquivos",
     ];
     if clean_markers
         .iter()
@@ -77,6 +79,8 @@ fn classify_output(output: &str) -> StorageIntegrityFinding {
         "errors found",
         "erros encontrados",
         "erros no sistema de arquivos",
+        "há problemas no sistema de arquivos",
+        "ha problemas no sistema de arquivos",
     ];
     if corruption_markers
         .iter()
@@ -180,9 +184,8 @@ pub(crate) fn execute(candidate: StorageIntegrityCandidate) -> StorageIntegrityR
     run_chkdsk(candidate.volume, &letter, started_at, started)
 }
 
-/// Decodifica a saída do CHKDSK. O processo usa a página OEM do console
-/// no Windows; UTF-8 é aceito primeiro para manter compatibilidade com builds
-/// e ambientes que já emitam essa codificação.
+/// Decodifica a saída do CHKDSK. O UTF-8 é aceito primeiro; quando a saída
+/// usa a página de códigos legada do Windows, recorremos à página ANSI ativa.
 fn decode_chkdsk_output(bytes: &[u8]) -> String {
     if let Ok(text) = std::str::from_utf8(bytes) {
         return text.to_string();
@@ -205,7 +208,7 @@ fn decode_chkdsk_output(bytes: &[u8]) -> String {
         if !bytes.is_empty() && bytes.len() <= i32::MAX as usize {
             let required = unsafe {
                 MultiByteToWideChar(
-                    1, // CP_OEMCP
+                    0, // CP_ACP
                     0,
                     bytes.as_ptr().cast(),
                     bytes.len() as i32,
@@ -217,7 +220,7 @@ fn decode_chkdsk_output(bytes: &[u8]) -> String {
                 let mut wide = vec![0u16; required as usize];
                 let written = unsafe {
                     MultiByteToWideChar(
-                        1,
+                        0, // CP_ACP
                         0,
                         bytes.as_ptr().cast(),
                         bytes.len() as i32,
@@ -359,6 +362,35 @@ mod tests {
             classify_output("O Windows encontrou problemas no sistema de arquivos."),
             StorageIntegrityFinding::CorruptionDetected
         );
+    }
+
+    #[test]
+    fn reconhece_resumo_final_do_chkdsk_em_portugues() {
+        assert_eq!(
+            classify_output("Não há problemas no sistema de arquivos. Nenhuma ação necessária."),
+            StorageIntegrityFinding::Clean
+        );
+        assert_eq!(
+            classify_output("Há problemas no sistema de arquivos."),
+            StorageIntegrityFinding::CorruptionDetected
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn decodifica_saida_ansi_do_console_com_acentos() {
+        // CP1252: "Não há problemas; nenhuma ação necessária."
+        let bytes = [
+            0x4E, 0xE3, 0x6F, 0x20, 0x68, 0xE1, 0x20, 0x70, 0x72, 0x6F, 0x62, 0x6C, 0x65, 0x6D,
+            0x61, 0x73, 0x3B, 0x20, 0x6E, 0x65, 0x6E, 0x68, 0x75, 0x6D, 0x61, 0x20, 0x61, 0xE7,
+            0xE3, 0x6F, 0x20, 0x6E, 0x65, 0x63, 0x65, 0x73, 0x73, 0xE1, 0x72, 0x69, 0x61, 0x2E,
+        ];
+        let decoded = decode_chkdsk_output(&bytes);
+        assert_eq!(
+            decoded,
+            "Não há problemas; nenhuma ação necessária."
+        );
+        assert_eq!(classify_output(&decoded), StorageIntegrityFinding::Clean);
     }
 
     #[test]
