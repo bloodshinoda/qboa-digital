@@ -65,6 +65,8 @@ fn classify_output(output: &str) -> StorageIntegrityFinding {
         "nenhum problema foi encontrado",
         "não há problemas no sistema de arquivos",
         "nao ha problemas no sistema de arquivos",
+        "não há problemas",
+        "nao ha problemas",
     ];
     if clean_markers
         .iter()
