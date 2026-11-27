@@ -1437,6 +1437,18 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
   background:linear-gradient(145deg,rgba(110,231,160,.075),rgba(255,255,255,.025));
   list-style:none;
 }
+.storage-live-placeholder { min-height:235px; align-content:start; }
+.storage-live-waiting {
+  display:grid;
+  min-height:145px;
+  place-items:center;
+  border:1px dashed rgba(255,255,255,.16);
+  border-radius:8px;
+  background:rgba(0,0,0,.12);
+  color:rgba(255,255,255,.68);
+  font-size:.84rem;
+  letter-spacing:.01em;
+}
 .storage-live-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .storage-live-heading > div { display:grid; gap:4px; min-width:0; }
 .storage-live-heading strong { font-size:.9rem; }
