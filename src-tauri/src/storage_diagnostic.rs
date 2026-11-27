@@ -635,6 +635,57 @@ mod tests {
     }
 
     #[test]
+    fn smart_collection_status_round_trips_through_json() {
+        let smart = SmartData {
+            usable: true,
+            collection_status: Some(SmartCollectionStatus {
+                failure_predict_data: Some("available".into()),
+                failure_predict_thresholds: Some("not_exposed".into()),
+                failure_predict_status: Some("available".into()),
+                storage_reliability_counter: Some("available".into()),
+                instance_match: Some("matched".into()),
+                attributes_parse: Some("parsed".into()),
+                sector_attributes: Some(SmartSectorAttributeStatus {
+                    reallocated: Some("attribute_not_reported".into()),
+                    pending: Some("provider_unavailable".into()),
+                    uncorrectable: Some("collection_error".into()),
+                }),
+                errors: vec!["fixture error".into()],
+            }),
+            ..SmartData::default()
+        };
+
+        let value = serde_json::to_value(&smart).expect("SMART status must serialize");
+        assert_eq!(
+            value["collection_status"]["sector_attributes"]["pending"],
+            "provider_unavailable"
+        );
+        let restored: SmartData =
+            serde_json::from_value(value).expect("SMART status must deserialize after serialization");
+        assert_eq!(restored, smart);
+    }
+
+    #[test]
+    fn evaluation_explains_why_smart_sector_count_is_missing() {
+        let mut report = sample(DiskClass::SataSsd, Some(500.0), Some(500.0));
+        report.smart.pending = None;
+        report.smart.collection_status = Some(SmartCollectionStatus {
+            sector_attributes: Some(SmartSectorAttributeStatus {
+                pending: Some("provider_unavailable".into()),
+                ..SmartSectorAttributeStatus::default()
+            }),
+            ..SmartCollectionStatus::default()
+        });
+        evaluate(&mut report);
+
+        assert!(report
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("provedor SMART não expôs")));
+        assert_eq!(report.recommendation, Recommendation::Inconclusivo);
+    }
+
+    #[test]
     fn legacy_smart_report_without_collection_status_remains_compatible() {
         let smart: SmartData = serde_json::from_value(serde_json::json!({
             "usable": true,
