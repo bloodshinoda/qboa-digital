@@ -78,7 +78,7 @@ pub(crate) struct Measurement {
     pub unit: String,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SmartCollectionState {
     NotChecked,
@@ -93,8 +93,31 @@ pub(crate) enum SmartCollectionState {
     QueryError,
     ProviderUnavailable,
     AttributeNotReported,
-    #[serde(other)]
     Unknown,
+}
+
+impl<'de> Deserialize<'de> for SmartCollectionState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "not_checked" => Self::NotChecked,
+            "not_attempted" => Self::NotAttempted,
+            "not_exposed" => Self::NotExposed,
+            "collection_error" => Self::CollectionError,
+            "available" => Self::Available,
+            "parsed" => Self::Parsed,
+            "parse_error" => Self::ParseError,
+            "matched" => Self::Matched,
+            "no_matching_instance" => Self::NoMatchingInstance,
+            "query_error" => Self::QueryError,
+            "provider_unavailable" => Self::ProviderUnavailable,
+            "attribute_not_reported" => Self::AttributeNotReported,
+            _ => Self::Unknown,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
@@ -650,6 +673,18 @@ mod tests {
             smart_sector_status(&smart, "uncorrectable"),
             Some(SmartCollectionState::CollectionError)
         );
+    }
+
+    #[test]
+    fn smart_collection_state_accepts_initial_and_future_values() {
+        let initial: SmartCollectionState =
+            serde_json::from_str("\"not_checked\"").expect("initial state must deserialize");
+        let future: SmartCollectionState =
+            serde_json::from_str("\"future_provider_state\"")
+                .expect("unknown future state must deserialize safely");
+
+        assert_eq!(initial, SmartCollectionState::NotChecked);
+        assert_eq!(future, SmartCollectionState::Unknown);
     }
 
     #[test]
