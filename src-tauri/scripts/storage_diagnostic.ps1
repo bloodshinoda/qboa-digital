@@ -838,6 +838,20 @@ if ($null -eq $smart) {
         usable = $false; source = ''; predicted_failure = $null; reallocated = $null; pending = $null;
         uncorrectable = $null; interface_crc = $null; wear_percent = $null; wear_limit_percent = $null;
         temperature_c = $null; attributes = @(); reliability_metrics = @()
+        collection_status = [pscustomobject]@{
+            failure_predict_data = 'collection_error'
+            failure_predict_thresholds = 'not_attempted'
+            failure_predict_status = 'not_attempted'
+            storage_reliability_counter = 'collection_error'
+            instance_match = 'query_error'
+            attributes_parse = 'not_attempted'
+            sector_attributes = [pscustomobject]@{
+                reallocated = 'collection_error'
+                pending = 'collection_error'
+                uncorrectable = 'collection_error'
+            }
+            errors = @('A coleta SMART não retornou um snapshot válido; consulte os avisos da coleta.')
+        }
     }
 }
 $crcBefore = if ($null -ne $smartBefore) { $smartBefore.interface_crc } else { $null }
