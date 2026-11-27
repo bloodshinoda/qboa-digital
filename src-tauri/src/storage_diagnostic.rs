@@ -375,10 +375,14 @@ fn smart_sector_reason(status: Option<SmartCollectionState>, label: &str) -> Str
             format!("O provedor SMART não expôs o atributo de setores {label}.")
         }
         Some(SmartCollectionState::Parsed | SmartCollectionState::Matched) => {
-            format!("O SMART foi interpretado, mas não há uma contagem válida para setores {label}.")
+            format!(
+                "O SMART foi interpretado, mas não há uma contagem válida para setores {label}."
+            )
         }
         Some(SmartCollectionState::NoMatchingInstance | SmartCollectionState::QueryError) => {
-            format!("Não foi possível associar a consulta SMART ao dispositivo para setores {label}.")
+            format!(
+                "Não foi possível associar a consulta SMART ao dispositivo para setores {label}."
+            )
         }
         Some(SmartCollectionState::Unknown) => {
             format!("Estado SMART de setores {label} não reconhecido.")
