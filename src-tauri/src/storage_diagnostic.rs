@@ -78,30 +78,49 @@ pub(crate) struct Measurement {
     pub unit: String,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SmartCollectionState {
+    NotChecked,
+    NotAttempted,
+    NotExposed,
+    CollectionError,
+    Available,
+    Parsed,
+    ParseError,
+    Matched,
+    NoMatchingInstance,
+    QueryError,
+    ProviderUnavailable,
+    AttributeNotReported,
+    #[serde(other)]
+    Unknown,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
 pub(crate) struct SmartSectorAttributeStatus {
     #[serde(default)]
-    pub reallocated: Option<String>,
+    pub reallocated: Option<SmartCollectionState>,
     #[serde(default)]
-    pub pending: Option<String>,
+    pub pending: Option<SmartCollectionState>,
     #[serde(default)]
-    pub uncorrectable: Option<String>,
+    pub uncorrectable: Option<SmartCollectionState>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
 pub(crate) struct SmartCollectionStatus {
     #[serde(default)]
-    pub failure_predict_data: Option<String>,
+    pub failure_predict_data: Option<SmartCollectionState>,
     #[serde(default)]
-    pub failure_predict_thresholds: Option<String>,
+    pub failure_predict_thresholds: Option<SmartCollectionState>,
     #[serde(default)]
-    pub failure_predict_status: Option<String>,
+    pub failure_predict_status: Option<SmartCollectionState>,
     #[serde(default)]
-    pub storage_reliability_counter: Option<String>,
+    pub storage_reliability_counter: Option<SmartCollectionState>,
     #[serde(default)]
-    pub instance_match: Option<String>,
+    pub instance_match: Option<SmartCollectionState>,
     #[serde(default)]
-    pub attributes_parse: Option<String>,
+    pub attributes_parse: Option<SmartCollectionState>,
     #[serde(default)]
     pub sector_attributes: Option<SmartSectorAttributeStatus>,
     #[serde(default)]
@@ -292,26 +311,25 @@ pub(crate) fn load_stored_reports(app_data_dir: &Path) -> Result<serde_json::Val
     Ok(serde_json::Value::Array(reports))
 }
 
-fn smart_sector_status<'a>(smart: &'a SmartData, field: &str) -> Option<&'a str> {
+fn smart_sector_status(smart: &SmartData, field: &str) -> Option<SmartCollectionState> {
     let statuses = smart.collection_status.as_ref()?.sector_attributes.as_ref()?;
-    let status = match field {
-        "reallocated" => statuses.reallocated.as_deref(),
-        "pending" => statuses.pending.as_deref(),
-        "uncorrectable" => statuses.uncorrectable.as_deref(),
+    match field {
+        "reallocated" => statuses.reallocated,
+        "pending" => statuses.pending,
+        "uncorrectable" => statuses.uncorrectable,
         _ => None,
-    };
-    status
+    }
 }
 
-fn smart_sector_reason(status: Option<&str>, label: &str) -> String {
+fn smart_sector_reason(status: Option<SmartCollectionState>, label: &str) -> String {
     match status {
-        Some("provider_unavailable") => format!("O provedor SMART não expôs o atributo de setores {label}."),
-        Some("collection_error") => format!("Falha ao coletar o atributo SMART de setores {label}."),
-        Some("parse_error") => format!("Falha ao interpretar o atributo SMART de setores {label}."),
-        Some("attribute_not_reported") => format!("O dispositivo não reportou o atributo SMART de setores {label}."),
-        Some("available") => format!("O atributo SMART de setores {label} foi coletado, mas não trouxe uma contagem válida."),
-        Some("not_attempted") => format!("A coleta do atributo SMART de setores {label} não foi executada."),
-        Some(other) => format!("Estado SMART de setores {label} não reconhecido ({other})."),
+        Some(SmartCollectionState::ProviderUnavailable) => format!("O provedor SMART não expôs o atributo de setores {label}."),
+        Some(SmartCollectionState::CollectionError) => format!("Falha ao coletar o atributo SMART de setores {label}."),
+        Some(SmartCollectionState::ParseError) => format!("Falha ao interpretar o atributo SMART de setores {label}."),
+        Some(SmartCollectionState::AttributeNotReported) => format!("O dispositivo não reportou o atributo SMART de setores {label}."),
+        Some(SmartCollectionState::Available) => format!("O atributo SMART de setores {label} foi coletado, mas não trouxe uma contagem válida."),
+        Some(SmartCollectionState::NotAttempted) => format!("A coleta do atributo SMART de setores {label} não foi executada."),
+        Some(SmartCollectionState::Unknown) => format!("Estado SMART de setores {label} não reconhecido."),
         None => format!("Contagem SMART de setores {label} indisponível ou ausente em laudo legado."),
     }
 }
@@ -622,15 +640,15 @@ mod tests {
 
         assert_eq!(
             smart_sector_status(&smart, "reallocated"),
-            Some("attribute_not_reported")
+            Some(SmartCollectionState::AttributeNotReported)
         );
         assert_eq!(
             smart_sector_status(&smart, "pending"),
-            Some("provider_unavailable")
+            Some(SmartCollectionState::ProviderUnavailable)
         );
         assert_eq!(
             smart_sector_status(&smart, "uncorrectable"),
-            Some("collection_error")
+            Some(SmartCollectionState::CollectionError)
         );
     }
 
