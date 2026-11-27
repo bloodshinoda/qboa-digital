@@ -4334,6 +4334,10 @@ async function runDiagnostic(mode, target = null) {
           document.getElementById("diagnostic-results").appendChild(item);
         }
       }
+      if (storageBenchmarkPlaceholder) {
+        storageBenchmarkPlaceholder.remove();
+        storageBenchmarkPlaceholder = null;
+      }
       await loadDiagnosticHistory(false);
       appendConsole("Diagnóstico de armazenamento finalizado · " + completed + " unidade(s) concluída(s) · " + failures.length + " ocorrência(s).");
       if (!completed && failures.length) {
