@@ -1410,6 +1410,7 @@ body:has(.risk-modal:not(.hidden)) .operation-progress {
 .storage-smart-card.danger { border-color:rgba(255,119,119,.48); background:rgba(255,119,119,.09); }
 .storage-smart-card.danger strong { color:#ffaaaa; }
 .storage-smart-card.neutral strong { color:rgba(255,255,255,.88); }
+.storage-report-notice.success { border-left-color:#6ee7a0; background:rgba(110,231,160,.08); }
 .storage-report-notice { margin:0; padding:9px 11px; border-left:3px solid rgba(255,255,255,.3); border-radius:0 7px 7px 0; background:rgba(255,255,255,.045); color:rgba(255,255,255,.84); font-size:.82rem; line-height:1.45; }
 .storage-report-notice.warning { border-left-color:#f6c66a; background:rgba(246,198,106,.08); }
 .storage-report-notice.danger { border-left-color:#ff7777; background:rgba(255,119,119,.08); }
