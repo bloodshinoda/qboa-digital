@@ -4336,6 +4336,12 @@ async function runDiagnostic(mode, target = null) {
           document.getElementById("diagnostic-results").appendChild(item);
         }
       }
+      // O benchmark ao vivo é apenas acompanhamento da execução.
+      // Ao finalizar todas as unidades, mantém na tela somente os laudos completos.
+      if (activeStorageBenchmark?.entry) {
+        activeStorageBenchmark.entry.remove();
+      }
+      activeStorageBenchmark = null;
       if (storageBenchmarkPlaceholder) {
         storageBenchmarkPlaceholder.remove();
         storageBenchmarkPlaceholder = null;
