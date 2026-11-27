@@ -833,6 +833,7 @@ $report = [pscustomobject]@{
         usb_slow = $usbSlow
         attributes = @($smart.attributes)
         reliability_metrics = @($smart.reliability_metrics)
+        collection_status = $smart.collection_status
     }
     recommendation = 'inconclusivo'
     reasons = @()
