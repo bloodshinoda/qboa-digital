@@ -4310,6 +4310,7 @@ async function runDiagnostic(mode, target = null) {
       const selectedIds = selectedStorageDiskIds();
       if (!selectedIds.length) throw new Error("Marque uma ou mais unidades antes de iniciar o teste.");
       prepareStorageBenchmarkPlaceholder();
+      setDiagnosticActivity(activityReason, true);
       let completed = 0;
       const failures = [];
       for (let index = 0; index < selectedIds.length; index++) {
