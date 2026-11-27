@@ -568,7 +568,7 @@ if ($mode -eq 'selftest') {
     $smartFixture[2] = 5
     $smartFixture[3] = 100
     $smartFixture[4] = 95
-    $smartFixture[5] = 7
+    $smartFixture[7] = 7
     $smartParsed = @(ConvertFrom-SmartVendorSpecific -Raw $smartFixture -ThresholdMap @{ 5 = 10 })
     if ($smartParsed.Count -ne 1 -or $smartParsed[0].id -ne 5 -or $smartParsed[0].raw_value -ne 7 -or $smartParsed[0].threshold -ne 10) {
         throw 'Autoteste SMART falhou ao interpretar o atributo de setores realocados.'
