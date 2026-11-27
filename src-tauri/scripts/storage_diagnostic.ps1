@@ -312,21 +312,28 @@ function Get-DiskEntries {
 function Get-SmartSnapshot([int]$diskNumber) {
     $disk = Get-CimInstance Win32_DiskDrive -Filter ("Index = " + $diskNumber) -ErrorAction Stop
     $diskInfo = Get-Disk -Number $diskNumber -ErrorAction SilentlyContinue
-        $physical = @(Get-PhysicalDisk -ErrorAction SilentlyContinue)
+    $physical = @(Get-PhysicalDisk -ErrorAction SilentlyContinue)
     $pd = Find-PhysicalDisk $disk $diskInfo $physical
     $counter = $null
+    $errors = @()
+    $counterStatus = 'not_exposed'
     try {
         if ($null -ne $diskInfo) {
-            $counter = Get-StorageReliabilityCounter -Disk $diskInfo -ErrorAction SilentlyContinue
+            $counter = Get-StorageReliabilityCounter -Disk $diskInfo -ErrorAction Stop
         }
-    } catch {}
-    if ($null -eq $counter) {
-        try {
-            if ($null -ne $pd) {
-                $counter = Get-StorageReliabilityCounter -PhysicalDisk $pd -ErrorAction SilentlyContinue
-            }
-        } catch {}
+    } catch {
+        $counterStatus = 'collection_error'
+        $errors += ('Get-StorageReliabilityCounter (Disk): ' + $_.Exception.Message)
     }
+    if ($null -eq $counter -and $null -ne $pd) {
+        try {
+            $counter = Get-StorageReliabilityCounter -PhysicalDisk $pd -ErrorAction Stop
+        } catch {
+            $counterStatus = 'collection_error'
+            $errors += ('Get-StorageReliabilityCounter (PhysicalDisk): ' + $_.Exception.Message)
+        }
+    }
+    if ($null -ne $counter) { $counterStatus = 'available' }
 
     $attributes = @()
     $reallocated = $null
@@ -339,20 +346,56 @@ function Get-SmartSnapshot([int]$diskNumber) {
     $predictedFailure = $null
     $sources = @()
     $reliability = @()
+    $dataStatus = 'not_checked'
+    $thresholdStatus = 'not_checked'
+    $predictStatus = 'not_checked'
+    $instanceStatus = 'not_checked'
+    $parseStatus = 'not_checked'
 
     $pnpParts = ([string]$disk.PNPDeviceID).Split('\')
     $prefix = ''
     if ($pnpParts.Length -ge 2) { $prefix = ($pnpParts[0..1] -join '\') }
 
+    $smartData = @()
+    $smartThresholds = @()
+    $smartStatus = @()
     try {
-        $smartData = @(Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictData -ErrorAction SilentlyContinue |
+        $smartData = @(Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictData -ErrorAction Stop |
             Where-Object { $prefix -and ([string]$_.InstanceName).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
-        $smartThresholds = @(Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictThresholds -ErrorAction SilentlyContinue |
+        $dataStatus = if ($smartData.Count -gt 0) { 'available' } else { 'not_exposed' }
+        $instanceStatus = if ($smartData.Count -gt 0) { 'matched' } else { 'no_matching_instance' }
+    } catch {
+        $dataStatus = 'collection_error'
+        $instanceStatus = 'query_error'
+        $errors += ('MSStorageDriver_FailurePredictData: ' + $_.Exception.Message)
+    }
+    try {
+        $smartThresholds = @(Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictThresholds -ErrorAction Stop |
             Where-Object { $prefix -and ([string]$_.InstanceName).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
-        $smartStatus = @(Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction SilentlyContinue |
+        $thresholdStatus = if ($smartThresholds.Count -gt 0) { 'available' } else { 'not_exposed' }
+    } catch {
+        $thresholdStatus = 'collection_error'
+        $errors += ('MSStorageDriver_FailurePredictThresholds: ' + $_.Exception.Message)
+    }
+    try {
+        $smartStatus = @(Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction Stop |
             Where-Object { $prefix -and ([string]$_.InstanceName).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
-        if ($smartData.Count -gt 0) {
+        $predictStatus = if ($smartStatus.Count -gt 0) { 'available' } else { 'not_exposed' }
+        if ($smartStatus.Count -gt 0) {
+            $predictedFailure = [bool]$smartStatus[0].PredictFailure
+            $sources += 'MSStorageDriver_FailurePredictStatus'
+        }
+    } catch {
+        $predictStatus = 'collection_error'
+        $errors += ('MSStorageDriver_FailurePredictStatus: ' + $_.Exception.Message)
+    }
+
+    if ($smartData.Count -gt 0) {
+        try {
             $raw = $smartData[0].VendorSpecific
+            if ($null -eq $raw -or $raw.Length -lt 14) {
+                throw 'Payload VendorSpecific ausente ou menor que o cabeçalho SMART esperado.'
+            }
             $thresholdMap = @{}
             if ($smartThresholds.Count -gt 0) {
                 $thresholdBytes = $smartThresholds[0].VendorSpecific
@@ -395,10 +438,20 @@ function Get-SmartSnapshot([int]$diskNumber) {
                     raw_value = $rawValue
                 }
             }
+            if ($attributes.Count -eq 0) {
+                throw 'Payload SMART recebido, mas nenhum atributo válido foi interpretado.'
+            }
+            $parseStatus = 'parsed'
             $sources += 'MSStorageDriver_FailurePredictData'
+        } catch {
+            $parseStatus = 'parse_error'
+            $errors += ('Interpretação dos atributos SMART: ' + $_.Exception.Message)
         }
-        if ($smartStatus.Count -gt 0) { $predictedFailure = [bool]$smartStatus[0].PredictFailure; $sources += 'MSStorageDriver_FailurePredictStatus' }
-    } catch {}
+    } elseif ($dataStatus -eq 'collection_error') {
+        $parseStatus = 'not_attempted'
+    } else {
+        $parseStatus = 'not_exposed'
+    }
 
     $attr5 = $attributes | Where-Object { $_.id -eq 5 } | Select-Object -First 1
     $attr197 = $attributes | Where-Object { $_.id -eq 197 } | Select-Object -First 1
@@ -437,6 +490,11 @@ function Get-SmartSnapshot([int]$diskNumber) {
         $wearLimit = [double](100 - [int]$wearAttr.threshold)
     }
 
+    $sectorStatus = @{
+        reallocated = if ($null -ne $attr5) { 'available' } elseif ($parseStatus -eq 'parse_error') { 'parse_error' } elseif ($dataStatus -eq 'collection_error') { 'collection_error' } elseif ($dataStatus -eq 'not_exposed') { 'provider_unavailable' } else { 'attribute_not_reported' }
+        pending = if ($null -ne $attr197) { 'available' } elseif ($parseStatus -eq 'parse_error') { 'parse_error' } elseif ($dataStatus -eq 'collection_error') { 'collection_error' } elseif ($dataStatus -eq 'not_exposed') { 'provider_unavailable' } else { 'attribute_not_reported' }
+        uncorrectable = if ($null -ne $attr198) { 'available' } elseif ($parseStatus -eq 'parse_error') { 'parse_error' } elseif ($dataStatus -eq 'collection_error') { 'collection_error' } elseif ($dataStatus -eq 'not_exposed') { 'provider_unavailable' } else { 'attribute_not_reported' }
+    }
     $usable = ($attributes.Count -gt 0 -or $reliability.Count -gt 0 -or $null -ne $predictedFailure)
     return [pscustomobject]@{
         usable = [bool]$usable
@@ -451,6 +509,16 @@ function Get-SmartSnapshot([int]$diskNumber) {
         temperature_c = $temperature
         attributes = @($attributes)
         reliability_metrics = @($reliability)
+        collection_status = [pscustomobject]@{
+            failure_predict_data = $dataStatus
+            failure_predict_thresholds = $thresholdStatus
+            failure_predict_status = $predictStatus
+            storage_reliability_counter = $counterStatus
+            instance_match = $instanceStatus
+            attributes_parse = $parseStatus
+            sector_attributes = [pscustomobject]$sectorStatus
+            errors = @($errors)
+        }
     }
 }
 
