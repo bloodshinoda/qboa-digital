@@ -47,6 +47,7 @@ let lastCpuActivitySessionId = null;
 let lastCpuActivityLifecycle = null;
 let lastCpuActivitySampleAt = 0;
 let activeStorageBenchmark = null;
+let storageBenchmarkPlaceholder = null;
 let lastStorageActivityLogAt = 0;
 let gpuTestSessionSnapshot = null;
 let gpuTestSamples = [];
@@ -1828,6 +1829,32 @@ function storageMeasurementLabel(kind) {
   return labels[kind] || "Medição de armazenamento";
 }
 
+function prepareStorageBenchmarkPlaceholder() {
+  const list = document.getElementById("diagnostic-results");
+  const entry = document.createElement("li");
+  entry.className = "storage-live-benchmark storage-live-placeholder";
+  const heading = document.createElement("div");
+  heading.className = "storage-live-heading";
+  const copy = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = "Benchmark em tempo real";
+  const subtitle = document.createElement("span");
+  subtitle.textContent = "Preparando a primeira medição…";
+  copy.append(title, subtitle);
+  const status = document.createElement("span");
+  status.className = "storage-live-status";
+  status.textContent = "Aguardando";
+  heading.append(copy, status);
+  const waiting = document.createElement("div");
+  waiting.className = "storage-live-waiting";
+  waiting.setAttribute("role", "status");
+  waiting.textContent = "Aguardando dados iniciais…";
+  entry.append(heading, waiting);
+  list.appendChild(entry);
+  storageBenchmarkPlaceholder = entry;
+  return entry;
+}
+
 function renderStorageBenchmarkProgress(payload) {
   if (!payload || !payload.kind) return;
   const list = document.getElementById("diagnostic-results");
@@ -1839,7 +1866,7 @@ function renderStorageBenchmarkProgress(payload) {
   const identity = String(payload.disk_id || "") + ":" + payload.kind;
 
   if (!activeStorageBenchmark) {
-    const entry = document.createElement("li");
+    const entry = storageBenchmarkPlaceholder || document.createElement("li");
     entry.className = "storage-live-benchmark";
     entry.classList.add("qboa-activity-target");
     entry.dataset.activity = "working";
@@ -1905,7 +1932,8 @@ function renderStorageBenchmarkProgress(payload) {
     const transferred = document.createElement("span");
     footer.append(elapsed, transferred);
     entry.append(heading, metrics, chart, footer);
-    list.appendChild(entry);
+    if (entry.parentElement !== list) list.appendChild(entry);
+    storageBenchmarkPlaceholder = null;
     activeStorageBenchmark = {
       identity, entry, path, primaryValue, secondaryValue, primaryLabel, secondaryLabel,
       subtitle, elapsed, transferred, samples: [], primaryKey
@@ -4276,10 +4304,12 @@ async function runDiagnostic(mode, target = null) {
   try {
     if (target === "armazenamento") {
       activeStorageBenchmark = null;
+      storageBenchmarkPlaceholder = null;
       lastStorageActivityLogAt = 0;
       appendConsole("Diagnóstico de armazenamento iniciado.");
       const selectedIds = selectedStorageDiskIds();
       if (!selectedIds.length) throw new Error("Marque uma ou mais unidades antes de iniciar o teste.");
+      prepareStorageBenchmarkPlaceholder();
       let completed = 0;
       const failures = [];
       for (let index = 0; index < selectedIds.length; index++) {
