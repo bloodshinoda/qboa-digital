@@ -2201,16 +2201,32 @@ function renderStorageReport(report, append = false) {
 
   const smartGrid = document.createElement("div");
   smartGrid.className = "storage-smart-grid";
-  [
-    ["Setores realocados", smartSectorValue("reallocated", smart.reallocated)],
-    ["Setores pendentes", smartSectorValue("pending", smart.pending)],
-    ["Setores incorrigíveis", smartSectorValue("uncorrectable", smart.uncorrectable)],
-    ["Desgaste informado", smartValue(smart.wear_percent, "%")],
-    ["Temperatura", smartValue(smart.temperature_c, " °C")],
-    ["Erros CRC · antes → depois", smartValue(smart.interface_crc_before) + " → " + smartValue(smart.interface_crc_after)]
-  ].forEach(([label, value]) => {
+
+  // As cores representam somente evidências SMART explícitas. Dados ausentes,
+  // não expostos ou com erro de coleta permanecem neutros.
+  const sectorTone = (field, value) => {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "neutral";
+    const count = Number(value);
+    if (count === 0) return "success";
+    return field === "reallocated" ? "warning" : "danger";
+  };
+  const predictedTone = smart.predicted_failure === true
+    ? "danger" : smart.predicted_failure === false ? "success" : "neutral";
+  const crcIncreased = smart.interface_crc_before !== null && smart.interface_crc_before !== undefined &&
+    smart.interface_crc_after !== null && smart.interface_crc_after !== undefined &&
+    Number(smart.interface_crc_after) > Number(smart.interface_crc_before);
+  const smartCards = [
+    ["Setores realocados", smartSectorValue("reallocated", smart.reallocated), sectorTone("reallocated", smart.reallocated)],
+    ["Setores pendentes", smartSectorValue("pending", smart.pending), sectorTone("pending", smart.pending)],
+    ["Setores incorrigíveis", smartSectorValue("uncorrectable", smart.uncorrectable), sectorTone("uncorrectable", smart.uncorrectable)],
+    ["Desgaste informado", smartValue(smart.wear_percent, "%"), "neutral"],
+    ["Temperatura", smartValue(smart.temperature_c, " °C"), "neutral"],
+    ["Erros CRC · antes → depois", smartValue(smart.interface_crc_before) + " → " + smartValue(smart.interface_crc_after), crcIncreased ? "warning" : "neutral"],
+    ["Previsão de falha", smart.predicted_failure === true ? "Sinalizada" : smart.predicted_failure === false ? "Não sinalizada" : "Não informada", predictedTone]
+  ];
+  smartCards.forEach(([label, value, tone]) => {
     const card = document.createElement("article");
-    card.className = "storage-smart-card";
+    card.className = "storage-smart-card " + tone;
     const name = document.createElement("span");
     name.textContent = label;
     const amount = document.createElement("strong");
@@ -2219,6 +2235,21 @@ function renderStorageReport(report, append = false) {
     smartGrid.appendChild(card);
   });
   smartSection.appendChild(smartGrid);
+
+  const hasSmartAlert = smart.predicted_failure === true ||
+    Number(smart.pending) > 0 || Number(smart.uncorrectable) > 0 ||
+    Number(smart.reallocated) > 0 || crcIncreased;
+  if (hasSmartAlert) {
+    smartState.className = "storage-report-notice " +
+      (smart.predicted_failure === true || Number(smart.pending) > 0 || Number(smart.uncorrectable) > 0 ? "danger" : "warning");
+    if (smart.predicted_failure !== true) {
+      smartState.textContent = "Um ou mais indicadores SMART merecem atenção. Consulte os itens destacados; erros CRC podem indicar problema na conexão.";
+    }
+  } else if (smart.usable && (smart.predicted_failure === false ||
+      [smart.reallocated, smart.pending, smart.uncorrectable].some((value) => value !== null && value !== undefined))) {
+    smartState.className = "storage-report-notice success";
+    smartState.textContent = "Nenhum alerta identificado nos indicadores SMART disponíveis. Atributos não fornecidos não foram considerados saudáveis.";
+  }
   if (smart.wear_limit_percent !== null && smart.wear_limit_percent !== undefined) {
     const wearLimit = document.createElement("p");
     wearLimit.className = "storage-report-footnote";
