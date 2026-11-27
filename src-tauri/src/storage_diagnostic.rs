@@ -166,6 +166,7 @@ pub(crate) struct SmartData {
     pub temperature_c: Option<f64>,
     pub pio_mode: Option<bool>,
     pub slow_sata_link: Option<bool>,
+    #[serde(default)]
     pub usb_slow: bool,
 }
 
