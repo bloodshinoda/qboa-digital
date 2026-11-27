@@ -2188,7 +2188,7 @@ function renderStorageReport(report, append = false) {
     ? "Informações disponibilizadas pelo dispositivo e pelo provedor do Windows."
     : "O dispositivo ou controlador não expôs dados SMART utilizáveis. Ausência de leitura não significa que esteja saudável.");
   const smartState = document.createElement("p");
-  smartState.className = "storage-report-notice " + (smart.usable ? "neutral" : "warning");
+  smartState.className = "storage-report-notice neutral";
   if (smart.predicted_failure === true) {
     smartState.className = "storage-report-notice danger";
     smartState.textContent = "O provedor SMART sinalizou previsão de falha.";
