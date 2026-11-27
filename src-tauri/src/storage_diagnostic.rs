@@ -335,7 +335,11 @@ pub(crate) fn load_stored_reports(app_data_dir: &Path) -> Result<serde_json::Val
 }
 
 fn smart_sector_status(smart: &SmartData, field: &str) -> Option<SmartCollectionState> {
-    let statuses = smart.collection_status.as_ref()?.sector_attributes.as_ref()?;
+    let statuses = smart
+        .collection_status
+        .as_ref()?
+        .sector_attributes
+        .as_ref()?;
     match field {
         "reallocated" => statuses.reallocated,
         "pending" => statuses.pending,
@@ -346,14 +350,30 @@ fn smart_sector_status(smart: &SmartData, field: &str) -> Option<SmartCollection
 
 fn smart_sector_reason(status: Option<SmartCollectionState>, label: &str) -> String {
     match status {
-        Some(SmartCollectionState::ProviderUnavailable) => format!("O provedor SMART não expôs o atributo de setores {label}."),
-        Some(SmartCollectionState::CollectionError) => format!("Falha ao coletar o atributo SMART de setores {label}."),
-        Some(SmartCollectionState::ParseError) => format!("Falha ao interpretar o atributo SMART de setores {label}."),
-        Some(SmartCollectionState::AttributeNotReported) => format!("O dispositivo não reportou o atributo SMART de setores {label}."),
-        Some(SmartCollectionState::Available) => format!("O atributo SMART de setores {label} foi coletado, mas não trouxe uma contagem válida."),
-        Some(SmartCollectionState::NotAttempted) => format!("A coleta do atributo SMART de setores {label} não foi executada."),
-        Some(SmartCollectionState::Unknown) => format!("Estado SMART de setores {label} não reconhecido."),
-        None => format!("Contagem SMART de setores {label} indisponível ou ausente em laudo legado."),
+        Some(SmartCollectionState::ProviderUnavailable) => {
+            format!("O provedor SMART não expôs o atributo de setores {label}.")
+        }
+        Some(SmartCollectionState::CollectionError) => {
+            format!("Falha ao coletar o atributo SMART de setores {label}.")
+        }
+        Some(SmartCollectionState::ParseError) => {
+            format!("Falha ao interpretar o atributo SMART de setores {label}.")
+        }
+        Some(SmartCollectionState::AttributeNotReported) => {
+            format!("O dispositivo não reportou o atributo SMART de setores {label}.")
+        }
+        Some(SmartCollectionState::Available) => format!(
+            "O atributo SMART de setores {label} foi coletado, mas não trouxe uma contagem válida."
+        ),
+        Some(SmartCollectionState::NotAttempted) => {
+            format!("A coleta do atributo SMART de setores {label} não foi executada.")
+        }
+        Some(SmartCollectionState::Unknown) => {
+            format!("Estado SMART de setores {label} não reconhecido.")
+        }
+        None => {
+            format!("Contagem SMART de setores {label} indisponível ou ausente em laudo legado.")
+        }
     }
 }
 
@@ -474,11 +494,14 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
             } else if count.is_none() {
                 smart_core_complete = false;
                 reasons.push(smart_sector_reason(
-                    smart_sector_status(&report.smart, match label {
-                        "realocados" => "reallocated",
-                        "pendentes" => "pending",
-                        _ => "uncorrectable",
-                    }),
+                    smart_sector_status(
+                        &report.smart,
+                        match label {
+                            "realocados" => "reallocated",
+                            "pendentes" => "pending",
+                            _ => "uncorrectable",
+                        },
+                    ),
                     label,
                 ));
             }
@@ -679,9 +702,8 @@ mod tests {
     fn smart_collection_state_accepts_initial_and_future_values() {
         let initial: SmartCollectionState =
             serde_json::from_str("\"not_checked\"").expect("initial state must deserialize");
-        let future: SmartCollectionState =
-            serde_json::from_str("\"future_provider_state\"")
-                .expect("unknown future state must deserialize safely");
+        let future: SmartCollectionState = serde_json::from_str("\"future_provider_state\"")
+            .expect("unknown future state must deserialize safely");
 
         assert_eq!(initial, SmartCollectionState::NotChecked);
         assert_eq!(future, SmartCollectionState::Unknown);
@@ -713,8 +735,8 @@ mod tests {
             value["collection_status"]["sector_attributes"]["pending"],
             "provider_unavailable"
         );
-        let restored: SmartData =
-            serde_json::from_value(value).expect("SMART status must deserialize after serialization");
+        let restored: SmartData = serde_json::from_value(value)
+            .expect("SMART status must deserialize after serialization");
         assert_eq!(restored, smart);
     }
 
