@@ -1931,7 +1931,9 @@ function renderStorageBenchmarkProgress(payload) {
     const elapsed = document.createElement("span");
     const transferred = document.createElement("span");
     footer.append(elapsed, transferred);
-    entry.append(heading, metrics, chart, footer);
+    // O mesmo <li> reservado no estado inicial vira o gráfico real.
+    // Substituir os filhos remove o cabeçalho e a mensagem de espera antigos.
+    entry.replaceChildren(heading, metrics, chart, footer);
     if (entry.parentElement !== list) list.appendChild(entry);
     storageBenchmarkPlaceholder = null;
     activeStorageBenchmark = {
