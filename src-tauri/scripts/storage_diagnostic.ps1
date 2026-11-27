@@ -327,7 +327,14 @@ function ConvertFrom-SmartVendorSpecific([byte[]]$Raw, [hashtable]$ThresholdMap)
         233='Media Wearout Indicator'; 241='Total LBAs Written'; 242='Total LBAs Read'
     }
     $attributes = @()
-    for ($offset = 2; $offset + 11 -lt $Raw.Length; $offset += 12) {
+    # VendorSpecific contém 2 bytes de cabeçalho, seguidos por no máximo
+    # 30 registros SMART de 12 bytes. O restante do buffer é reservado.
+    $recordSize = 12
+    $maxRecords = 30
+    $availableRecords = [int][Math]::Floor(($Raw.Length - 2) / $recordSize)
+    $recordCount = [Math]::Min($maxRecords, $availableRecords)
+    for ($recordIndex = 0; $recordIndex -lt $recordCount; $recordIndex++) {
+        $offset = 2 + ($recordIndex * $recordSize)
         $id = [int]$Raw[$offset]
         if ($id -eq 0) { continue }
         [uint64]$rawValue = 0
@@ -564,14 +571,38 @@ function Get-MeasurementSpec {
 }
 
 if ($mode -eq 'selftest') {
-    $smartFixture = New-Object byte[] 14
+    $smartFixture = New-Object byte[] 512
+    # Primeiro registro válido (ID 5).
     $smartFixture[2] = 5
     $smartFixture[3] = 100
     $smartFixture[4] = 95
     $smartFixture[7] = 7
+    # Trigésimo registro válido (ID 198): último slot da tabela.
+    $lastValidOffset = 2 + (29 * 12)
+    $smartFixture[$lastValidOffset] = 198
+    $smartFixture[$lastValidOffset + 3] = 90
+    $smartFixture[$lastValidOffset + 4] = 80
+    $smartFixture[$lastValidOffset + 5] = 3
+    # Bytes reservados após os 30 registros simulam IDs plausíveis,
+    # mas não podem ser interpretados como atributos.
+    $smartFixture[362] = 2
+    $smartFixture[363] = 100
+    $smartFixture[364] = 100
+    $smartFixture[367] = 99
+    $smartFixture[374] = 1
+    $smartFixture[375] = 100
+    $smartFixture[376] = 100
+    $smartFixture[379] = 88
+
     $smartParsed = @(ConvertFrom-SmartVendorSpecific -Raw $smartFixture -ThresholdMap @{ 5 = 10 })
-    if ($smartParsed.Count -ne 1 -or $smartParsed[0].id -ne 5 -or $smartParsed[0].raw_value -ne 7 -or $smartParsed[0].threshold -ne 10) {
-        throw 'Autoteste SMART falhou ao interpretar o atributo de setores realocados.'
+    if ($smartParsed.Count -ne 2 -or $smartParsed[0].id -ne 5 -or $smartParsed[0].raw_value -ne 7 -or $smartParsed[0].threshold -ne 10) {
+        throw 'Autoteste SMART falhou ao interpretar os atributos válidos.'
+    }
+    if ($smartParsed[1].id -ne 198 -or $smartParsed[1].raw_value -ne 3) {
+        throw 'Autoteste SMART falhou ao interpretar o trigésimo registro válido.'
+    }
+    if (@($smartParsed | Where-Object { $_.id -eq 1 -or $_.id -eq 2 }).Count -ne 0) {
+        throw 'Autoteste SMART falhou: bytes reservados foram interpretados como atributos.'
     }
     $invalidSmartRejected = $false
     try {
