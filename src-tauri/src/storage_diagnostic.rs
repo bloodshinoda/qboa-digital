@@ -657,16 +657,16 @@ mod tests {
         let smart = SmartData {
             usable: true,
             collection_status: Some(SmartCollectionStatus {
-                failure_predict_data: Some("available".into()),
-                failure_predict_thresholds: Some("not_exposed".into()),
-                failure_predict_status: Some("available".into()),
-                storage_reliability_counter: Some("available".into()),
-                instance_match: Some("matched".into()),
-                attributes_parse: Some("parsed".into()),
+                failure_predict_data: Some(SmartCollectionState::Available),
+                failure_predict_thresholds: Some(SmartCollectionState::NotExposed),
+                failure_predict_status: Some(SmartCollectionState::Available),
+                storage_reliability_counter: Some(SmartCollectionState::Available),
+                instance_match: Some(SmartCollectionState::Matched),
+                attributes_parse: Some(SmartCollectionState::Parsed),
                 sector_attributes: Some(SmartSectorAttributeStatus {
-                    reallocated: Some("attribute_not_reported".into()),
-                    pending: Some("provider_unavailable".into()),
-                    uncorrectable: Some("collection_error".into()),
+                    reallocated: Some(SmartCollectionState::AttributeNotReported),
+                    pending: Some(SmartCollectionState::ProviderUnavailable),
+                    uncorrectable: Some(SmartCollectionState::CollectionError),
                 }),
                 errors: vec!["fixture error".into()],
             }),
@@ -689,7 +689,7 @@ mod tests {
         report.smart.pending = None;
         report.smart.collection_status = Some(SmartCollectionStatus {
             sector_attributes: Some(SmartSectorAttributeStatus {
-                pending: Some("provider_unavailable".into()),
+                pending: Some(SmartCollectionState::ProviderUnavailable),
                 ..SmartSectorAttributeStatus::default()
             }),
             ..SmartCollectionStatus::default()
