@@ -79,7 +79,39 @@ pub(crate) struct Measurement {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
+pub(crate) struct SmartSectorAttributeStatus {
+    #[serde(default)]
+    pub reallocated: Option<String>,
+    #[serde(default)]
+    pub pending: Option<String>,
+    #[serde(default)]
+    pub uncorrectable: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
+pub(crate) struct SmartCollectionStatus {
+    #[serde(default)]
+    pub failure_predict_data: Option<String>,
+    #[serde(default)]
+    pub failure_predict_thresholds: Option<String>,
+    #[serde(default)]
+    pub failure_predict_status: Option<String>,
+    #[serde(default)]
+    pub storage_reliability_counter: Option<String>,
+    #[serde(default)]
+    pub instance_match: Option<String>,
+    #[serde(default)]
+    pub attributes_parse: Option<String>,
+    #[serde(default)]
+    pub sector_attributes: Option<SmartSectorAttributeStatus>,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
 pub(crate) struct SmartData {
+    #[serde(default)]
+    pub collection_status: Option<SmartCollectionStatus>,
     pub usable: bool,
     pub predicted_failure: Option<bool>,
     pub reallocated: Option<u64>,
@@ -260,6 +292,30 @@ pub(crate) fn load_stored_reports(app_data_dir: &Path) -> Result<serde_json::Val
     Ok(serde_json::Value::Array(reports))
 }
 
+fn smart_sector_status<'a>(smart: &'a SmartData, field: &str) -> Option<&'a str> {
+    let statuses = smart.collection_status.as_ref()?.sector_attributes.as_ref()?;
+    let status = match field {
+        "reallocated" => statuses.reallocated.as_deref(),
+        "pending" => statuses.pending.as_deref(),
+        "uncorrectable" => statuses.uncorrectable.as_deref(),
+        _ => None,
+    };
+    status
+}
+
+fn smart_sector_reason(status: Option<&str>, label: &str) -> String {
+    match status {
+        Some("provider_unavailable") => format!("O provedor SMART não expôs o atributo de setores {label}."),
+        Some("collection_error") => format!("Falha ao coletar o atributo SMART de setores {label}."),
+        Some("parse_error") => format!("Falha ao interpretar o atributo SMART de setores {label}."),
+        Some("attribute_not_reported") => format!("O dispositivo não reportou o atributo SMART de setores {label}."),
+        Some("available") => format!("O atributo SMART de setores {label} foi coletado, mas não trouxe uma contagem válida."),
+        Some("not_attempted") => format!("A coleta do atributo SMART de setores {label} não foi executada."),
+        Some(other) => format!("Estado SMART de setores {label} não reconhecido ({other})."),
+        None => format!("Contagem SMART de setores {label} indisponível ou ausente em laudo legado."),
+    }
+}
+
 fn threshold(class: DiskClass) -> Option<(f64, f64)> {
     match class {
         DiskClass::NotebookHdd => Some((60.0, 40.0)),
@@ -376,7 +432,14 @@ pub(crate) fn evaluate(report: &mut StorageReport) {
                 reasons.push(format!("SMART informa {count:?} setores {label}."));
             } else if count.is_none() {
                 smart_core_complete = false;
-                reasons.push(format!("Contagem SMART de setores {label} indisponível."));
+                reasons.push(smart_sector_reason(
+                    smart_sector_status(&report.smart, match label {
+                        "realocados" => "reallocated",
+                        "pendentes" => "pending",
+                        _ => "uncorrectable",
+                    }),
+                    label,
+                ));
             }
         }
         if crc_increased {
@@ -534,6 +597,56 @@ mod tests {
         report.space_available = false;
         evaluate(&mut report);
         assert_eq!(report.recommendation, Recommendation::Inconclusivo);
+    }
+
+    #[test]
+    fn smart_collection_status_deserializes_sector_reasons() {
+        let smart: SmartData = serde_json::from_value(serde_json::json!({
+            "usable": true,
+            "collection_status": {
+                "failure_predict_data": "available",
+                "failure_predict_thresholds": "not_exposed",
+                "failure_predict_status": "available",
+                "storage_reliability_counter": "available",
+                "instance_match": "matched",
+                "attributes_parse": "parsed",
+                "sector_attributes": {
+                    "reallocated": "attribute_not_reported",
+                    "pending": "provider_unavailable",
+                    "uncorrectable": "collection_error"
+                },
+                "errors": []
+            }
+        }))
+        .expect("SMART collection status must deserialize");
+
+        assert_eq!(
+            smart_sector_status(&smart, "reallocated"),
+            Some("attribute_not_reported")
+        );
+        assert_eq!(
+            smart_sector_status(&smart, "pending"),
+            Some("provider_unavailable")
+        );
+        assert_eq!(
+            smart_sector_status(&smart, "uncorrectable"),
+            Some("collection_error")
+        );
+    }
+
+    #[test]
+    fn legacy_smart_report_without_collection_status_remains_compatible() {
+        let smart: SmartData = serde_json::from_value(serde_json::json!({
+            "usable": true,
+            "reallocated": null,
+            "pending": null,
+            "uncorrectable": null
+        }))
+        .expect("legacy SMART report must deserialize");
+
+        assert!(smart.collection_status.is_none());
+        assert!(smart_sector_status(&smart, "pending").is_none());
+        assert!(smart_sector_reason(None, "pendentes").contains("laudo legado"));
     }
 
     #[test]
