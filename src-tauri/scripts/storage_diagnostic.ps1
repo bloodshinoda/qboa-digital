@@ -309,6 +309,47 @@ function Get-DiskEntries {
     return $entries
 }
 
+function ConvertFrom-SmartVendorSpecific([byte[]]$Raw, [hashtable]$ThresholdMap) {
+    if ($null -eq $Raw -or $Raw.Length -lt 14) {
+        throw 'Payload VendorSpecific ausente ou menor que o cabeçalho SMART esperado.'
+    }
+    if ($null -eq $ThresholdMap) { $ThresholdMap = @{} }
+    $names = @{
+        1='Read Error Rate'; 3='Spin-Up Time'; 4='Start/Stop Count'; 5='Reallocated Sectors';
+        7='Seek Error Rate'; 9='Power-On Hours'; 10='Spin Retry Count'; 12='Power Cycle Count';
+        170='Available Reserved Space'; 171='Program Fail Count'; 172='Erase Fail Count';
+        173='Wear Leveling Count'; 177='Wear Leveling Count'; 179='Used Reserved Block Count';
+        181='Program Fail Count'; 182='Erase Fail Count'; 183='SATA Downshift'; 184='End-to-End Error';
+        187='Reported Uncorrectable Errors'; 188='Command Timeout'; 190='Airflow Temperature';
+        194='Temperature'; 195='ECC Error Rate'; 196='Reallocation Event Count';
+        197='Current Pending Sector Count'; 198='Offline Uncorrectable'; 199='UDMA CRC Error Count';
+        202='Percent Lifetime Remaining'; 231='SSD Life Left'; 232='Available Reserved Space';
+        233='Media Wearout Indicator'; 241='Total LBAs Written'; 242='Total LBAs Read'
+    }
+    $attributes = @()
+    for ($offset = 2; $offset + 11 -lt $Raw.Length; $offset += 12) {
+        $id = [int]$Raw[$offset]
+        if ($id -eq 0) { continue }
+        [uint64]$rawValue = 0
+        [uint64]$multiplier = 1
+        for ($j = 0; $j -lt 6; $j++) {
+            $rawValue += ([uint64]$Raw[$offset + 5 + $j] * $multiplier)
+            $multiplier *= 256
+        }
+        $threshold = $null
+        if ($ThresholdMap.ContainsKey($id)) { $threshold = [int]$ThresholdMap[$id] }
+        $attributes += [pscustomobject]@{
+            id = $id
+            name = if ($names.ContainsKey($id)) { $names[$id] } else { 'SMART ' + $id }
+            current = [int]$Raw[$offset + 3]
+            worst = [int]$Raw[$offset + 4]
+            threshold = $threshold
+            raw_value = $rawValue
+        }
+    }
+    return $attributes
+}
+
 function Get-SmartSnapshot([int]$diskNumber) {
     $disk = Get-CimInstance Win32_DiskDrive -Filter ("Index = " + $diskNumber) -ErrorAction Stop
     $diskInfo = Get-Disk -Number $diskNumber -ErrorAction SilentlyContinue
@@ -393,51 +434,17 @@ function Get-SmartSnapshot([int]$diskNumber) {
     if ($smartData.Count -gt 0) {
         try {
             $raw = $smartData[0].VendorSpecific
-            if ($null -eq $raw -or $raw.Length -lt 14) {
-                throw 'Payload VendorSpecific ausente ou menor que o cabeçalho SMART esperado.'
-            }
             $thresholdMap = @{}
             if ($smartThresholds.Count -gt 0) {
                 $thresholdBytes = $smartThresholds[0].VendorSpecific
-                for ($offset = 2; $offset + 11 -lt $thresholdBytes.Length; $offset += 12) {
-                    $id = [int]$thresholdBytes[$offset]
-                    if ($id -ne 0) { $thresholdMap[$id] = [int]$thresholdBytes[$offset + 3] }
+                if ($null -ne $thresholdBytes) {
+                    for ($offset = 2; $offset + 11 -lt $thresholdBytes.Length; $offset += 12) {
+                        $id = [int]$thresholdBytes[$offset]
+                        if ($id -ne 0) { $thresholdMap[$id] = [int]$thresholdBytes[$offset + 3] }
+                    }
                 }
             }
-            $names = @{
-                1='Read Error Rate'; 3='Spin-Up Time'; 4='Start/Stop Count'; 5='Reallocated Sectors';
-                7='Seek Error Rate'; 9='Power-On Hours'; 10='Spin Retry Count'; 12='Power Cycle Count';
-                170='Available Reserved Space'; 171='Program Fail Count'; 172='Erase Fail Count';
-                173='Wear Leveling Count'; 177='Wear Leveling Count'; 179='Used Reserved Block Count';
-                181='Program Fail Count'; 182='Erase Fail Count'; 183='SATA Downshift'; 184='End-to-End Error';
-                187='Reported Uncorrectable Errors'; 188='Command Timeout'; 190='Airflow Temperature';
-                194='Temperature'; 195='ECC Error Rate'; 196='Reallocation Event Count';
-                197='Current Pending Sector Count'; 198='Offline Uncorrectable'; 199='UDMA CRC Error Count';
-                202='Percent Lifetime Remaining'; 231='SSD Life Left'; 232='Available Reserved Space';
-                233='Media Wearout Indicator'; 241='Total LBAs Written'; 242='Total LBAs Read'
-            }
-            for ($offset = 2; $offset + 11 -lt $raw.Length; $offset += 12) {
-                $id = [int]$raw[$offset]
-                if ($id -eq 0) { continue }
-                [uint64]$rawValue = 0
-                [uint64]$multiplier = 1
-                for ($j = 0; $j -lt 6; $j++) {
-                    $rawValue += ([uint64]$raw[$offset + 5 + $j] * $multiplier)
-                    $multiplier *= 256
-                }
-                $current = [int]$raw[$offset + 3]
-                $worst = [int]$raw[$offset + 4]
-                $threshold = $null
-                if ($thresholdMap.ContainsKey($id)) { $threshold = [int]$thresholdMap[$id] }
-                $attributes += [pscustomobject]@{
-                    id = $id
-                    name = if ($names.ContainsKey($id)) { $names[$id] } else { 'SMART ' + $id }
-                    current = $current
-                    worst = $worst
-                    threshold = $threshold
-                    raw_value = $rawValue
-                }
-            }
+            $attributes = @(ConvertFrom-SmartVendorSpecific -Raw $raw -ThresholdMap $thresholdMap)
             if ($attributes.Count -eq 0) {
                 throw 'Payload SMART recebido, mas nenhum atributo válido foi interpretado.'
             }
@@ -549,6 +556,24 @@ function Get-MeasurementSpec {
 }
 
 if ($mode -eq 'selftest') {
+    $smartFixture = New-Object byte[] 14
+    $smartFixture[2] = 5
+    $smartFixture[3] = 100
+    $smartFixture[4] = 95
+    $smartFixture[5] = 7
+    $smartParsed = @(ConvertFrom-SmartVendorSpecific -Raw $smartFixture -ThresholdMap @{ 5 = 10 })
+    if ($smartParsed.Count -ne 1 -or $smartParsed[0].id -ne 5 -or $smartParsed[0].raw_value -ne 7 -or $smartParsed[0].threshold -ne 10) {
+        throw 'Autoteste SMART falhou ao interpretar o atributo de setores realocados.'
+    }
+    $invalidSmartRejected = $false
+    try {
+        [void](ConvertFrom-SmartVendorSpecific -Raw ([byte[]](1,2,3,4)) -ThresholdMap @{})
+    } catch {
+        $invalidSmartRejected = $true
+    }
+    if (-not $invalidSmartRejected) {
+        throw 'Autoteste SMART falhou: payload inválido deveria ser rejeitado.'
+    }
     Add-Type -TypeDefinition $benchSource -Language CSharp -ErrorAction Stop
     $selfTestFileBytes = 16777216
     $selfTestMaxBytes = 16777216
