@@ -350,6 +350,14 @@ function ConvertFrom-SmartVendorSpecific([byte[]]$Raw, [hashtable]$ThresholdMap)
     return $attributes
 }
 
+function Get-SmartSectorAttributeStatus($Attribute, [string]$DataStatus, [string]$ParseStatus) {
+    if ($null -ne $Attribute) { return 'available' }
+    if ($ParseStatus -eq 'parse_error') { return 'parse_error' }
+    if ($DataStatus -eq 'collection_error') { return 'collection_error' }
+    if ($DataStatus -eq 'not_exposed') { return 'provider_unavailable' }
+    return 'attribute_not_reported'
+}
+
 function Get-SmartSnapshot([int]$diskNumber) {
     $disk = Get-CimInstance Win32_DiskDrive -Filter ("Index = " + $diskNumber) -ErrorAction Stop
     $diskInfo = Get-Disk -Number $diskNumber -ErrorAction SilentlyContinue
@@ -498,9 +506,9 @@ function Get-SmartSnapshot([int]$diskNumber) {
     }
 
     $sectorStatus = @{
-        reallocated = if ($null -ne $attr5) { 'available' } elseif ($parseStatus -eq 'parse_error') { 'parse_error' } elseif ($dataStatus -eq 'collection_error') { 'collection_error' } elseif ($dataStatus -eq 'not_exposed') { 'provider_unavailable' } else { 'attribute_not_reported' }
-        pending = if ($null -ne $attr197) { 'available' } elseif ($parseStatus -eq 'parse_error') { 'parse_error' } elseif ($dataStatus -eq 'collection_error') { 'collection_error' } elseif ($dataStatus -eq 'not_exposed') { 'provider_unavailable' } else { 'attribute_not_reported' }
-        uncorrectable = if ($null -ne $attr198) { 'available' } elseif ($parseStatus -eq 'parse_error') { 'parse_error' } elseif ($dataStatus -eq 'collection_error') { 'collection_error' } elseif ($dataStatus -eq 'not_exposed') { 'provider_unavailable' } else { 'attribute_not_reported' }
+        reallocated = Get-SmartSectorAttributeStatus -Attribute $attr5 -DataStatus $dataStatus -ParseStatus $parseStatus
+        pending = Get-SmartSectorAttributeStatus -Attribute $attr197 -DataStatus $dataStatus -ParseStatus $parseStatus
+        uncorrectable = Get-SmartSectorAttributeStatus -Attribute $attr198 -DataStatus $dataStatus -ParseStatus $parseStatus
     }
     $usable = ($attributes.Count -gt 0 -or $reliability.Count -gt 0 -or $null -ne $predictedFailure)
     return [pscustomobject]@{
@@ -573,6 +581,19 @@ if ($mode -eq 'selftest') {
     }
     if (-not $invalidSmartRejected) {
         throw 'Autoteste SMART falhou: payload inválido deveria ser rejeitado.'
+    }
+    $statusCases = @(
+        @{ attribute = $smartParsed[0]; data = 'available'; parse = 'parsed'; expected = 'available' },
+        @{ attribute = $null; data = 'not_exposed'; parse = 'not_exposed'; expected = 'provider_unavailable' },
+        @{ attribute = $null; data = 'collection_error'; parse = 'not_attempted'; expected = 'collection_error' },
+        @{ attribute = $null; data = 'available'; parse = 'parse_error'; expected = 'parse_error' },
+        @{ attribute = $null; data = 'available'; parse = 'parsed'; expected = 'attribute_not_reported' }
+    )
+    foreach ($case in $statusCases) {
+        $actualStatus = Get-SmartSectorAttributeStatus -Attribute $case.attribute -DataStatus $case.data -ParseStatus $case.parse
+        if ($actualStatus -ne $case.expected) {
+            throw ('Autoteste SMART falhou: esperado ' + $case.expected + ', recebido ' + $actualStatus + '.')
+        }
     }
     Add-Type -TypeDefinition $benchSource -Language CSharp -ErrorAction Stop
     $selfTestFileBytes = 16777216
