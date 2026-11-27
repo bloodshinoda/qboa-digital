@@ -2404,26 +2404,23 @@ async function loadDiagnosticHistory(selectLatest = false) {
     });
 
     if (selectLatest && combined.length) {
-      if (cpuOnly && cpuReports.length) {
-        renderCpuReport(cpuReports[0]);
+      const latestEntry = storageOnly
+        ? combined.find((entry) => entry.storage)
+        : cpuOnly
+          ? combined.find((entry) => entry.cpu)
+          : combined[0];
+      if (latestEntry?.storage) {
+        renderStorageReport(latestEntry.report);
         document.getElementById("diagnostic-status").textContent =
-          "Último laudo de CPU recuperado · " + cpuTestStatusLabel(cpuReports[0].execution_status);
-      } else if (storageOnly && storageReports.length) {
-        renderStorageReport(storageReports[0]);
+          "Último laudo de armazenamento recuperado · " + (latestEntry.report.report_id || "ID indisponível");
+      } else if (latestEntry?.cpu) {
+        renderCpuReport(latestEntry.report);
         document.getElementById("diagnostic-status").textContent =
-          "Último laudo de armazenamento recuperado · " + (storageReports[0].report_id || "ID indisponível");
-      } else if (!cpuOnly && !storageOnly && reports.length) {
-        renderDiagnosticReport(reports[0]);
+          "Último laudo de CPU recuperado · " + cpuTestStatusLabel(latestEntry.report.execution_status);
+      } else if (latestEntry) {
+        renderDiagnosticReport(latestEntry.report);
         document.getElementById("diagnostic-status").textContent =
-          "Último laudo recuperado · " + diagnosticExecutionLabel(reports[0].execution_status);
-      } else if (!cpuOnly && !storageOnly && cpuReports.length) {
-        renderCpuReport(cpuReports[0]);
-        document.getElementById("diagnostic-status").textContent =
-          "Último laudo de CPU recuperado · " + cpuTestStatusLabel(cpuReports[0].execution_status);
-      } else if (!cpuOnly && !storageOnly && storageReports.length) {
-        renderStorageReport(storageReports[0]);
-        document.getElementById("diagnostic-status").textContent =
-          "Último laudo de armazenamento recuperado · " + (storageReports[0].report_id || "ID indisponível");
+          "Último laudo recuperado · " + diagnosticExecutionLabel(latestEntry.report.execution_status);
       }
     }
     return cpuOnly ? cpuReports : storageOnly ? storageReports : reports;
