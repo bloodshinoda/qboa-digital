@@ -1992,6 +1992,16 @@ function renderStorageReport(report, append = false) {
     : (Number(value) / (1024 ** 3)).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " GiB";
   const smartValue = (value, suffix = "") => value === null || value === undefined
     ? "Não informado" : fmt(value) + suffix;
+  const smartSectorValue = (field, value) => {
+    if (value !== null && value !== undefined) return fmt(value);
+    const status = report.smart?.collection_status?.sector_attributes?.[field];
+    return ({
+      provider_unavailable: "Provedor não expôs",
+      collection_error: "Falha na coleta",
+      parse_error: "Falha ao interpretar",
+      attribute_not_reported: "Atributo não reportado"
+    })[status] || "Não informado";
+  };
   const classNames = {
     notebook_hdd: "HD de notebook",
     desktop_hdd: "HD de desktop",
@@ -2162,9 +2172,9 @@ function renderStorageReport(report, append = false) {
   const smartGrid = document.createElement("div");
   smartGrid.className = "storage-smart-grid";
   [
-    ["Setores realocados", smartValue(smart.reallocated)],
-    ["Setores pendentes", smartValue(smart.pending)],
-    ["Setores incorrigíveis", smartValue(smart.uncorrectable)],
+    ["Setores realocados", smartSectorValue("reallocated", smart.reallocated)],
+    ["Setores pendentes", smartSectorValue("pending", smart.pending)],
+    ["Setores incorrigíveis", smartSectorValue("uncorrectable", smart.uncorrectable)],
     ["Desgaste informado", smartValue(smart.wear_percent, "%")],
     ["Temperatura", smartValue(smart.temperature_c, " °C")],
     ["Erros CRC · antes → depois", smartValue(smart.interface_crc_before) + " → " + smartValue(smart.interface_crc_after)]
@@ -2194,7 +2204,8 @@ function renderStorageReport(report, append = false) {
 
   const attributes = Array.isArray(smart.attributes) ? smart.attributes : [];
   const metrics = Array.isArray(smart.reliability_metrics) ? smart.reliability_metrics : [];
-  if (attributes.length || metrics.length || smart.source) {
+  const collectionStatus = smart.collection_status || null;
+  if (attributes.length || metrics.length || smart.source || collectionStatus) {
     const details = document.createElement("details");
     details.className = "storage-technical-details";
     const summary = document.createElement("summary");
@@ -2204,6 +2215,59 @@ function renderStorageReport(report, append = false) {
       const source = document.createElement("p");
       source.textContent = "Fontes: " + smart.source;
       details.appendChild(source);
+    }
+    if (collectionStatus) {
+      const statusHeading = document.createElement("h5");
+      statusHeading.textContent = "Estado da coleta SMART";
+      const statusList = document.createElement("ul");
+      const statusLabels = {
+        available: "Disponível",
+        parsed: "Interpretado",
+        not_exposed: "Não exposto pelo provedor",
+        provider_unavailable: "Provedor indisponível",
+        no_matching_instance: "Nenhuma instância correspondente",
+        matched: "Dispositivo correspondente localizado",
+        collection_error: "Falha durante a coleta",
+        query_error: "Falha na consulta",
+        parse_error: "Falha ao interpretar os dados",
+        not_attempted: "Interpretação não realizada",
+        attribute_not_reported: "Atributo não reportado"
+      };
+      [
+        ["Dados SMART WMI", collectionStatus.failure_predict_data],
+        ["Instância do dispositivo", collectionStatus.instance_match],
+        ["Interpretação dos atributos", collectionStatus.attributes_parse],
+        ["Contador de confiabilidade", collectionStatus.storage_reliability_counter]
+      ].forEach(([label, value]) => {
+        if (!value) return;
+        const item = document.createElement("li");
+        item.textContent = label + ": " + (statusLabels[value] || value);
+        statusList.appendChild(item);
+      });
+      const sectorStatuses = collectionStatus.sector_attributes || {};
+      [
+        ["Realocados", sectorStatuses.reallocated],
+        ["Pendentes", sectorStatuses.pending],
+        ["Incorrigíveis", sectorStatuses.uncorrectable]
+      ].forEach(([label, value]) => {
+        if (!value) return;
+        const item = document.createElement("li");
+        item.textContent = "Setores " + label.toLowerCase() + ": " + (statusLabels[value] || value);
+        statusList.appendChild(item);
+      });
+      details.append(statusHeading, statusList);
+      const errors = Array.isArray(collectionStatus.errors) ? collectionStatus.errors : [];
+      if (errors.length) {
+        const errorHeading = document.createElement("h5");
+        errorHeading.textContent = "Falhas registradas";
+        const errorList = document.createElement("ul");
+        errors.forEach((error) => {
+          const item = document.createElement("li");
+          item.textContent = String(error);
+          errorList.appendChild(item);
+        });
+        details.append(errorHeading, errorList);
+      }
     }
     if (metrics.length) {
       const metricHeading = document.createElement("h5");
