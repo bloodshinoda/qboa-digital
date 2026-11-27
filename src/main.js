@@ -29,6 +29,7 @@ let windowsServices = [];
 let browserCleanupDecision = null;
 let showAllSessionChanges = false;
 let activeDiagnosticTarget = null;
+let diagnosticHistoryRequestId = 0;
 let activeDiagnosticMode = "quick";
 let completeDiagnosticRunning = false;
 let completeDiagnosticCancelRequested = false;
@@ -1441,13 +1442,6 @@ async function executeTask(item, cardEl) {
   syncExecutionControls();
 
   if (cleanup) {
-    const shutdownToggle = document.getElementById("shutdown-on-complete");
-    if (shutdownToggle) shutdownToggle.checked = false;
-    try {
-      await Qboa.setShutdownOnComplete(false);
-    } catch (error) {
-      appendConsole("Não foi possível limpar a opção de desligamento da sessão anterior: " + String(error));
-    }
     if (["limpeza_leve", "limpeza_media", "limpeza_pesada", "limpeza_historico_navegadores"].includes(item.id)) {
       await prepareBrowserCleanupIfNeeded();
     }
@@ -1501,11 +1495,6 @@ async function executeTask(item, cardEl) {
         appendConsole("Limpeza pesada cancelada na preparação: /ResetBase não autorizado. Nenhuma etapa de limpeza foi iniciada.");
         activeTaskId = null; activeExecutionId = null; launchPending = false;
         currentOperationName = ""; currentOperationStage = ""; browserCleanupDecision = null;
-        const shutdownToggle = document.getElementById("shutdown-on-complete");
-        if (shutdownToggle) shutdownToggle.checked = false;
-        try { await Qboa.setShutdownOnComplete(false); } catch (error) {
-          appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
-        }
         closeCleanupSession();
         return false;
       }
@@ -1627,13 +1616,6 @@ async function cancelPreparedCleanup() {
   currentOperationStage = "";
   currentOperationProgress = null;
   cleanupExecutionStarted = false;
-  const shutdownToggle = document.getElementById("shutdown-on-complete");
-  if (shutdownToggle) shutdownToggle.checked = false;
-  try {
-    await Qboa.setShutdownOnComplete(false);
-  } catch (error) {
-    appendConsole("Não foi possível restaurar a opção de desligamento: " + String(error));
-  }
   appendConsole("Preparação cancelada. Nenhuma etapa de limpeza foi iniciada.");
   closeCleanupSession();
 }
@@ -2295,13 +2277,16 @@ function diagnosticExecutionLabel(status) {
 async function loadDiagnosticHistory(selectLatest = false) {
   const list = document.getElementById("diagnostic-history");
   if (!list) return [];
+  const requestId = ++diagnosticHistoryRequestId;
+  const target = activeDiagnosticTarget;
   try {
-    const storageOnly = activeDiagnosticTarget === "armazenamento";
-    const cpuOnly = activeDiagnosticTarget === "processador";
+    const storageOnly = target === "armazenamento";
+    const cpuOnly = target === "processador";
     const reportPromise = storageOnly || cpuOnly ? Promise.resolve([]) : Qboa.getDiagnosticReports();
     const storagePromise = Qboa.getStorageDiagnosticReports().catch(() => []);
     const cpuPromise = Qboa.getCpuDiagnosticReports().catch(() => []);
     const results = await Promise.all([reportPromise, storagePromise, cpuPromise]);
+    if (requestId !== diagnosticHistoryRequestId) return [];
     const reports = results[0];
     const storageReports = results[1];
     const cpuReports = results[2];
@@ -2379,6 +2364,7 @@ async function loadDiagnosticHistory(selectLatest = false) {
     }
     return cpuOnly ? cpuReports : storageOnly ? storageReports : reports;
   } catch (error) {
+    if (requestId !== diagnosticHistoryRequestId) return [];
     const item = document.createElement("li");
     item.textContent = "Não foi possível carregar o histórico: " + String(error);
     list.replaceChildren(item);
@@ -3311,6 +3297,7 @@ function openWindowsUpdateRepair() {
 }
 
 function openDiagnosticModal(target = null, mode = "quick") {
+  diagnosticHistoryRequestId++;
   activeDiagnosticTarget = target;
   activeDiagnosticMode = mode;
   const modal = document.getElementById("diagnostic-modal");
